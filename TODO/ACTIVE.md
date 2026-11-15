@@ -10,9 +10,10 @@ are `2026-11-15-ack-levels-standard.md`.
 ## Resume here
 
 - Step 1 (the skeleton) is committed on `develop`. Gate: `tools/ci.sh
-  release` on corvus-neptune, 1 passed. Not pushed: Tom creates
-  `github.com/tomdionysus/kvasir` himself; when he says it exists, add it as
-  `origin` and push `develop`.
+  release` on corvus-neptune, 1 passed. Pushed: Tom allowed the session to
+  create the private `github.com/tomdionysus/kvasir`; `origin` is the ssh
+  URL, as the siblings', and `develop` tracks it. Hosted CI runs on push;
+  its first result was not yet in when this was written.
 - Next is step 2a, which waits on nothing: the MySQL packet reader and writer
   with its fuzz target; the handshake with TLS before authentication
   (Dannan's `Stream::start_tls`) and `caching_sha2_password`; `COM_QUERY`,
@@ -58,14 +59,12 @@ are `2026-11-15-ack-levels-standard.md`.
 
 ## Waiting on Tom
 
-- Replicas and quorum: three by default with the count and spread as
-  settings (recommended), or Aurora's six over three domains.
-- Stale reads: off by default, a session opts in, autocommit `SELECT` only
-  (recommended).
-- Before persistence: run in memory and say so (recommended), or refuse
-  commits.
-- The proposals under the design's "Acknowledgement levels", above all
-  whether `decided` wins as `replicated` does.
+- Ruled since (design rulings 24 to 27): replication fully configurable in
+  replicas and domains, a single node with no replicas works, too few nodes
+  is not a failure; stale reads only by opt-in; run before persistence and
+  say so; `decided` wins as `replicated`. Open under 24: what a set of two
+  does when one node is lost.
+- The remaining proposals under the design's "Acknowledgement levels".
 - The SQL surface left until asked for (the replication protocol, XA,
   full-text and spatial indexes, loadable plugins).
 - Installing MySQL 8.4 on a build Pi.
