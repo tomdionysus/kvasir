@@ -81,6 +81,18 @@ has been read against Dannan's agreement design, not run.
 26. Before persistence exists, Kvasir runs and says it is not durable.
 27. `decided` wins as `replicated` does (ruling 15).
 
+28. A range with two replicas: configurable, and by default both are voters,
+    so writes that wait for a majority pause while either is lost. The other
+    setting is one voter and one following copy, whose promotion is an
+    explicit operator action.
+29. The replica count and domain spread have a cluster default and are
+    overridable per table; the same setting drives Dagda's copies of that
+    table's chunks.
+30. The MySQL 8.4 server for the differential gate is Oracle's container on
+    one build Pi, started by hand on a private port, after a note on the
+    claim board.
+31. Step 2a starts.
+
 ## Relayed
 
 - By Dannan: anything that can use consensus or agreement waits for Dannan's
