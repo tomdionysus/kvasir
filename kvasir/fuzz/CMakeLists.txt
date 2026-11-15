@@ -7,13 +7,12 @@
 
 # One libFuzzer target per parser of untrusted bytes. Clang only, until
 # Dannan exports its harness (fuzz.h, the replay driver and the smoke test),
-# which runs targets in the test binary without clang. The SQL parser joins
-# the list when it lands.
+# which runs targets in the test binary without clang.
 if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   message(FATAL_ERROR "KVASIR_BUILD_FUZZING needs clang")
 endif()
 
-set(kvasir_fuzz_targets packet lexer)
+set(kvasir_fuzz_targets packet lexer parser)
 foreach(target IN LISTS kvasir_fuzz_targets)
   add_executable(${target}_fuzz ${target}_fuzz.cpp)
   target_compile_options(${target}_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)

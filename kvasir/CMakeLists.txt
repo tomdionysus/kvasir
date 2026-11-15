@@ -15,7 +15,9 @@ add_library(kvasir SHARED
   protocol/packet.cpp
   server/accounts.cpp
   server/sign_in.cpp
+  sql/keywords.cpp
   sql/lexer.cpp
+  sql/parser.cpp
   version.cpp
 )
 target_include_directories(kvasir

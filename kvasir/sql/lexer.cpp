@@ -10,6 +10,8 @@
 #include <array>
 #include <cctype>
 
+#include "kvasir/sql/keywords.h"
+
 namespace kvasir::sql {
 
 namespace {
@@ -32,13 +34,6 @@ uint8_t hex_value(char c) noexcept {
   return static_cast<uint8_t>(c - 'A' + 10);
 }
 bool space(char c) noexcept { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v'; }
-
-bool same_word(std::string_view a, std::string_view b) noexcept {
-  if (a.size() != b.size()) return false;
-  for (size_t i = 0; i < a.size(); ++i)
-    if (std::toupper(static_cast<unsigned char>(a[i])) != std::toupper(static_cast<unsigned char>(b[i]))) return false;
-  return true;
-}
 
 // Hex digits, padded on the left to whole bytes.
 std::string hex_bytes(std::string_view digits) {
