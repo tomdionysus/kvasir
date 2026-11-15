@@ -16,10 +16,20 @@ word used when he ruled it.
 | Name | The node answers | An answered write is lost if |
 |---|---|---|
 | `ephemeral` | at once; the write is actioned after | the node stops first, or the cluster later refuses it |
-| `persisted` | once its own disk has the write | that node's disk is lost first, or the cluster later refuses it |
+| `persisted` | once one node's disk has the write: this node's when it can hold the copy, else the next in placement order | that disk is lost first, or the cluster later refuses it |
 | `decided` | once a majority has agreed the write, in memory; disks after | a majority of the replicas lose power together |
 | `replicated` | once a majority of the replicas have it on disk | never, while one majority's disks survive |
 
+- **A level says how far the write has gone, not where it went** (Tom to
+  Dagda, 2026-11-15, relayed by Dagda, asked with Macha's edge nodes that
+  have no data disk and nodes that are full): `persisted` is "the disk that
+  took it".
+- **The level is the least the node waits for.** The remaining replicas
+  catch up just after, and the answer's evidence says which replicas had the
+  write. That is why "on every available replica" (Dagda's `durable`) is not
+  a level: it promises no fixed number (Tom, 2026-11-15, confirming this
+  reading by interactive question). What a two-node system such as Macha
+  does when one node is down is for Dagda and Macha to settle with Tom.
 - The setting is **`ack_level`** everywhere: the YAML key, the session
   setting and the per-command or per-statement form.
 - The names replace the numbers. Where a document says level 0, 1 or 2 it
