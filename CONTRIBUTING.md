@@ -13,8 +13,8 @@ no code is duplicated between the projects. The design is
 `TODO/2026-11-15-kvasir-design.md`.
 
 `../dannan/CONTRIBUTING.md` is the reference text for the conventions the
-projects share; this file is kept identical to it in everything but the
-project's name, its build line and its "Read first".
+projects share. This file states Kvasir's side of them more briefly; where the
+two differ, Dannan's governs, and this file is brought into line.
 
 The four laws and five disciplines (`docs/principles-and-laws.md`, a verbatim
 copy of Macha's) govern every change here, cited by number. A change that

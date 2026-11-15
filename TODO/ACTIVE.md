@@ -11,7 +11,10 @@ session starting with no memory of it.
 3. `TODO/2026-11-15-ack-levels-standard.md`: the four level names, a
    standard for the whole stack.
 4. `TODO/COMPLETED.md`: what landed, with gate counts.
-5. `TODO/2026-11-15-design-review.md` only when the sessions' measurements
+5. Mimir's design (`../mimir/TODO/2026-11-15-mimir-design.md`) and the
+   stack document (`../dagda/TODO/2026-11-03-stack.md`), as `CLAUDE.md`
+   asks, before work that touches the cluster or another project.
+6. `TODO/2026-11-15-design-review.md` only when the sessions' measurements
    and warnings are wanted (the Pis' failures, Dagda's rates, the clocks).
    It reviews the first draft and is a record, not the design.
 
@@ -34,9 +37,17 @@ first and watched to fail:
 2. The connection on Dannan's listener: greeting, TLS upgrade in place by
    `Stream::start_tls`, sign-in, then `COM_QUERY`, `COM_PING`,
    `COM_INIT_DB`, `COM_QUIT`. Mimir's `mimir/server/` is the model for using
-   the listener. **Check first that Dannan 0.8.2, the pinned tag, has
-   `Stream::start_tls`**; if not, move the pin (`KVASIR_DANNAN_TAG` in
-   `CMakeLists.txt`) to the first tag that has.
+   the listener. **`Stream::start_tls` (0.8.2 and Dannan's develop) does
+   not fit MySQL**: it refuses the upgrade if any byte is waiting after the
+   request, and a MySQL client sends its ClientHello straight after
+   SSLRequest with no answer between. Asked of Dannan 2026-11-15; Dannan
+   agreed the spelling `void Stream::start_tls_unanswered(std::function<
+   void(std::string)> done)` (no answer, no waiting-bytes check, every other
+   check kept), proposed to the maintainer for 0.8.4, not yet built. Until it lands,
+   build the connection with sign-in refused before TLS and the TLS step
+   behind one seam; then move the pin (`KVASIR_DANNAN_TAG`) to the first tag
+   that carries it. Read SSLRequest with exact-length reads so nothing past
+   it is consumed.
 3. The lexer, with its fuzz target, and the statements a `mysql` client sends
    on connecting (`SELECT @@version_comment LIMIT 1` and its kin).
 4. `kvasir-node` listening on port 3306, then a real `mysql` client against
@@ -53,13 +64,15 @@ server:
   no build Pi tried has clang, and hosted CI's clang job does not build fuzz
   targets.
 
-**Hosted CI** (`github.com/tomdionysus/kvasir`, private): on the first push
-every job passed except `check`, which failed on the version test's
-formatting, since fixed; the runs for the fix had not finished when this was
-written. CodeQL's `analyze` step failed, cause not established; code
-scanning on a private repository needs GitHub Advanced Security, which is
-the likely reason. Dependabot has opened two pull requests bumping the
-workflow actions; untouched, the maintainer's to merge.
+**Hosted CI** (`github.com/tomdionysus/kvasir`, private): every CI job
+(check, release on x86-64 and arm64, clang, ASan/UBSan, TSan, coverage)
+passes on `develop`. CodeQL's analysis completed but its `analyze` step
+failed with "Resource not accessible by integration" reading its own
+workflow run: the job lacked `actions: read`, added 2026-11-15. Whether the
+upload then needs GitHub Advanced Security on a private repository is not
+yet seen. Dependabot's two pull requests (actions bumps) failed `check`
+only because they branched before the format fix; untouched, the maintainer's to
+merge.
 
 ## How work is done
 

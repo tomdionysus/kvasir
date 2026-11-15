@@ -18,8 +18,9 @@ document (its own file is in the git history). Each statement is marked:
 - **Proposed**: the Kvasir session's recommendation, not built until the maintainer
   rules and the owning session has reviewed it.
 
-Nothing here has been built or tested beyond the skeleton. The cluster design
-has been read against Dannan's agreement design, not run.
+Of this design only the skeleton and the start of step 2 (the MySQL wire
+codec) are built; `ACTIVE.md` says how far. The cluster design has been read
+against Dannan's agreement design, not run.
 
 ## Ruled
 
