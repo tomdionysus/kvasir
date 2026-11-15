@@ -8,11 +8,11 @@
 // The version rule: the tag, project(... VERSION ...) and what the library
 // reports are one number, and a consumer built against other headers is told.
 
+#include "kvasir/version.h"
+
 #include <gtest/gtest.h>
 
 #include <string>
-
-#include "kvasir/version.h"
 
 namespace kvasir {
 namespace {
