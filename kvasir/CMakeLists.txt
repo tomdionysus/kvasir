@@ -9,6 +9,9 @@
 # "kvasir/x.h"; everything else is included from the repository root as
 # "kvasir/<subsystem>/x.h".
 add_library(kvasir SHARED
+  protocol/codec.cpp
+  protocol/messages.cpp
+  protocol/packet.cpp
   version.cpp
 )
 target_include_directories(kvasir
