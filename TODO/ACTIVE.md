@@ -64,7 +64,13 @@ server:
   no build Pi tried has clang, and hosted CI's clang job does not build fuzz
   targets.
 
-**Hosted CI** (`github.com/tomdionysus/kvasir`, private): every CI job
+**Hosted CI has stopped running** (from the push of 7cc0940, 2026-11-15):
+GitHub refuses every job with "recent account payments have failed or your
+spending limit needs to be increased". The maintainer's to settle in the account's
+billing. Until then the clang (thread-safety), ASan/UBSan and TSan gates
+run only where a Pi can run them (no Pi has clang).
+
+Before that, on hosted CI (`github.com/tomdionysus/kvasir`, private): every CI job
 (check, release on x86-64 and arm64, clang, ASan/UBSan, TSan, coverage)
 passes on `develop`. CodeQL's analysis completed but its `analyze` step
 failed with "Resource not accessible by integration" reading its own
@@ -104,7 +110,14 @@ merge.
   proposal; every point was taken. Kvasir owes its sequential model and its
   rule per level for which losses which faults excuse, for the simulator's
   checker, at step 3. The slot table with no root except at genesis is ruled
-  (relayed by Dannan). Dannan's working tree may be on a feature branch: read
+  (relayed by Dannan). Building `transfer()` found a safety gap, fixed with
+  the maintainer's approval (relayed by Dannan, 2026-11-15): records are per slot, a
+  transfer stays pending until a settle message follows its commit, and a
+  change's names must share one slot. Read "Reconfiguration: the gap found
+  in building it, and the fix" in Dannan's agreement design before the range
+  map (moves, splits) is designed at step 3. Dannan has also taken Kvasir's
+  ask to export its fuzz harness with the test fixtures (a 0.9 item, not
+  started). Dannan's working tree may be on a feature branch: read
   its designs from `develop`.
 - **Mimir**: co-signed the simulator. Shares the level names, and an atomic
   commit across replica sets, to be proposed to Dannan once by whichever

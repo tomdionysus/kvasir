@@ -342,7 +342,13 @@ built-in default. The level in force at `COMMIT` covers the transaction.
   fast-path verifier is in memory only and dropped on any change to the
   principal. `COM_CHANGE_USER` and `COM_RESET_CONNECTION` take the same path,
   back-off and audit. Names are compared as bytes. The user list is built in,
-  from YAML, until the Lugh plugin, shaped as Mimir's.
+  from YAML, until the Lugh plugin. Mimir turned out to have no user list to
+  shape it on, so: the `users` setting (secrets.yaml), each item
+  `<name>:argon2id$m=<KiB>,t=<passes>,p=<lanes>$<salt hex>$<tag hex>`,
+  Argon2id through Dannan's primitive (the stack's one home for password
+  hashing, which Lugh uses); a name is checked with the same work whether
+  or not it exists. Built as `kvasir/server/accounts.h`. The back-off per
+  principal and per source, before any hashing, is still to build.
 - The surface in the order built: connection and session statements; DDL;
   `INSERT`, `SELECT`, `UPDATE`, `DELETE`, `REPLACE`; types; expressions and
   functions; joins, grouping, ordering, subqueries, unions, common table
