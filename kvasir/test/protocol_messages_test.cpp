@@ -24,7 +24,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <iterator>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -88,6 +90,29 @@ uint16_t code_of(const Bytes& payload, uint32_t capabilities = server_capabiliti
     return e.code();
   }
   return 0;
+}
+
+// The greeting MySQL 8.4.13 sent on 2026-11-15 (Oracle's container on
+// node-b, read from its port), payload only: Kvasir's encoder, given
+// the same fields, writes the same bytes.
+TEST(ProtocolMessages, TheGreetingMatchesMySqlsBytes) {
+  Handshake h;
+  h.server_version = "8.4.13";
+  h.connection_id = 0x17;
+  const uint8_t nonce[] = {0x1c, 0x45, 0x66, 0x53, 0x10, 0x27, 0x64, 0x1e, 0x54, 0x5d, 0x3d, 0x49, 0x17, 0x1e, 0x5e, 0x22, 0x52, 0x08, 0x36, 0x64};
+  std::copy(std::begin(nonce), std::end(nonce), h.nonce.begin());
+  h.capabilities = 0xdfffffff;
+  h.character_set = 255;
+  h.status = status::autocommit;
+  h.auth_plugin = "caching_sha2_password";
+  Bytes expected = bytes({0x0a, '8',  '.',  '4',  '.',  '1',  '3',  0x00, 0x17, 0x00, 0x00, 0x00, 0x1c, 0x45, 0x66, 0x53, 0x10, 0x27,
+                          0x64, 0x1e, 0x00, 0xff, 0xff, 0xff, 0x02, 0x00, 0xff, 0xdf, 0x15, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                          0x00, 0x00, 0x00, 0x54, 0x5d, 0x3d, 0x49, 0x17, 0x1e, 0x5e, 0x22, 0x52, 0x08, 0x36, 0x64, 0x00});
+  const std::string plugin("caching_sha2_password");
+  expected.insert(expected.end(), plugin.begin(), plugin.end());
+  expected.push_back(0);
+  EXPECT_EQ(expected.size(), 74u);
+  EXPECT_EQ(encode(h), expected);
 }
 
 TEST(ProtocolMessages, TheGreetingIsHandshakeV10) {
