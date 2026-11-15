@@ -284,8 +284,12 @@ the coordinating session, Miach, Corvus Radioberry, Corvus LoRa, Hero Graphics.
   balancer in front, and clients that reconnect.
 - **Tests** flaked until they waited on a convergence read, not on time:
   expose such reads from the start.
-- **Dagda's rate**: the 8,000 a second is Lir's computed requirement, not an
-  achieved figure. A node advertises at most 64 things, so a space per shard
+- **Dagda's rate** (corrected by Lir later the same day): Dagda's slice 0
+  prototype did measure its log on a Pi: three processes, k = 2, 8,000
+  appends a second from outside the replica set, p99 12.5 ms at a 10 ms
+  group-commit tick and 23.5 ms at 20 ms, the same with 256 logs on one
+  shared segment (a segment per log failed). That is a prototype, not the
+  released log, and nothing has run end to end through a hosted system. A node advertises at most 64 things, so a space per shard
   is refused at about the 30th pending Dagda's advert aggregate: count spaces
   per node.
 - **Listener**: bound everything per client (Lir closes a slow reader at
