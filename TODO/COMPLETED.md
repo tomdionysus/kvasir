@@ -14,8 +14,9 @@ The record, newest first. Each entry says what landed, with its gate counts.
   accounts (Argon2id through Dannan), the lexer, the reserved words (262,
   read from the 8.4 manual), the syntax tree and the parser for the first
   statements; fuzz targets for the lexer and parser.
-- Test-first held for every piece: each suite failed against stubs (14 of
-  14 sha2 less the constants and empty cases, 23 of 25 sign-in, 10 of 10
+- Test-first held for every piece: each suite failed against stubs (10 of
+  14 sha2, the other four passing on the stubs' constants and empty
+  answers; 23 of 25 sign-in; 10 of 10
   accounts, 37 of 38 lexer, 31 of 31 parser), then passed. Three test bugs
   were found on the way and corrected to the stated contract (a bound off
   by one, iterators from two temporaries, a 15 that was 14).
