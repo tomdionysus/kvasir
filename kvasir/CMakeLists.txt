@@ -9,6 +9,7 @@
 # "kvasir/x.h"; everything else is included from the repository root as
 # "kvasir/<subsystem>/x.h".
 add_library(kvasir SHARED
+  exec/decimal.cpp
   protocol/caching_sha2.cpp
   protocol/codec.cpp
   protocol/messages.cpp
