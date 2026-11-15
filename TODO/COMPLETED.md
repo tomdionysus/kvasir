@@ -26,6 +26,14 @@ The record, newest first. Each entry says what landed, with its gate counts.
   under g++ `-fsyntax-only`. TSan cannot run on the Pis (VMA 47); clang
   runs nowhere.
 - Hosted CI stopped: GitHub refuses every job for the account's billing.
+  After the maintainer made the repository public, hosted CI ran again, and its x86-64
+  ASan and TSan jobs found a heap-use-after-free in the parser that the Pi's
+  ASan run had passed. The parser called `node(kind, t.offset,
+  take().value)` with `t` a reference to the token `take()` frees; argument
+  order is unspecified, and GCC evaluates it differently on x86-64 and
+  arm64. Fixed by copying the offset first, in `primary()` and
+  `limit_value()`. The lesson: a sanitizer run on one architecture is not
+  the gate; hosted CI's x86-64 runs are part of it.
 - No claim is held. Resume from `TODO/ACTIVE.md`, "Resume here".
 
 ## 2026-11-15: handoff at the end of the first session
