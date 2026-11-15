@@ -74,6 +74,13 @@ has been read against Dannan's agreement design, not run.
     meanings. Dagda's `durable` does not join: the level is the least the
     node waits for, the rest catch up, and the evidence says who had it.
 
+24. Replication "should be completely configurable, in both replicas and
+    domains. It should handle a single node, no replicas, and not fail when
+    there aren't enough nodes for the replicas."
+25. Reads that might be stale are served only to a session that opts in.
+26. Before persistence exists, Kvasir runs and says it is not durable.
+27. `decided` wins as `replicated` does (ruling 15).
+
 ## Relayed
 
 - By Dannan: anything that can use consensus or agreement waits for Dannan's
@@ -343,14 +350,15 @@ Joins that would move rows between nodes are not attempted at first.
 
 ## Waiting on the maintainer
 
-- Replicas and quorum: three by default with the count and spread as
-  settings (recommended), or Aurora's six over three domains.
-- Stale reads: off by default, a session opts in, autocommit `SELECT` only
-  (recommended).
-- Before persistence: run in memory and say so (recommended), or refuse
-  commits.
-- The proposals under "Acknowledgement levels", above all whether `decided`
-  wins as `replicated` does.
+- Under ruling 24 (Proposed, not yet put to the maintainer): the replica count and the
+  failure-domain spread are settings with no upper limit, per cluster and
+  overridable per schema or table. A range's set is as many data-holding
+  nodes as exist, up to the count: one node alone is a working database with
+  no replicas, as Dannan's genesis of one is. A range short of its count
+  works, is shown as under-replicated on Status, and grows by `transfer()`
+  as nodes join. What a set of two does when one node is lost is open: a
+  majority of two is both.
+- The remaining proposals under "Acknowledgement levels".
 - The SQL surface left until asked for.
 
 ## What Kvasir asks of the others
