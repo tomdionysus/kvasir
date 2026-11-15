@@ -45,7 +45,7 @@ jobs:
             g++ clang clang-format cmake ninja-build git ca-certificates openssl \
             libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Trust the checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -67,7 +67,7 @@ jobs:
             libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev lcov \
             curl gnupg  # Codecov's uploader verifies its own signature
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Trust the checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
