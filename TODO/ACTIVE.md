@@ -139,9 +139,16 @@ merge.
   ask to export its fuzz harness with the test fixtures (a 0.9 item, not
   started). Dannan's working tree may be on a feature branch: read
   its designs from `develop`.
-- **Mimir**: co-signed the simulator. Shares the level names, and an atomic
-  commit across replica sets, to be proposed to Dannan once by whichever
-  project reaches it first.
+- **Mimir**: co-signed the simulator. Shares the level names. Proposed the
+  atomic commit across replica sets to Dannan (0.9 item 7,
+  `../mimir/TODO/2026-11-15-cross-slot-commit-proposal.md`). Kvasir's review,
+  sent to Mimir and Dannan on 2026-11-15:
+  - SQL transactions run several rounds, but their writes are known by
+    COMMIT.
+  - Intents must sit per row inside the range's value, not lock the whole
+    register.
+  - The conflict rule must be the hosted system's to choose.
+  - The record must carry a commit timestamp from the hybrid clock.
 - **Dagda**: adopting the level standard and recording it in the stack
   document. Its node-local log (slice 4) is paused for Macha's port; step 5
   waits on it. Dannan asked it which file contract the log writes through,
