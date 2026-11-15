@@ -2,7 +2,22 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
-## 2026-11-15: step 1, the skeleton (uncommitted)
+## 2026-11-15: the design, second draft
+
+- Tom asked whether the first draft made sense and for every other session's
+  advice. The session's review, eleven sessions' answers (Hero Graphics
+  declined) and the reconciliation are in `2026-11-15-design-review.md` and
+  `2026-11-15-rationalised-design.md`.
+- Tom ruled on the levels, the sticky proposer, waiting writers, the shared
+  simulator, the tagline, MySQL 8.4, commits, and the level names as a group
+  standard (rulings 6 to 23). The design document was rewritten from them.
+- Kvasir reviewed Dannan's simulator design and its reconfiguration
+  proposal; Dannan took every point. The operator-declared root in Dannan's
+  first draft was challenged by Tom and replaced by a slot table with no
+  root except at genesis (relayed by Dannan as ruled).
+- No code changed after the skeleton's gate. Handoff: `TODO/ACTIVE.md`.
+
+## 2026-11-15: step 1, the skeleton
 
 - The stack layout from Mimir's: CMake with Dannan pinned at 0.8.2, the
   `kvasir` library with its generated version header, `kvasir_tests`,
