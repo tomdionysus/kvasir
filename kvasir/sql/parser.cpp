@@ -256,10 +256,11 @@ class Parser {
   }
 
   ExprPtr limit_value() {
-    const auto& t = peek();
-    if (t.kind == TokenKind::integer) return node(ExprKind::integer, t.offset, take().value);
-    if (t.kind == TokenKind::placeholder) return node(ExprKind::placeholder, take().offset);
-    fail(t);
+    const auto kind = peek().kind;
+    const auto offset = peek().offset;
+    if (kind == TokenKind::integer) return node(ExprKind::integer, offset, take().value);
+    if (kind == TokenKind::placeholder) return node(ExprKind::placeholder, take().offset);
+    fail(peek());
   }
 
   SelectItem parse_item() {
@@ -620,37 +621,40 @@ class Parser {
   }
 
   ExprPtr primary() {
-    const Token& t = peek();
-    switch (t.kind) {
+    // Copied, not referred to: take() frees the token peek() returned, and a
+    // call's arguments may be evaluated in any order.
+    const auto kind = peek().kind;
+    const auto offset = peek().offset;
+    switch (kind) {
       case TokenKind::integer:
-        return node(ExprKind::integer, t.offset, take().value);
+        return node(ExprKind::integer, offset, take().value);
       case TokenKind::decimal:
-        return node(ExprKind::decimal, t.offset, take().value);
+        return node(ExprKind::decimal, offset, take().value);
       case TokenKind::floating:
-        return node(ExprKind::floating, t.offset, take().value);
+        return node(ExprKind::floating, offset, take().value);
       case TokenKind::hex:
-        return node(ExprKind::hex, t.offset, take().value);
+        return node(ExprKind::hex, offset, take().value);
       case TokenKind::bits:
-        return node(ExprKind::bits, t.offset, take().value);
+        return node(ExprKind::bits, offset, take().value);
       case TokenKind::placeholder:
         return node(ExprKind::placeholder, take().offset);
       case TokenKind::string:
       case TokenKind::national_string:
-        return strings(t.offset, "");
+        return strings(offset, "");
       case TokenKind::user_variable:
-        return node(ExprKind::user_variable, t.offset, take().value);
+        return node(ExprKind::user_variable, offset, take().value);
       case TokenKind::quoted_identifier:
         return column();
       case TokenKind::word:
         return word_primary();
       case TokenKind::symbol:
-        if (t.value == "@@") return system_variable();
-        if (t.value == "(") return parenthesised();
+        if (symbol("@@")) return system_variable();
+        if (symbol("(")) return parenthesised();
         break;
       default:
         break;
     }
-    fail(t);
+    fail(peek());
   }
 
   ExprPtr word_primary() {
