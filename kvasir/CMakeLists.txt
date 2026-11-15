@@ -13,6 +13,7 @@ add_library(kvasir SHARED
   protocol/codec.cpp
   protocol/messages.cpp
   protocol/packet.cpp
+  server/sign_in.cpp
   version.cpp
 )
 target_include_directories(kvasir

@@ -10,6 +10,7 @@ add_executable(kvasir_tests
   protocol_codec_test.cpp
   protocol_messages_test.cpp
   protocol_packet_test.cpp
+  server_sign_in_test.cpp
   version_test.cpp
 )
 target_link_libraries(kvasir_tests PRIVATE kvasir GTest::gtest_main kvasir_warnings)
