@@ -179,9 +179,16 @@ Nothing blocks step 2. Not yet put to him:
 - The design's "Acknowledgement levels" items marked Proposed.
 - The SQL surface left until asked for (the replication protocol, XA,
   full-text and spatial indexes, loadable plugins).
-- Before the differential gate can run: the MySQL 8.4 container on one build
-  Pi (ruled: Oracle's image under Docker, started by hand on a private port,
-  after a note on the claim board). Not yet set up.
+- The MySQL 8.4 server for the differential gate (ruling 30) is up:
+  Oracle's `container-registry.oracle.com/mysql/community-server:8.4-aarch64`
+  (the plain `8.4` tag is amd64 only), MySQL 8.4.13, container
+  `kvasir-mysql84` on node-b, bound to 127.0.0.1:33306 only, started
+  2026-11-15 after a note on the claim board and held there as a light
+  claim. Its root password is in `/root/kvasir-work/mysql84.env` on node-b
+  (mode 600, never copied off). `/root/kvasir-work/probe.sh` there runs SQL
+  from stdin as a utf8mb4 client and prints each column's type, collation,
+  length, decimals and flags, then the rows. Expected values in tests that
+  came from it say "observed on MySQL 8.4.13".
 
 ## Ordered work
 
