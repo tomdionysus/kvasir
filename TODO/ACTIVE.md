@@ -1,89 +1,30 @@
 # Kvasir - Active Work
 
 Last updated: 2026-11-15. `COMPLETED.md` is the record. The design is
-`TODO/2026-11-15-kvasir-design.md`: the maintainer's rulings ("Ruled", 1 to 6), what is
-taken from Aurora, ACID, transactions without a leader, storage, and the order.
+`TODO/2026-11-15-kvasir-design.md` (second draft): the maintainer's rulings 1 to 23, the
+rulings relayed by other sessions, and what is still proposed. How it got
+there: `2026-11-15-design-review.md` (the session's review and eleven
+sessions' advice) and `2026-11-15-rationalised-design.md`. The level names
+are `2026-11-15-ack-levels-standard.md`.
 
 ## Resume here
 
-- Step 1 (the skeleton) is in the working tree on `develop`, uncommitted: the maintainer
-  has not asked for a commit. Gate: `tools/ci.sh release` and `check` on a
-  build server; the count is in `COMPLETED.md`.
-- The design is a draft. Everything beyond the five rulings is Proposed, and
-  no sibling session has reviewed it. Next: the maintainer's rulings on "Waiting on the maintainer",
-  then the design goes to the Dannan, Dagda and Mimir sessions for review of
-  what it asks of them.
-- Then step 2a, which waits on nothing but the rulings marked "before 2a": the
-  MySQL packet reader and writer with its fuzz target, the handshake and
-  `caching_sha2_password`, `COM_QUERY`, `COM_PING`, `COM_INIT_DB`, `COM_QUIT`,
-  text result sets, the lexer, and the statements a `mysql` client sends on
-  connecting (`SELECT @@version_comment LIMIT 1` and its kin), served by
-  `kvasir-node` on port 3306.
-
-- 2026-11-15, later: the maintainer asked for the design to be checked and for every
-  other session's advice. `2026-11-15-design-review.md` holds the session's
-  review and ten sessions' answers (Miach and Hero Graphics outstanding).
-  `2026-11-15-rationalised-design.md` reconciles them into a revised
-  proposal and lists what goes to the maintainer. The maintainer's instruction: wait for all the
-  advice and rationalise before asking him anything. Done: all twelve are
-  accounted for, and the maintainer ruled four things on the rationalised document
-  (design rulings 8 to 11: the sticky proposer is leaderless; a fourth mode
-  "decided, disks trail"; writers wait as InnoDB; the simulator once, in
-  Dannan, jointly with Mimir). The simulator proposal went to the Dannan
-  session, copied to Mimir. Next: rewrite the design document from the
-  rationalised one, and put "Still for the maintainer" to him.
-
-- Relayed by the Dannan session as the maintainer's ruling to it (2026-11-15), not
-  heard by this session from the maintainer: anything that can use consensus or
-  agreement waits for Dannan's agreement primitive, which leads 0.9.0 after
-  0.8.3 is cut; build no consensus, no lease standing in for consensus and
-  no workaround meanwhile. For Kvasir: the commit path, the sticky proposer
-  and any range lease wait on it. This matches the order already proposed
-  (the cluster step waits on 0.9.0); the single node (step 2) needs none.
-
-- Dannan's simulator design is `../dannan/TODO/2026-11-15-simulation-harness.md`
-  (in 0.9.0 at the maintainer's ruling to Dannan; agreement is on Dannan's develop as
-  0.9). Kvasir reviewed it 2026-11-15 and asked for: a checker that takes
-  the isolation level (snapshot permits write skew, so a serial-order search
-  alone would refuse correct histories); a resolution event for commits
-  answered early; fault events in the history so a loss is judged against
-  what each level allows; correlated kills; SimDisk under real Dagda;
-  roster, routes and placement in the world; a simulated worker pool; and
-  generators that replay across compilers. Kvasir owes its sequential model
-  and its per-level loss rules once Dannan settles the shape.
-- The level names are the stack's standard: the maintainer ruled that Dagda changes to
-  the standard's meanings, and confirmed names, not numbers
-  (`2026-11-15-ack-levels-standard.md`). `durable` does not join it; how the
-  standard covers it is being discussed with the maintainer.
-- Dannan's reconfiguration proposal (its develop branch,
-  `TODO/2026-11-15-agreement-design.md`, "Reconfiguration, proposed in
-  full"): `transfer()` moves a name between sets by a joint change, and a
-  never-touched name takes its set from an agreed map on a root set. It fits
-  Kvasir: the range map as registers on the root, moves as transfers, splits
-  as a map intent then one change on the range's set. Reviewed 2026-11-15;
-  asked of Dannan: that the serving refusal carry the new set (so existing
-  ranges survive the root being unreachable), the "map first, then touch"
-  rule, `transfer()` of a large value by version after catch-up, and the
-  fast path invalidated by a transfer. **For the maintainer**: the root set is
-  operator-declared and changed only by an operator, which sits badly with
-  "no designated nodes" and "near impossible to take down"; proposed instead
-  that it be declared at genesis only and then move by `transfer()` like
-  any other register. Touches Mimir and Dannan too. Dannan agreed and
-  rewrote its design that way (its commit 00fbc23) and answered the four
-  asks yes. Put to the maintainer interactively; he ruled for no option and wrote:
-  "Dannan, and it's predecessor code in Macha, were explicitly written to
-  avoid this. What went wrong?" The root is unsettled in every form until he
-  rules; Dannan and Mimir were told. Dannan then proposed a form with no
-  root (its design, "Open: waits on the maintainer"): a slot table fixed for the
-  cluster's life; an untouched slot's set is the genesis members, a constant
-  carried with the cluster's identity; each slot's set recorded in its own
-  acceptors and moved by `transfer()`. Kvasir's range map would be slot
-  registers keyed by table. Kvasir supports it and asked that every slot be
-  touched at founding and that a late joiner find a moved slot by a soft
-  hint, so no genesis member need stay alive. The maintainer's to rule; Dannan is
-  answering him directly.
-- The remote: the maintainer creates `github.com/tomdionysus/kvasir` himself. When he
-  says it exists, add it as `origin` and push `develop`.
+- Step 1 (the skeleton) is committed on `develop`. Gate: `tools/ci.sh
+  release` on node-c, 1 passed. Not pushed: the maintainer creates
+  `github.com/tomdionysus/kvasir` himself; when he says it exists, add it as
+  `origin` and push `develop`.
+- Next is step 2a, which waits on nothing: the MySQL packet reader and writer
+  with its fuzz target; the handshake with TLS before authentication
+  (Dannan's `Stream::start_tls`) and `caching_sha2_password`; `COM_QUERY`,
+  `COM_PING`, `COM_INIT_DB`, `COM_QUIT`; text result sets; the lexer; and the
+  statements a `mysql` client sends on connecting (`SELECT @@version_comment
+  LIMIT 1` and its kin), served by `kvasir-node` on port 3306. Tests from
+  the MySQL 8.4 manual first, watched to fail.
+- The differential gate needs Oracle's MySQL 8.4 server on a build Pi
+  (Debian packages only MariaDB). Not installed; installing it is a change
+  to a shared machine, so post a note on the claim board and ask the maintainer first.
+- `tools/ci.sh check` has not run anywhere: the build Pi used has no
+  clang-format. Run it where one is installed before the next commit of code.
 
 ## How work is done
 
@@ -91,78 +32,54 @@ taken from Aurora, ACID, transactions without a leader, storage, and the order.
   under a claim-board claim (`claims_list`, `claim_take` with the cores the
   `-j` needs, `claim_release` when it ends). Sources go by rsync to
   `/root/kvasir-work/kvasir` with Dannan beside them in
-  `/root/kvasir-work/dannan`; `chown -R root:root` both after the sync, or git
-  refuses the clone.
-- Commit and push only at the maintainer's word. There is no remote yet.
+  `/root/kvasir-work/dannan`; `chown -R root:root` both after the sync, or
+  git refuses the clone.
+- Commit when a step's gate passes; push `develop` once the remote exists.
+- Design questions go to the maintainer interactively, with a recommendation. He asked
+  that advice be gathered and reconciled before he is asked.
+- A ruling relayed by another session is recorded as relayed, with who
+  relayed it, and confirmed with the maintainer when Kvasir's own work turns on it.
+
+## With the other sessions
+
+- **Dannan**: agreement is on its `develop` as 0.9. Kvasir reviewed the
+  simulator design and the reconfiguration proposal; every point was taken.
+  Kvasir owes its sequential model and its per-level loss rules for the
+  simulator's checker once the shape is settled (step 3). The slot table
+  with no root except at genesis is ruled (relayed by Dannan).
+- **Mimir**: co-signed the simulator. Shares with Kvasir the level names and
+  switch, and an atomic commit across replica sets, to be proposed to Dannan
+  once, by whichever reaches it first.
+- **Dagda**: adopting the level standard and recording it in the stack
+  document. Its node-local log (slice 4) is paused for Macha's port; step 5
+  waits on it. Dannan asked it which file contract the log writes through,
+  so real Dagda can run in the simulator.
+- Kvasir edits no sibling's tree.
 
 ## Waiting on the maintainer
 
-Ruled since this list was written (design rulings 6 to 15): the
-acknowledgement levels and their names, the sticky proposer, waiting writers,
-the simulator, the tagline, MySQL 8.4 with Oracle's server, and commits per
-gate with a private remote. Of the items below only these remain open:
-replicas and quorum, stale reads on a minority side, running before
-persistence, and the SQL surface left until asked for. Also open: creating
-the private GitHub repository (it does not exist; the session has not
-created it), and installing MySQL 8.4 on a build server.
+- Replicas and quorum: three by default with the count and spread as
+  settings (recommended), or Aurora's six over three domains.
+- Stale reads: off by default, a session opts in, autocommit `SELECT` only
+  (recommended).
+- Before persistence: run in memory and say so (recommended), or refuse
+  commits.
+- The proposals under the design's "Acknowledgement levels", above all
+  whether `decided` wins as `replicated` does.
+- The SQL surface left until asked for (the replication protocol, XA,
+  full-text and spatial indexes, loadable plugins).
+- Installing MySQL 8.4 on a build Pi.
 
-Each with the session's recommendation.
-
-Before 2a:
-- **The tagline**, which is in every file's header: "Kvasir - The Distributed
-  SQL Database" is in use.
-- **The compatibility reference**: MySQL 8.4 LTS (recommended), and for the
-  differential gate a MySQL 8.4 server on one build server. Debian 13 packages
-  MariaDB, not MySQL, so this means Oracle's arm64 packages or a container
-  there.
-- **Commits and the remote**: whether Kvasir commits when a step's gate passes
-  and pushes `develop` to a private `github.com/tomdionysus/kvasir`, as Mimir
-  does.
-
-Before step 3:
-- **Blocking writes**: a second writer of a row waits for the first
-  transaction, as InnoDB's row locks do (recommended, at one agreement round
-  per writing statement), or every transaction runs optimistically and the
-  loser is refused at commit with error 1213, as Aurora's multi-master did
-  (cheaper, and unlike MySQL to an application that does not retry).
-- **Replicas and quorum**: 3 replicas with a majority of 2 by default
-  (recommended, as Mimir and Dagda's log), with the count and the
-  failure-domain spread as settings, or Aurora's 6 copies over 3 domains with
-  4 to write as the default.
-- **Stale reads on a minority side**: off by default and a session opts in,
-  for autocommit `SELECT` only (recommended), since ruling 5 leaves no room
-  for them inside a transaction.
-- **A merge class**: none (recommended). A table whose writes merge after a
-  split, as Mimir's merge commands do, would sit outside ruling 5 and would be
-  an explicit, per-table choice if it were ever wanted.
-
-Before step 5:
-- **Before persistence**, whether Kvasir runs in memory and says it is not
-  durable (recommended) or refuses commits as Mimir refuses its durable levels.
-- **The acknowledgement levels** (ruling 6) are ruled in the design: what
-  each level answers after, level 1 async, local checks at level 0, the
-  default from YAML only, visibility, late refusal, the minority side, and
-  level 2 winning. Still open: the spelling of the switch (proposed: session
-  variable `kvasir_ack_level`, MySQL's `SET_VAR` hint per statement, a YAML
-  key), which Mimir asks be ruled once for both projects; and the small
-  proposals listed under the rulings. The design's "earlier reading"
-  subsection is superseded and is to be removed when the section is next
-  rewritten. Mimir is to be told what the maintainer ruled, since its level 1 and
-  Kvasir's now match and its design says "a majority have it" for level 2.
-
-Later:
-- **The SQL surface left until asked for**: the replication protocol, XA,
-  full-text and spatial indexes, loadable plugins (the design's
-  "Compatibility").
+None of these blocks step 2a.
 
 ## Ordered work
 
-1. The skeleton. Done, uncommitted.
-2. One node, in memory: the protocol, SQL, the catalog, types, the executor,
-   multi-version transactions, with the differential gate.
-3. The cluster by agreement. Waits on Dannan 0.9.0's agreement primitive and
-   hybrid clock.
-4. Range splits and merges, placement changes, catch-up.
-5. Persistence in Dagda: the log, folding, heads, the cache. Waits on Dagda's
-   contract v2.
-6. Restore to a point in time and clones; then the Lugh plugin.
+1. The skeleton. Done.
+2. One node, in memory: the protocol, SQL and transactions for the subset
+   real drivers and tools use, with the differential gate. 2a next.
+3. The commit protocol written down and passed through Dannan's simulator.
+4. The cluster at `decided` and `replicated`. Waits on Dannan 0.9.0.
+5. Persistence in Dagda, with backup and restore. Waits on Dagda's
+   node-local log.
+6. `ephemeral`, `persisted` and held commits; range splits and merges;
+   pieces of a query on other nodes; the Lugh plugin; a change feed.
