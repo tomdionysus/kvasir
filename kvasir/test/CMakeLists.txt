@@ -12,6 +12,7 @@ add_executable(kvasir_tests
   protocol_packet_test.cpp
   server_accounts_test.cpp
   server_sign_in_test.cpp
+  sql_lexer_test.cpp
   version_test.cpp
 )
 target_link_libraries(kvasir_tests PRIVATE kvasir GTest::gtest_main kvasir_warnings)
