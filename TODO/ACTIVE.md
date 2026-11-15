@@ -55,6 +55,20 @@ taken from Aurora, ACID, transactions without a leader, storage, and the order.
   the standard's meanings, and confirmed names, not numbers
   (`2026-11-15-ack-levels-standard.md`). `durable` does not join it; how the
   standard covers it is being discussed with the maintainer.
+- Dannan's reconfiguration proposal (its develop branch,
+  `TODO/2026-11-15-agreement-design.md`, "Reconfiguration, proposed in
+  full"): `transfer()` moves a name between sets by a joint change, and a
+  never-touched name takes its set from an agreed map on a root set. It fits
+  Kvasir: the range map as registers on the root, moves as transfers, splits
+  as a map intent then one change on the range's set. Reviewed 2026-11-15;
+  asked of Dannan: that the serving refusal carry the new set (so existing
+  ranges survive the root being unreachable), the "map first, then touch"
+  rule, `transfer()` of a large value by version after catch-up, and the
+  fast path invalidated by a transfer. **For the maintainer**: the root set is
+  operator-declared and changed only by an operator, which sits badly with
+  "no designated nodes" and "near impossible to take down"; proposed instead
+  that it be declared at genesis only and then move by `transfer()` like
+  any other register. Touches Mimir and Dannan too.
 - The remote: the maintainer creates `github.com/tomdionysus/kvasir` himself. When he
   says it exists, add it as `origin` and push `develop`.
 
