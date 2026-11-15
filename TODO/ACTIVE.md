@@ -135,7 +135,18 @@ merge.
   transfer stays pending until a settle message follows its commit, and a
   change's names must share one slot. Read "Reconfiguration: the gap found
   in building it, and the fix" in Dannan's agreement design before the range
-  map (moves, splits) is designed at step 3. Dannan has also taken Kvasir's
+  map (moves, splits) is designed at step 3. Built on Dannan's
+  `feature/agreement-reconfiguration` (c524a28), not merged or pushed
+  (relayed 2026-11-15). What changed:
+  - The caller names the slot, and a change's names share one slot.
+  - AcceptorStore keeps per-slot records:
+    `load(slot, names, every, done(Held))` and `keep(slot, held, done)`.
+  - `transfer()` carries whole values, and refuses a slot holding more
+    names than one message carries (`max_names`) until value-less prepare
+    and deltas come. Kvasir's ranges, and its rows if they become names,
+    must respect that bound.
+  - `hint(space, slot)` reads the `agree.slots/<space>` advert. A wrong hint
+    costs one refusal, which names the set and its version. Dannan has also taken Kvasir's
   ask to export its fuzz harness with the test fixtures (a 0.9 item, not
   started). Dannan's working tree may be on a feature branch: read
   its designs from `develop`.
