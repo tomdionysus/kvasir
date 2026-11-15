@@ -4,8 +4,13 @@ The Kvasir session's own check of `2026-11-15-kvasir-design.md`, made at the mai
 request ("Does this make sense for a distributed database? What is useful,
 what isn't, what's impossible from a CompSci point of view?"). From first
 principles and from memory of the published systems; nothing here has been
-modelled or tested. The sibling sessions have been asked for their experience
-and opinion, advisory only; their answers are appended below as they arrive.
+modelled or tested. The sibling sessions were asked for their experience and
+opinion, advisory only; their answers follow.
+
+This is a record and is not revised: it reviews the first draft, which the
+second draft (`2026-11-15-kvasir-design.md`) has replaced, and some of what
+it says was settled afterwards by the maintainer's rulings there. Keep it for the
+sessions' measurements and warnings, which the design cites only in brief.
 
 ## The goal (the maintainer, 2026-11-15)
 

@@ -6,10 +6,10 @@ Dagda, written new from this design. It is Mimir's sibling and shares its
 concepts.
 
 This draft replaces the first, written the same day. It is built from the maintainer's
-rulings, the session's own review and the advice of eleven sibling sessions
-(`2026-11-15-design-review.md`), and the reconciliation of the two
-(`2026-11-15-rationalised-design.md`). Those two documents are the record of
-how it got here and are not revised further. Each statement is marked:
+rulings, the session's own review and the advice of eleven sibling sessions.
+`2026-11-15-design-review.md` is the record of that review and advice and is
+not revised further; the reconciliation that followed it is folded into this
+document (its own file is in the git history). Each statement is marked:
 
 - **Ruled**: the maintainer's decision, to this session, 2026-11-15, in his words where
   quoted.
@@ -139,9 +139,18 @@ has been read against Dannan's agreement design, not run.
   no redirect: clients are given several hosts or one name over all nodes; a
   connection whose node dies is lost with its session state and reconnects.
 - **Ranges.** A table's rows are ordered by primary key and split into
-  ranges; each secondary index is a keyed structure split the same way. A
-  range has three replicas by default, an odd count, placed across power
-  domains.
+  ranges; each secondary index is a keyed structure split the same way.
+- **Replicas** (rulings 24, 28, 29). The replica count and the spread across
+  failure domains are settings, with a cluster default in YAML and an
+  override per table; the same setting drives Dagda's copies of that table's
+  chunks. A range's set is as many data-holding nodes as exist, up to the
+  count: one node alone is a working database with no replicas. A range
+  short of its count works, is shown as under-replicated on Status, and
+  grows by `transfer()` as nodes join. With two replicas both vote by
+  default, so writes that wait for a majority pause while either is lost;
+  the other setting is one voter and one following copy, promoted only by an
+  explicit operator action. A failure domain is a power supply as much as a
+  host. Proposed: the default count is three.
 - **One truth.** A range is one register in Dannan's agreement: its value is
   the range's state, and each change is a batch of commits carried as a
   delta. Each replica's acceptor state, which holds the decided commits, is
@@ -199,8 +208,10 @@ has been read against Dannan's agreement design, not run.
   commits; a transaction may not see another session's commit that finished
   milliseconds earlier on another node.
 - **Reads.** A read that must be current goes to the range's proposer, which
-  confirms it still holds its ballot with one majority round. A session that
-  has opted in reads a slightly old snapshot from any replica with no round.
+  confirms it still holds its ballot with one majority round. A read that
+  might be stale is served only to a session that has opted in (ruling 25),
+  for autocommit `SELECT`: it takes a slightly old snapshot from any replica
+  with no round, and is what a minority side can still serve.
 - **Isolation.** `REPEATABLE READ` (the default) is one snapshot per
   transaction; `READ COMMITTED` one per statement; `READ UNCOMMITTED` is
   served as `READ COMMITTED`; `SERIALIZABLE` adds range read marks at the
@@ -238,9 +249,11 @@ built-in default. The level in force at `COMMIT` covers the transaction.
   decided it (ruling 12), and a refusal is whole (ruling 13).
 - **A minority side** (ruling 14) refuses `decided` and `replicated` and
   holds `ephemeral` and `persisted` commits for heal.
-- **Proposed, following from the rulings**: `decided` wins as `replicated`
-  does (ruling 15), which with a sticky proposer is its ordering rule, and
-  holds only until the other commit is chosen; a session's `decided` or
+- **`decided` and `replicated` win** against another node's answered,
+  undecided commit on the same row (rulings 15 and 27). With a sticky
+  proposer this is its ordering rule, and it can hold only until the other
+  commit is chosen: a priority, not an absolute.
+- **Proposed, following from the rulings**: a session's `decided` or
   `replicated` commit first waits for its own held commits; held commits are
   decided in the order made; each carries an id (node, incarnation,
   sequence), and decided and refused ids are kept for a stated window so a
@@ -279,9 +292,9 @@ built-in default. The level in force at `COMMIT` covers the transaction.
   from a surviving replica and its chunks as an explicit, recorded operator
   action; Dannan offers no forced transfer.
 - Every byte goes through Dagda, sealed. Kvasir writes as its node principal.
-- **Before persistence exists** the cluster runs in memory and says it is not
-  durable: in its version comment, in a warning on a connection's first
-  statement, and on Status.
+- **Before persistence exists** (ruling 26) the cluster runs in memory and
+  says it is not durable: in its version comment, in a warning on a
+  connection's first statement, and on Status.
 
 ## Built to stay up (Proposed)
 
@@ -349,7 +362,8 @@ Joins that would move rows between nodes are not attempted at first.
 
 1. The skeleton. Done.
 2. One node, in memory: the protocol, SQL and transactions for the subset
-   real drivers and tools use, with the differential gate.
+   real drivers and tools use, with the differential gate. In hand
+   (`ACTIVE.md` says how far).
 3. The commit protocol written down, Kvasir's model and level rules
    supplied, and the protocol passed through Dannan's simulator.
 4. The cluster at `decided` and `replicated`: ranges, the range map in slot
@@ -362,16 +376,13 @@ Joins that would move rows between nodes are not attempted at first.
 
 ## Waiting on the maintainer
 
-- Under ruling 24 (Proposed, not yet put to the maintainer): the replica count and the
-  failure-domain spread are settings with no upper limit, per cluster and
-  overridable per schema or table. A range's set is as many data-holding
-  nodes as exist, up to the count: one node alone is a working database with
-  no replicas, as Dannan's genesis of one is. A range short of its count
-  works, is shown as under-replicated on Status, and grows by `transfer()`
-  as nodes join. What a set of two does when one node is lost is open: a
-  majority of two is both.
-- The remaining proposals under "Acknowledgement levels".
+Nothing blocks the work in hand. Proposed and not yet put to him:
+
+- The default replica count (three).
+- The proposals under "Acknowledgement levels" marked Proposed.
 - The SQL surface left until asked for.
+- Everything else in this document marked Proposed stands as the working
+  design until he rules otherwise.
 
 ## What Kvasir asks of the others
 

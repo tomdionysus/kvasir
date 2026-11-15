@@ -5,8 +5,8 @@
 [![CodeQL](https://github.com/tomdionysus/kvasir/actions/workflows/codeql.yml/badge.svg)](https://github.com/tomdionysus/kvasir/actions/workflows/codeql.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
-The distributed SQL database: a MySQL-compatible, multi-master, leaderless
-relational database with ACID transactions. Clients speak the MySQL protocol
+The distributed relational database: MySQL-compatible, multi-master and
+leaderless, with ACID transactions. Clients speak the MySQL protocol
 to any node, and every statement works whichever node they talk to, with no
 writer node, no leader and no central coordinator. In concept and resilience
 it follows AWS's Aurora: the log is the database, storage is replicated by
@@ -16,10 +16,11 @@ stack's store.
 
 ## Status
 
-Version 0.1.0, in development. The skeleton only: the library, its version,
-the test binary and `kvasir-node --version`. It serves no SQL yet and is not
-yet a database. The single node, the cluster and persistence follow, in the
-order `TODO/ACTIVE.md` gives.
+Version 0.1.0, in development. Built so far: the library and its version,
+`kvasir-node --version`, and the MySQL wire protocol's codec (value
+encodings, packet framing, the connection messages). It does not listen on a
+port, serves no SQL and is not yet a database. The single node, the cluster
+and persistence follow, in the order `TODO/ACTIVE.md` gives.
 
 Compatibility is the MySQL 8.4 manual's documented behaviour, tested, with a
 differential gate against a MySQL 8.4 server.
@@ -44,10 +45,12 @@ Build options: `KVASIR_BUILD_TESTING`, `KVASIR_BUILD_FUZZING` (clang),
 
 1. One node, in memory: the MySQL protocol, SQL, and multi-version
    transactions.
-2. The cluster: leaderless ACID commits by agreement through Dannan.
-3. Range splits, placement changes and catch-up.
-4. Persistence in Dagda: the log is the database.
-5. Restore to a point in time and clones; authentication through Lugh.
+2. The commit protocol proven in Dannan's deterministic simulator.
+3. The cluster: leaderless ACID commits by agreement through Dannan.
+4. Persistence in Dagda: the log is the database, with backup and restore
+   to a point in time.
+5. The weaker acknowledgement levels, range splits, work shared across the
+   cluster, and authentication through Lugh.
 
 ## Licence
 

@@ -2,6 +2,18 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-15: handoff at the end of the first session
+
+- The documents were brought into line for a session starting cold: the
+  design carries rulings 1 to 31 in its body; the reconciliation document
+  was folded into it and removed (it is in the git history); the review is
+  kept as a record; the level standard was rewritten clean; the README's
+  status says what is built.
+- State: `develop` is pushed to the private remote. Last local gate:
+  `tools/ci.sh release` 44 passed and `check` passed, on node-d. No
+  claim is held on any build machine.
+- Resume from `TODO/ACTIVE.md`, "Resume here".
+
 ## 2026-11-15: step 2a, first piece: the wire protocol's codec
 
 - `kvasir/protocol/codec` (MySQL's little-endian integers, length-encoded
