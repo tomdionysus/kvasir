@@ -51,9 +51,12 @@ taken from Aurora, ACID, transactions without a leader, storage, and the order.
   roster, routes and placement in the world; a simulated worker pool; and
   generators that replay across compilers. Kvasir owes its sequential model
   and its per-level loss rules once Dannan settles the shape.
-- The level names are not yet the stack's standard: Dagda's `persisted` and
-  `replicated` mean something else and it has a fourth, `durable`
-  (`2026-11-15-ack-levels-standard.md`). With Tom.
+- The level names are the stack's standard: Tom ruled that Dagda changes to
+  the standard's meanings, and confirmed names, not numbers
+  (`2026-11-15-ack-levels-standard.md`). `durable` does not join it; how the
+  standard covers it is being discussed with Tom.
+- The remote: Tom creates `github.com/tomdionysus/kvasir` himself. When he
+  says it exists, add it as `origin` and push `develop`.
 
 ## How work is done
 

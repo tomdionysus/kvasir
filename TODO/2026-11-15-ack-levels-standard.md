@@ -56,11 +56,16 @@ is its own ruling:
   - `durable`: a fourth level of Dagda's, on disk on every available node of
     the replication set, which the table lacks.
   - `decided` is not Dagda's; it is agreement.
-  The names line up if `replicated` is defined as "k replicas on disk, k the
-  owner's, a majority when the owner sets it so" and `persisted` as "one
-  node's disk, this one's first"; or Dagda's meanings change, which touches
-  what Macha's port relies on. Until Tom settles it, the table above is
-  Kvasir's and Mimir's meaning and is not yet the stack's.
+  **Ruled (Tom, 2026-11-15, to Kvasir by interactive question and to Dagda
+  directly): Dagda changes to the standard.** `persisted` is this node's own
+  disk and `replicated` a majority of the replicas on disk, in Dagda as
+  everywhere. Dagda records the standard in the stack document when its
+  change lands, and tells Macha's port first, since `replicated` at
+  replication 2 becomes both nodes. Tom also confirmed that the levels are
+  names, not numbers.
+  **`durable` does not join the standard** (Tom: "No, the standard covers
+  this. discuss with me."). Dagda keeps it beside the four for now. How the
+  standard covers it is under discussion with Tom.
 
 ## Who is concerned
 
