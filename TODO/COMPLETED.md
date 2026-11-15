@@ -2,6 +2,31 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-15: step 2a, second session: authentication and the SQL front
+
+- Checked the plan against the tree and the siblings. Found that Dannan's
+  `Stream::start_tls` refuses MySQL's upgrade (it ends the connection when
+  the ClientHello is already waiting); Dannan agreed
+  `start_tls_unanswered`, proposed to the maintainer for 0.8.4. Asked Dannan to export
+  its fuzz harness (taken as a 0.9 item). Gave CodeQL `actions: read`.
+- `caching_sha2_password` (known answer computed with the openssl command
+  line on a Pi), the sign-in state machine and verifier cache, the built-in
+  accounts (Argon2id through Dannan), the lexer, the reserved words (262,
+  read from the 8.4 manual), the syntax tree and the parser for the first
+  statements; fuzz targets for the lexer and parser.
+- Test-first held for every piece: each suite failed against stubs (14 of
+  14 sha2 less the constants and empty cases, 23 of 25 sign-in, 10 of 10
+  accounts, 37 of 38 lexer, 31 of 31 parser), then passed. Three test bugs
+  were found on the way and corrected to the stated contract (a bound off
+  by one, iterators from two temporaries, a 15 that was 14).
+- Gate on node-d (GCC 14, warnings as errors, `-j2`, nice 19):
+  `tools/ci.sh release` **163 passed, 0 failed**; `tools/ci.sh asan`
+  **163 passed**; `tools/ci.sh check` passed. Every fuzz target compiles
+  under g++ `-fsyntax-only`. TSan cannot run on the Pis (VMA 47); clang
+  runs nowhere.
+- Hosted CI stopped: GitHub refuses every job for the account's billing.
+- No claim is held. Resume from `TODO/ACTIVE.md`, "Resume here".
+
 ## 2026-11-15: handoff at the end of the first session
 
 - The documents were brought into line for a session starting cold: the

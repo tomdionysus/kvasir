@@ -22,36 +22,51 @@ session starting with no memory of it.
 
 Step 2a, one node speaking the MySQL protocol, is in hand.
 
-**Done and pushed** (`kvasir/protocol/`, 44 tests): the value codec, packet
-framing, and the connection messages (greeting, the client's response and
-SSLRequest, OK, ERR, EOF, authentication packets, column definitions, text
-rows).
+**Done and pushed** (163 tests, release and ASan/UBSan):
+
+- `kvasir/protocol/`: the value codec, packet framing, the connection
+  messages, and `caching_sha2.h` (the scramble, the fast-path check, the
+  full path's password packet).
+- `kvasir/server/sign_in.h`: the connection phase as a state machine with
+  no I/O (greeting, SSLRequest, TLS seam, response, auth switch, fast and
+  full paths, MySQL's refusals), and `VerifierCache` (fast-path verifiers in
+  secure memory, bounded). `accounts.h`: the built-in accounts, Argon2id
+  credentials (the format is in the design, Proposed).
+- `kvasir/sql/`: the lexer, MySQL 8.4's 262 reserved words, the syntax tree
+  and the parser for SELECT (select list, aliases, FROM DUAL or simple
+  tables, WHERE, ORDER BY, LIMIT), SET (variables with scopes, NAMES,
+  CHARACTER SET), USE, BEGIN / START TRANSACTION, COMMIT (with its hint),
+  ROLLBACK, with MySQL's operator precedence and bounded nesting.
+- Fuzz targets for the packet reader, lexer and parser; each compiles under
+  g++ (`-fsyntax-only`) and none has run (no clang on any Pi).
 
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 first and watched to fail:
 
-1. `caching_sha2_password`: the scramble (XOR of SHA256(password) with
-   SHA256(SHA256(SHA256(password)) and the 20-byte nonce)), the fast path
-   against a verifier held in memory, the full path only over TLS. Through
-   Dannan's crypto primitives, not OpenSSL directly, where Dannan has them.
-2. The connection on Dannan's listener: greeting, TLS upgrade in place by
-   `Stream::start_tls`, sign-in, then `COM_QUERY`, `COM_PING`,
-   `COM_INIT_DB`, `COM_QUIT`. Mimir's `mimir/server/` is the model for using
-   the listener. **`Stream::start_tls` (0.8.2 and Dannan's develop) does
-   not fit MySQL**: it refuses the upgrade if any byte is waiting after the
-   request, and a MySQL client sends its ClientHello straight after
-   SSLRequest with no answer between. Asked of Dannan 2026-11-15; Dannan
-   agreed the spelling `void Stream::start_tls_unanswered(std::function<
-   void(std::string)> done)` (no answer, no waiting-bytes check, every other
-   check kept), proposed to the maintainer for 0.8.4, not yet built. Until it lands,
-   build the connection with sign-in refused before TLS and the TLS step
-   behind one seam; then move the pin (`KVASIR_DANNAN_TAG`) to the first tag
-   that carries it. Read SSLRequest with exact-length reads so nothing past
-   it is consumed.
-3. The lexer, with its fuzz target, and the statements a `mysql` client sends
-   on connecting (`SELECT @@version_comment LIMIT 1` and its kin).
-4. `kvasir-node` listening on port 3306, then a real `mysql` client against
-   it by hand on a build Pi.
+1. Values and the evaluation of constant expressions: MySQL's types as a
+   result column reports them, NULL, the arithmetic and comparison rules,
+   for SELECT with no table.
+2. The session: system variables (a registry with scopes, defaults and
+   types: `version_comment`, `autocommit`, `sql_mode`, the `character_set_*`
+   and `collation_*` set, `ack_level`, and the others connectors read), user
+   variables, the current database; executing SELECT without a table, SET,
+   USE, BEGIN, COMMIT and ROLLBACK against it, and the result set encoded.
+3. The command phase: `COM_QUERY`, `COM_PING`, `COM_INIT_DB`, `COM_QUIT`,
+   `COM_RESET_CONNECTION`, an unknown command refused (1047), sequence ids
+   reset per command, as a state machine like the sign-in.
+4. The connection on Dannan's listener, driving the two state machines;
+   the full path's Argon2id check posted to a worker, never the strand. Read
+   SSLRequest with exact-length reads so nothing past it is consumed. The
+   back-off per principal and per source before any hashing.
+   **`Stream::start_tls` (0.8.2 and Dannan's develop) does not fit MySQL**:
+   it refuses the upgrade if any byte is waiting after the request, and a
+   MySQL client sends its ClientHello straight after SSLRequest with no
+   answer between. Dannan agreed `void Stream::start_tls_unanswered(
+   std::function<void(std::string)> done)` (no answer, no waiting-bytes
+   check, every other check kept), proposed to the maintainer for 0.8.4, not yet built.
+   When tagged, move the pin (`KVASIR_DANNAN_TAG`).
+5. `kvasir-node` listening on port 3306, then a real `mysql` client against
+   it by hand on a build Pi. Needs 0.8.4.
 
 **Known and unverified**, to settle at the first run against a real client or
 server:
@@ -60,15 +75,20 @@ server:
   a server.
 - The response decoder refuses bytes after the last field it knows; a real
   client may send more (a compression level, for one).
-- The fuzz target (`kvasir/fuzz/packet_fuzz.cpp`) has never been compiled:
-  no build Pi tried has clang, and hosted CI's clang job does not build fuzz
-  targets.
+- No fuzz target has run: no build Pi has clang (Lir was installing it on
+  node-b on 2026-11-15; check), and hosted CI's clang job does not
+  build fuzz targets. Dannan's exported harness, when it comes, runs them
+  in the test binary.
+- The lexer and parser follow the manual's text; nothing has been compared
+  with a MySQL 8.4 server (no server is set up yet).
 
 **Hosted CI has stopped running** (from the push of 7cc0940, 2026-11-15):
 GitHub refuses every job with "recent account payments have failed or your
 spending limit needs to be increased". The maintainer's to settle in the account's
-billing. Until then the clang (thread-safety), ASan/UBSan and TSan gates
-run only where a Pi can run them (no Pi has clang).
+billing. Until then: the clang thread-safety analysis runs nowhere (no Pi
+has clang); ASan/UBSan runs by hand on a Pi (`tools/ci.sh asan`); TSan
+cannot run on the Pis at all ("FATAL: ThreadSanitizer: unsupported VMA
+range, Found 47 - Supported 39, 42 and 48", a kernel limit).
 
 Before that, on hosted CI (`github.com/tomdionysus/kvasir`, private): every CI job
 (check, release on x86-64 and arm64, clang, ASan/UBSan, TSan, coverage)

@@ -17,9 +17,11 @@ stack's store.
 ## Status
 
 Version 0.1.0, in development. Built so far: the library and its version,
-`kvasir-node --version`, and the MySQL wire protocol's codec (value
-encodings, packet framing, the connection messages). It does not listen on a
-port, serves no SQL and is not yet a database. The single node, the cluster
+`kvasir-node --version`, the MySQL wire protocol's codec (value encodings,
+packet framing, the connection messages), `caching_sha2_password` and the
+sign-in, the built-in accounts, and the SQL lexer and parser for the first
+statements. It does not listen on a port, runs no SQL and is not yet a
+database. The single node, the cluster
 and persistence follow, in the order `TODO/ACTIVE.md` gives.
 
 Compatibility is the MySQL 8.4 manual's documented behaviour, tested, with a
