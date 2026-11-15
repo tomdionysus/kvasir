@@ -41,6 +41,20 @@ taken from Aurora, ACID, transactions without a leader, storage, and the order.
   and any range lease wait on it. This matches the order already proposed
   (the cluster step waits on 0.9.0); the single node (step 2) needs none.
 
+- Dannan's simulator design is `../dannan/TODO/2026-11-15-simulation-harness.md`
+  (in 0.9.0 at Tom's ruling to Dannan; agreement is on Dannan's develop as
+  0.9). Kvasir reviewed it 2026-11-15 and asked for: a checker that takes
+  the isolation level (snapshot permits write skew, so a serial-order search
+  alone would refuse correct histories); a resolution event for commits
+  answered early; fault events in the history so a loss is judged against
+  what each level allows; correlated kills; SimDisk under real Dagda;
+  roster, routes and placement in the world; a simulated worker pool; and
+  generators that replay across compilers. Kvasir owes its sequential model
+  and its per-level loss rules once Dannan settles the shape.
+- The level names are not yet the stack's standard: Dagda's `persisted` and
+  `replicated` mean something else and it has a fourth, `durable`
+  (`2026-11-15-ack-levels-standard.md`). With Tom.
+
 ## How work is done
 
 - No builds or test runs on the Mac. Every build is on the Pi build servers
