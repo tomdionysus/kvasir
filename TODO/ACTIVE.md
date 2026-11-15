@@ -82,21 +82,26 @@ server:
 - The lexer and parser follow the manual's text; nothing has been compared
   with a MySQL 8.4 server (no server is set up yet).
 
-**Hosted CI has stopped running** (from the push of 7cc0940, 2026-11-15):
-GitHub refuses every job with "recent account payments have failed or your
-spending limit needs to be increased". The maintainer's to settle in the account's
-billing. Until then: the clang thread-safety analysis runs nowhere (no Pi
+**The repository is public** (`github.com/tomdionysus/kvasir`), at the maintainer's
+word, 2026-11-15, after a check that no local notes, keys or server
+addresses are in its history (his email is there only as the commit
+author, as on Lir).
+
+**Hosted CI had stopped running** (from the push of 7cc0940, 2026-11-15):
+GitHub refused every job with "recent account payments have failed or your
+spending limit needs to be increased", while the repository was private.
+Whether it runs now the repository is public is to be seen on the next
+push. While it does not: the clang thread-safety analysis runs nowhere (no Pi
 has clang); ASan/UBSan runs by hand on a Pi (`tools/ci.sh asan`); TSan
 cannot run on the Pis at all ("FATAL: ThreadSanitizer: unsupported VMA
 range, Found 47 - Supported 39, 42 and 48", a kernel limit).
 
-Before that, on hosted CI (`github.com/tomdionysus/kvasir`, private): every CI job
+Before that, on hosted CI: every CI job
 (check, release on x86-64 and arm64, clang, ASan/UBSan, TSan, coverage)
 passes on `develop`. CodeQL's analysis completed but its `analyze` step
 failed with "Resource not accessible by integration" reading its own
-workflow run: the job lacked `actions: read`, added 2026-11-15. Whether the
-upload then needs GitHub Advanced Security on a private repository is not
-yet seen. Dependabot's two pull requests (actions bumps) failed `check`
+workflow run: the job lacked `actions: read`, added 2026-11-15. Code
+scanning needs no Advanced Security on a public repository. Dependabot's two pull requests (actions bumps) failed `check`
 only because they branched before the format fix; untouched, the maintainer's to
 merge.
 

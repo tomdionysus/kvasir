@@ -68,7 +68,8 @@ against Dannan's agreement design, not run.
 21. The compatibility reference is MySQL 8.4 LTS, and the differential gate
     runs against Oracle's MySQL 8.4 server.
 22. Kvasir commits when a step's gate passes and pushes `develop` to a
-    private remote, which the maintainer creates.
+    private remote, which the maintainer creates. (the maintainer made it public, 2026-11-15:
+    "You can make your remote repo public, and push to it.")
 23. The levels are named, not numbered, as a group standard: `ephemeral`,
     `persisted`, `decided`, `replicated`, set by `ack_level`
     (`2026-11-15-ack-levels-standard.md`). Dagda changes to the standard's
