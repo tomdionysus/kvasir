@@ -6,6 +6,7 @@
 #
 
 add_executable(kvasir_tests
+  protocol_caching_sha2_test.cpp
   protocol_codec_test.cpp
   protocol_messages_test.cpp
   protocol_packet_test.cpp
