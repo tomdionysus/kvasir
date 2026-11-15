@@ -68,7 +68,20 @@ taken from Aurora, ACID, transactions without a leader, storage, and the order.
   operator-declared and changed only by an operator, which sits badly with
   "no designated nodes" and "near impossible to take down"; proposed instead
   that it be declared at genesis only and then move by `transfer()` like
-  any other register. Touches Mimir and Dannan too.
+  any other register. Touches Mimir and Dannan too. Dannan agreed and
+  rewrote its design that way (its commit 00fbc23) and answered the four
+  asks yes. Put to the maintainer interactively; he ruled for no option and wrote:
+  "Dannan, and it's predecessor code in Macha, were explicitly written to
+  avoid this. What went wrong?" The root is unsettled in every form until he
+  rules; Dannan and Mimir were told. Dannan then proposed a form with no
+  root (its design, "Open: waits on the maintainer"): a slot table fixed for the
+  cluster's life; an untouched slot's set is the genesis members, a constant
+  carried with the cluster's identity; each slot's set recorded in its own
+  acceptors and moved by `transfer()`. Kvasir's range map would be slot
+  registers keyed by table. Kvasir supports it and asked that every slot be
+  touched at founding and that a late joiner find a moved slot by a soft
+  hint, so no genesis member need stay alive. The maintainer's to rule; Dannan is
+  answering him directly.
 - The remote: the maintainer creates `github.com/tomdionysus/kvasir` himself. When he
   says it exists, add it as `origin` and push `develop`.
 
