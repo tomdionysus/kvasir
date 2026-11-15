@@ -14,18 +14,27 @@ are `2026-11-15-ack-levels-standard.md`.
   create the private `github.com/tomdionysus/kvasir`; `origin` is the ssh
   URL, as the siblings', and `develop` tracks it. Hosted CI runs on push;
   its first result was not yet in when this was written.
-- Next is step 2a, which waits on nothing: the MySQL packet reader and writer
-  with its fuzz target; the handshake with TLS before authentication
-  (Dannan's `Stream::start_tls`) and `caching_sha2_password`; `COM_QUERY`,
-  `COM_PING`, `COM_INIT_DB`, `COM_QUIT`; text result sets; the lexer; and the
-  statements a `mysql` client sends on connecting (`SELECT @@version_comment
-  LIMIT 1` and its kin), served by `kvasir-node` on port 3306. Tests from
-  the MySQL 8.4 manual first, watched to fail.
+- Step 2a is under way. Done: the wire codec, packet framing and the
+  connection messages (`kvasir/protocol/`), 44 tests. Next, in order:
+  `caching_sha2_password` (the scramble, fast path, full path over TLS);
+  the connection state machine on Dannan's listener (greeting, TLS upgrade
+  by `Stream::start_tls`, sign-in, `COM_QUERY`, `COM_PING`, `COM_INIT_DB`,
+  `COM_QUIT`); the lexer; the statements a `mysql` client sends on
+  connecting (`SELECT @@version_comment LIMIT 1` and its kin); `kvasir-node`
+  on port 3306. Tests from the MySQL 8.4 manual first, watched to fail.
+  Check that Dannan 0.8.2, the pinned tag, has `Stream::start_tls`; if not,
+  the pin moves.
+- The fuzz target has never been compiled (no build Pi tried has clang).
+  Hosted CI's clang job does not build fuzz targets either. Find a clang
+  with libFuzzer before relying on it.
+- The handshake decoder refuses bytes after the last field it knows. If a
+  real client sends more (a compression level, for one), that shows at the
+  first test against a real `mysql` client and is settled then.
 - The differential gate needs Oracle's MySQL 8.4 server on a build Pi
   (Debian packages only MariaDB). Not installed; installing it is a change
   to a shared machine, so post a note on the claim board and ask the maintainer first.
-- `tools/ci.sh check` has not run anywhere: the build Pi used has no
-  clang-format. Run it where one is installed before the next commit of code.
+- `tools/ci.sh check` needs clang-format: node-d has it,
+  node-c does not. Neither has clang.
 
 ## How work is done
 

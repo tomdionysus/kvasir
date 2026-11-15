@@ -2,6 +2,29 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-15: step 2a, first piece: the wire protocol's codec
+
+- `kvasir/protocol/codec` (MySQL's little-endian integers, length-encoded
+  integers and three string forms; Dannan's codec is big-endian, so this is
+  Kvasir's, on Dannan's `Bytes`), `packet` (framing, 16 MiB fragments,
+  bounded on each header, sequence checked) and `messages` (HandshakeV10,
+  HandshakeResponse41 and SSLRequest with every field bounded, OK, ERR, EOF,
+  the authentication packets, column definitions and text rows).
+- Tests from the MySQL 8.4 manual, with its example bytes for COM_QUIT, OK,
+  ERR and EOF as recalled; not yet checked against a MySQL server.
+- Test-first held for `messages`: 21 cases failed against stubs, then
+  passed. It did not hold for `codec` and `packet`, whose code was written
+  before their tests.
+- Gate on node-d (GCC 14, warnings as errors, `-j2`, nice 19):
+  `tools/ci.sh release` **44 passed, 0 failed**; `tools/ci.sh check` passed
+  (header block and clang-format), its first run anywhere.
+- Not run: clang, ASan, TSan, coverage. The fuzz target
+  (`kvasir/fuzz/packet_fuzz.cpp`) has never been compiled: no build Pi tried
+  has clang.
+- Next in 2a: `caching_sha2_password`, the connection (greeting, TLS
+  upgrade, sign-in, commands) on Dannan's listener, the lexer and the first
+  statements, `kvasir-node` on port 3306.
+
 ## 2026-11-15: the design, second draft
 
 - The maintainer asked whether the first draft made sense and for every other session's
