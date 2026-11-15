@@ -44,9 +44,23 @@ is its own ruling:
   decides, then answers, at every level, so the level governs durability
   only; a merge write follows the table. Its command and per-command form
   are Mimir's to spell, with `ack_level` as the name.
-- **Dagda**'s durability levels for an append or a put ("persisted",
-  "replicated") already use two of these words with the same meaning; the
-  standard takes them from there.
+- **Dagda** already uses three of these words, and two do not mean what the
+  table above says. This is open and with the maintainer (Dagda put it to him directly,
+  2026-11-15). From `dagda/store/distributed_store.h`, as Dagda reports it:
+  - `ephemeral`: the same.
+  - `persisted`: on disk on at least one node, this one tried first, a
+    peer's disk counting when this node has no room. The table says "its own
+    disk".
+  - `replicated`: on disk on at least k nodes, k being the store's
+    `write_copies` (Macha runs k = 1 at replication 2), not a majority.
+  - `durable`: a fourth level of Dagda's, on disk on every available node of
+    the replication set, which the table lacks.
+  - `decided` is not Dagda's; it is agreement.
+  The names line up if `replicated` is defined as "k replicas on disk, k the
+  owner's, a majority when the owner sets it so" and `persisted` as "one
+  node's disk, this one's first"; or Dagda's meanings change, which touches
+  what Macha's port relies on. Until the maintainer settles it, the table above is
+  Kvasir's and Mimir's meaning and is not yet the stack's.
 
 ## Who is concerned
 
