@@ -33,7 +33,7 @@ find_package(Threads REQUIRED)
 set(KVASIR_DANNAN_REPOSITORY "${CMAKE_CURRENT_SOURCE_DIR}/../dannan" CACHE STRING "Dannan's repository: a path or a URL")
 # Not a cache variable: a moved pin must take effect in a build tree that
 # already exists.
-set(KVASIR_DANNAN_TAG "0.8.4")
+set(KVASIR_DANNAN_TAG "0.8.5")
 include(FetchContent)
 if(NOT TARGET dannan::dannan)
   FetchContent_Declare(dannan GIT_REPOSITORY "${KVASIR_DANNAN_REPOSITORY}" GIT_TAG "${KVASIR_DANNAN_TAG}")

@@ -30,14 +30,15 @@ std::string as_string(const protocol::Bytes& bytes) { return std::string(bytes.b
 }  // namespace
 
 Connection::Connection(std::shared_ptr<Transport> transport, boost::asio::any_io_executor executor, ConnectionSettings settings,
-                       const exec::VariableRegistry& registry, catalog::Catalog& catalog, VerifierCache& verifiers, PasswordChecker& checker)
+                       const exec::VariableRegistry& registry, catalog::Catalog& catalog, VerifierCache& verifiers, PasswordChecker& checker,
+                       const SignInBackoff* backoff)
     : _transport(std::move(transport)),
       _executor(std::move(executor)),
       _settings(std::move(settings)),
       _registry(registry),
       _catalog(catalog),
       _checker(checker),
-      _sign_in(sign_in_settings(_settings, *_transport), verifiers),
+      _sign_in(sign_in_settings(_settings, *_transport), verifiers, backoff),
       _reader(_settings.limits) {
   _reader.restrict(true);
 }

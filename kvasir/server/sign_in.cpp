@@ -92,6 +92,12 @@ size_t VerifierCache::size() const {
   return _verifiers.size();
 }
 
+namespace {
+// The back-off's keys: opaque to it, Lugh's style.
+std::string principal_key(const std::string& user) { return "principal:" + user; }
+std::string source_key(const std::string& host) { return "source:" + host; }
+}  // namespace
+
 std::array<uint8_t, protocol::nonce_size> make_nonce() {
   std::array<uint8_t, protocol::nonce_size> nonce{};
   const auto drawn = dannan::identity::random_bytes(nonce.size());
@@ -101,8 +107,8 @@ std::array<uint8_t, protocol::nonce_size> make_nonce() {
   return nonce;
 }
 
-SignIn::SignIn(SignInSettings settings, VerifierCache& verifiers)
-    : _settings(std::move(settings)), _verifiers(verifiers), _server_capabilities(offered(_settings.tls_available)) {}
+SignIn::SignIn(SignInSettings settings, VerifierCache& verifiers, const SignInBackoff* backoff)
+    : _settings(std::move(settings)), _verifiers(verifiers), _backoff(backoff), _server_capabilities(offered(_settings.tls_available)) {}
 
 void SignIn::send(Bytes& out, const Bytes& payload) { protocol::frame(payload, _sequence, out); }
 
@@ -134,7 +140,8 @@ SignInStep SignIn::received(const protocol::Packet& packet) {
       case State::awaiting_switch:
         return authenticate(packet.payload);
       case State::awaiting_password: {
-        if (packet.payload.size() == 1 && packet.payload[0] == sha2::request_public_key) return deny();
+        // Asking for the RSA key is refused, but is no guess at a password.
+        if (packet.payload.size() == 1 && packet.payload[0] == sha2::request_public_key) return deny(false);
         auto password = sha2::read_password(packet.payload);
         if (password.size() == 0) return deny();
         _pending_verifier = sha2::fast_verifier(password.reveal());
@@ -181,6 +188,8 @@ SignInStep SignIn::response(const protocol::Packet& packet) {
 
 SignInStep SignIn::authenticate(std::span<const uint8_t> scramble) {
   _password_given = !scramble.empty();
+  // Before anything is hashed. Being turned away is not another failure.
+  if (waiting()) return deny(false);
   if (scramble.empty()) return deny();
   switch (_verifiers.check(_user, scramble, _settings.nonce)) {
     case VerifierCache::Check::matched: {
@@ -216,6 +225,7 @@ SignInStep SignIn::checked(bool matches) {
 }
 
 SignInStep SignIn::accept(Bytes out) {
+  if (_backoff) _backoff->principals.succeeded(principal_key(_user));
   protocol::Ok ok;
   ok.status = protocol::status::autocommit;
   send(out, protocol::encode(ok));
@@ -225,7 +235,18 @@ SignInStep SignIn::accept(Bytes out) {
   return step;
 }
 
-SignInStep SignIn::deny() {
+bool SignIn::waiting() const {
+  if (!_backoff) return false;
+  const auto now = _backoff->time.now();
+  return _backoff->principals.wait(principal_key(_user), now) || _backoff->sources.wait(source_key(_settings.peer_host), now);
+}
+
+SignInStep SignIn::deny(bool failure) {
+  if (failure && _backoff) {
+    const auto now = _backoff->time.now();
+    _backoff->principals.failed(principal_key(_user), now);
+    _backoff->sources.failed(source_key(_settings.peer_host), now);
+  }
   return refuse(er_access_denied, "28000",
                 "Access denied for user '" + _user + "'@'" + _settings.peer_host + "' (using password: " + (_password_given ? "YES" : "NO") + ")");
 }

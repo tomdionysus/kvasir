@@ -17,7 +17,9 @@
 #include <string>
 
 #include "dannan/contract/thread_safety.h"
+#include "dannan/contract/time_source.h"
 #include "dannan/identity/secure_memory.h"
+#include "dannan/listen/backoff.h"
 #include "kvasir/protocol/codec.h"
 #include "kvasir/protocol/messages.h"
 #include "kvasir/protocol/packet.h"
@@ -105,6 +107,15 @@ struct PasswordCheck {
   dannan::identity::Secret password;
 };
 
+// The node's back-off (Dannan's Backoff, a growing wait, never a lock),
+// asked before any hashing: one for principals, one for source addresses.
+// Shared by every connection; thread-safe.
+struct SignInBackoff {
+  dannan::listen::Backoff& principals;
+  dannan::listen::Backoff& sources;
+  const dannan::contract::TimeSource& time;
+};
+
 struct SignInStep {
   Bytes out;
   bool start_tls = false;
@@ -114,7 +125,11 @@ struct SignInStep {
 
 class SignIn {
  public:
-  SignIn(SignInSettings settings, VerifierCache& verifiers);
+  // With `backoff`, a principal or source still waiting is denied before
+  // any check, as a wrong password is; every wrong or empty password is a
+  // failure of both; a sign-in clears its principal's (never its source's,
+  // or one good account would clear an address's guesses at others).
+  SignIn(SignInSettings settings, VerifierCache& verifiers, const SignInBackoff* backoff = nullptr);
 
   // The greeting, the connection's first packet.
   SignInStep greeting();
@@ -142,7 +157,9 @@ class SignIn {
   SignInStep response(const protocol::Packet& packet);
   SignInStep authenticate(std::span<const uint8_t> scramble);
   SignInStep accept(Bytes out);
-  SignInStep deny();
+  // `failure`: a wrong or empty password, counted against the back-off.
+  SignInStep deny(bool failure = true);
+  bool waiting() const;
   // Closes with nothing more to say: after a refusal, or for an owner that
   // called out of turn.
   SignInStep closing();
@@ -151,6 +168,7 @@ class SignIn {
 
   const SignInSettings _settings;
   VerifierCache& _verifiers;
+  const SignInBackoff* const _backoff;
   const uint32_t _server_capabilities;
   State _state = State::start;
   uint8_t _sequence = 0;

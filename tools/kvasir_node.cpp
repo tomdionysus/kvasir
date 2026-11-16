@@ -83,6 +83,12 @@ int serve(const kvasir::server::NodeSettings& node) {
   dannan::sched::WorkerPool pool(pool_config, gates);
   pool.start();
   kvasir::server::PoolPasswordChecker checker(accounts, pool, dannan::contract::steady_time_source());
+  // Lugh's rules: five free failures per account, twenty per address, then
+  // a wait from a second, doubling, to fifteen minutes; forgotten after an
+  // hour without a failure.
+  dannan::listen::Backoff principals({5, std::chrono::seconds(1), std::chrono::minutes(15), std::chrono::hours(1)});
+  dannan::listen::Backoff sources({20, std::chrono::seconds(1), std::chrono::minutes(15), std::chrono::hours(1)});
+  const kvasir::server::SignInBackoff backoff{principals, sources, dannan::contract::steady_time_source()};
 
   boost::asio::io_context io;
   dannan::listen::ListenerConfig config;
@@ -100,7 +106,7 @@ int serve(const kvasir::server::NodeSettings& node) {
     settings.connection_id = next_id++;
     const auto executor = stream->get_executor();
     std::make_shared<kvasir::server::Connection>(std::make_shared<kvasir::server::StreamTransport>(std::move(stream)), executor, settings, registry, catalog,
-                                                 verifiers, checker)
+                                                 verifiers, checker, &backoff)
         ->start();
   });
   boost::asio::signal_set signals(io, SIGINT, SIGTERM);

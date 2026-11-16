@@ -24,7 +24,9 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstdint>
+#include <memory>
 #include <set>
 #include <string>
 #include <string_view>
@@ -396,6 +398,104 @@ TEST(ServerSignIn, NoncesHaveNoNul) {
     seen.emplace(nonce.begin(), nonce.end());
   }
   EXPECT_EQ(seen.size(), 200u);
+}
+
+// The design: back-off per principal and per source before any hashing,
+// with Dannan's Backoff (a growing wait, never a lock); a waiting client is
+// answered as a wrong password is, at once.
+struct SteppedTime : dannan::contract::TimeSource {
+  dannan::contract::TimePoint at = dannan::contract::TimePoint{} + std::chrono::hours(100);
+  dannan::contract::TimePoint now() const noexcept override { return at; }
+};
+
+struct GuardedBed {
+  SteppedTime time;
+  dannan::listen::Backoff principals{{2, std::chrono::seconds(1), std::chrono::minutes(15), std::chrono::hours(1)}};
+  dannan::listen::Backoff sources{{3, std::chrono::seconds(1), std::chrono::minutes(15), std::chrono::hours(1)}};
+  SignInBackoff backoff{principals, sources, time};
+  VerifierCache cache;
+
+  // A new connection's sign-in, through the greeting and TLS.
+  std::unique_ptr<SignIn> connect(const std::string& host = "10.0.0.1") {
+    auto s = settings();
+    s.peer_host = host;
+    auto sign_in = std::make_unique<SignIn>(s, cache, &backoff);
+    sign_in->greeting();
+    sign_in->received(packet(1, ssl_request()));
+    sign_in->tls_up();
+    return sign_in;
+  }
+  // A full-path attempt with `password`, answered `matches`; the last step.
+  SignInStep attempt(const std::string& user, const std::string& password, bool matches, const std::string& host = "10.0.0.1") {
+    auto sign_in = connect(host);
+    auto asked = sign_in->received(packet(2, handshake_response(user, scramble_for(password))));
+    if (asked.close) return asked;
+    const std::string sent = password + std::string(1, '\0');
+    auto check = sign_in->received(packet(4, Bytes(sent.begin(), sent.end())));
+    if (!check.check_password) return check;
+    return sign_in->checked(matches);
+  }
+};
+
+TEST(ServerSignIn, RepeatedFailuresMakeAPrincipalWaitBeforeAnyHashing) {
+  GuardedBed bed;
+  EXPECT_TRUE(bed.attempt("root", "guess1", false).close);
+  EXPECT_TRUE(bed.attempt("root", "guess2", false).close);
+  // Two failures: root waits a second. The right password is denied at once,
+  // with no full-path request and nothing to hash.
+  auto sign_in = bed.connect();
+  const auto step = sign_in->received(packet(2, handshake_response("root", scramble_for("secret"))));
+  EXPECT_TRUE(step.close);
+  EXPECT_FALSE(step.check_password);
+  const auto sent = packets(step.out);
+  ASSERT_EQ(sent.size(), 1u);
+  const auto e = err(sent[0]);
+  EXPECT_EQ(e.code, er_access_denied);
+  EXPECT_EQ(e.message, "Access denied for user 'root'@'10.0.0.1' (using password: YES)");
+  // Being turned away while waiting is not another failure: once the wait
+  // has passed the next attempt is heard.
+  bed.time.at += std::chrono::seconds(1);
+  const auto done = bed.attempt("root", "secret", true);
+  EXPECT_FALSE(done.close);
+  EXPECT_TRUE(is_ok(packets(done.out).at(0)));
+}
+
+TEST(ServerSignIn, ASourceThatKeepsFailingWaitsWhicheverNameItTries) {
+  GuardedBed bed;
+  bed.attempt("a", "x", false);
+  bed.attempt("b", "x", false);
+  bed.attempt("c", "x", false);
+  // Three failures from one address: it waits, even for a name with none.
+  auto sign_in = bed.connect();
+  const auto step = sign_in->received(packet(2, handshake_response("d", scramble_for("x"))));
+  EXPECT_TRUE(step.close);
+  EXPECT_FALSE(step.check_password);
+  // Another address is not held back.
+  auto other = bed.connect("10.0.0.2");
+  EXPECT_FALSE(other->received(packet(2, handshake_response("d", scramble_for("x")))).close);
+}
+
+TEST(ServerSignIn, SuccessClearsThePrincipalButNotTheSource) {
+  GuardedBed bed;
+  bed.attempt("root", "guess", false);
+  EXPECT_EQ(bed.principals.size(), 1u);
+  bed.attempt("root", "secret", true);
+  EXPECT_EQ(bed.principals.size(), 0u);
+  EXPECT_EQ(bed.sources.size(), 1u);
+}
+
+TEST(ServerSignIn, FastPathAndEmptyPasswordFailuresCount) {
+  GuardedBed bed;
+  bed.cache.remember("root", sha2::fast_verifier(as_bytes("secret")));
+  auto sign_in = bed.connect();
+  EXPECT_TRUE(sign_in->received(packet(2, handshake_response("root", scramble_for("Secret")))).close);
+  sign_in = bed.connect();
+  EXPECT_TRUE(sign_in->received(packet(2, handshake_response("root", Bytes{}))).close);
+  // Two failures: even the fast path's right scramble waits.
+  sign_in = bed.connect();
+  const auto step = sign_in->received(packet(2, handshake_response("root", scramble_for("secret"))));
+  EXPECT_TRUE(step.close);
+  EXPECT_FALSE(sign_in->signed_in());
 }
 
 TEST(VerifierCache, ChecksWithoutRevealing) {
