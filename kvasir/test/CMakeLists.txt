@@ -26,6 +26,7 @@ add_executable(kvasir_tests
   server_sign_in_test.cpp
   sql_lexer_test.cpp
   sql_parser_test.cpp
+  txn_store_test.cpp
   version_test.cpp
 )
 target_link_libraries(kvasir_tests PRIVATE kvasir GTest::gtest_main kvasir_warnings)

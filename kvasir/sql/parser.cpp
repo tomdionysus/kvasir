@@ -187,6 +187,13 @@ class Parser {
       take();
       if (peek().kind == TokenKind::hint) s.hint = take().value;
       accept_word("WORK");
+    } else if (word("INSERT")) {
+      take();
+      s.kind = Statement::Kind::insert;
+      parse_insert(s);
+    } else if (word("REPLACE")) {
+      s.kind = Statement::Kind::insert;
+      unsupported(s, "REPLACE");
     } else if (word("CREATE") && (word("TABLE", 1) || word("TEMPORARY", 1))) {
       take();
       s.kind = Statement::Kind::create_table;
@@ -343,6 +350,58 @@ class Parser {
 
   void accept_equals() {
     if (symbol("=")) take();
+  }
+
+  // INSERT after INSERT: [LOW_PRIORITY | HIGH_PRIORITY] [INTO] table, then
+  // [(columns)] VALUES | VALUE (row), ..., or SET column = value, ....
+  void parse_insert(Statement& s) {
+    auto& in = s.insert;
+    if (word("DELAYED")) return unsupported(s, "INSERT DELAYED");
+    if (!accept_word("LOW_PRIORITY")) accept_word("HIGH_PRIORITY");
+    if (word("IGNORE")) return unsupported(s, "INSERT IGNORE");
+    accept_word("INTO");
+    in.table = table_name();
+    if (word("PARTITION")) return unsupported(s, "INSERT ... PARTITION");
+    if (accept_word("SET")) {
+      in.has_columns = true;
+      in.rows.emplace_back();
+      do {
+        in.columns.push_back(name());
+        if (!symbol("=") && !symbol(":=")) fail(peek());
+        take();
+        in.rows.back().push_back(insert_value());
+      } while (symbol(",") && (take(), true));
+    } else {
+      if (symbol("(") && !word("SELECT", 1)) {
+        take();
+        in.has_columns = true;
+        if (!symbol(")")) {
+          do in.columns.push_back(name());
+          while (symbol(",") && (take(), true));
+        }
+        expect_symbol(")");
+      }
+      if (word("SELECT") || (symbol("(") && word("SELECT", 1))) return unsupported(s, "INSERT ... SELECT");
+      if (word("TABLE")) return unsupported(s, "INSERT ... TABLE");
+      if (!accept_word("VALUES")) expect_word("VALUE");
+      do {
+        expect_symbol("(");
+        in.rows.emplace_back();
+        if (!symbol(")")) {
+          do in.rows.back().push_back(insert_value());
+          while (symbol(",") && (take(), true));
+        }
+        expect_symbol(")");
+      } while (symbol(",") && (take(), true));
+    }
+    if (word("AS")) return unsupported(s, "INSERT ... AS");
+    if (word("ON")) return unsupported(s, "ON DUPLICATE KEY UPDATE");
+  }
+
+  // A value in INSERT: an expression, or DEFAULT.
+  ExprPtr insert_value() {
+    if (word("DEFAULT") && (symbol(",", 1) || symbol(")", 1) || statement_ends(1))) return node(ExprKind::default_value, take().offset, "DEFAULT");
+    return expression();
   }
 
   // CREATE TABLE after TABLE: the manual's create_definition list and

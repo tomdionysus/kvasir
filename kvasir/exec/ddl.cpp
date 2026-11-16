@@ -513,7 +513,9 @@ ResultType column_result_type(const catalog::Table& table, size_t index, const E
   const auto integer = [&](uint8_t type, uint32_t signed_length, uint32_t unsigned_length) {
     r.field_type = type;
     r.length = t.length ? t.length : t.is_unsigned ? unsigned_length : signed_length;
-    r.precision = static_cast<int>(r.length) - (t.is_unsigned ? 0 : 1);
+    // Arithmetic counts the type's own digits, whatever the display width
+    // (observed: INT(5) ZEROFILL + 0 is 11 long).
+    r.precision = static_cast<int>(t.is_unsigned ? unsigned_length : signed_length - 1);
     flags |= c::num;
   };
   const auto text_length = [&](uint64_t count) { return static_cast<uint32_t>(std::min<uint64_t>(count * eval.result_max_bytes, UINT32_MAX)); };

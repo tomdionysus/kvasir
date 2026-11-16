@@ -580,6 +580,46 @@ TEST(SqlParser, CreateTable) {
   EXPECT_EQ(error_at("CREATE TABLE t (a INT, PRIMARY KEY a)"), 36u);
 }
 
+// The manual's INSERT: VALUES (or VALUE) with rows, or SET; DEFAULT as a
+// value.
+TEST(SqlParser, Insert) {
+  auto s = one("INSERT INTO t (a, d) VALUES (1, 10), (DEFAULT, -2)");
+  EXPECT_EQ(s.kind, Kind::insert);
+  EXPECT_EQ(s.insert.table, (std::vector<std::string>{"t"}));
+  EXPECT_TRUE(s.insert.has_columns);
+  EXPECT_EQ(s.insert.columns, (std::vector<std::string>{"a", "d"}));
+  ASSERT_EQ(s.insert.rows.size(), 2u);
+  EXPECT_EQ(to_string(*s.insert.rows[0][1]), "10");
+  EXPECT_EQ(s.insert.rows[1][0]->kind, ExprKind::default_value);
+  EXPECT_EQ(to_string(*s.insert.rows[1][1]), "(- 2)");
+  s = one("INSERT d.t VALUE (1)");
+  EXPECT_EQ(s.insert.table, (std::vector<std::string>{"d", "t"}));
+  EXPECT_FALSE(s.insert.has_columns);
+  s = one("INSERT INTO t () VALUES (), ()");
+  EXPECT_TRUE(s.insert.has_columns);
+  EXPECT_TRUE(s.insert.columns.empty());
+  ASSERT_EQ(s.insert.rows.size(), 2u);
+  EXPECT_TRUE(s.insert.rows[0].empty());
+  s = one("INSERT t SET a = 6, d = DEFAULT");
+  EXPECT_EQ(s.insert.columns, (std::vector<std::string>{"a", "d"}));
+  ASSERT_EQ(s.insert.rows.size(), 1u);
+  EXPECT_EQ(s.insert.rows[0][1]->kind, ExprKind::default_value);
+  s = one("INSERT LOW_PRIORITY INTO t VALUES (1)");
+  EXPECT_TRUE(s.unsupported.empty());
+  EXPECT_EQ(one("INSERT IGNORE INTO t VALUES (1)").unsupported, "INSERT IGNORE");
+  EXPECT_EQ(one("INSERT INTO t VALUES (1) ON DUPLICATE KEY UPDATE a = 2").unsupported, "ON DUPLICATE KEY UPDATE");
+  EXPECT_EQ(one("INSERT INTO t VALUES (1) AS n").unsupported, "INSERT ... AS");
+  EXPECT_EQ(one("INSERT INTO t SELECT 1").unsupported, "INSERT ... SELECT");
+  EXPECT_EQ(one("INSERT INTO t (a) SELECT 1").unsupported, "INSERT ... SELECT");
+  EXPECT_EQ(one("INSERT INTO t TABLE u").unsupported, "INSERT ... TABLE");
+  EXPECT_EQ(one("INSERT DELAYED INTO t VALUES (1)").unsupported, "INSERT DELAYED");
+  EXPECT_EQ(one("REPLACE INTO t VALUES (1)").unsupported, "REPLACE");
+  EXPECT_EQ(error_at("INSERT INTO t"), 13u);
+  EXPECT_EQ(error_at("INSERT INTO t VALUES"), 20u);
+  EXPECT_EQ(error_at("INSERT INTO t VALUES (1"), 23u);
+  EXPECT_EQ(error_at("INSERT INTO t (a VALUES (1)"), 17u);
+}
+
 // DROP TABLE and SHOW TABLES.
 TEST(SqlParser, DropAndShowTables) {
   auto s = one("DROP TABLE t");

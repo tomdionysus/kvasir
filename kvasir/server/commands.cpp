@@ -25,10 +25,11 @@ uint16_t CommandPhase::warning_count() const {
   return static_cast<uint16_t>(std::min<size_t>(_session.warnings().size(), std::numeric_limits<uint16_t>::max()));
 }
 
-void CommandPhase::ok(protocol::Bytes& out, uint64_t affected_rows, uint64_t last_insert_id) {
+void CommandPhase::ok(protocol::Bytes& out, uint64_t affected_rows, uint64_t last_insert_id, const std::string& info) {
   protocol::Ok ok;
   ok.affected_rows = affected_rows;
   ok.last_insert_id = last_insert_id;
+  ok.info = info;
   ok.status = _session.status_flags();
   ok.warnings = warning_count();
   send(out, protocol::encode(ok));
@@ -105,7 +106,7 @@ CommandStep CommandPhase::query(std::string_view text) {
     }
     const auto outcome = _session.execute(statements.front());
     if (!outcome.result) {
-      ok(step.out, outcome.affected_rows, outcome.last_insert_id);
+      ok(step.out, outcome.affected_rows, outcome.last_insert_id, outcome.info);
       return step;
     }
     const auto& result = *outcome.result;

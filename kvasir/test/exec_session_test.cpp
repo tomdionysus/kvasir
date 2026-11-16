@@ -19,6 +19,7 @@
 #include "kvasir/catalog/catalog.h"
 #include "kvasir/exec/session.h"
 #include "kvasir/protocol/types.h"
+#include "kvasir/txn/store.h"
 
 namespace kvasir::exec {
 namespace {
@@ -37,7 +38,13 @@ catalog::Catalog& node_catalog() {
   return c;
 }
 
-Session make(catalog::Catalog& c = node_catalog()) { return Session(registry(), c, SessionInfo{"root", "10.0.0.1", 7}); }
+// And its rows.
+txn::Store& node_store() {
+  static txn::Store s;
+  return s;
+}
+
+Session make(catalog::Catalog& c = node_catalog(), txn::Store& rows = node_store()) { return Session(registry(), c, rows, SessionInfo{"root", "10.0.0.1", 7}); }
 
 // Runs every statement in `sql`; the last one's outcome.
 Outcome run(Session& s, const std::string& sql) {
@@ -447,8 +454,15 @@ std::vector<Shape> shapes(const Outcome& o) {
 // A session on a node of its own, with database pt current.
 struct TableBed {
   catalog::Catalog node;
-  Session s = make(node);
+  txn::Store rows;
+  Session s = make(node, rows);
   TableBed() { run(s, "CREATE DATABASE pt; USE pt"); }
+  // Another client of the same node.
+  Session other() {
+    auto o = make(node, rows);
+    run(o, "USE pt");
+    return o;
+  }
 
   void expect_refused(const std::string& sql, uint16_t code, const std::string& state, const std::string& message) {
     SCOPED_TRACE(sql);
@@ -858,6 +872,218 @@ TEST(ExecSessionTables, SelectNamesColumns) {
   EXPECT_TRUE(o.result->rows.empty());
   b.expect_refused("SELECT a FROM t6 WHERE zz = 1", 1054, "42S22", "Unknown column 'zz' in 'where clause'");
   b.expect_refused("SELECT a FROM t6 ORDER BY zz", 1054, "42S22", "Unknown column 'zz' in 'order clause'");
+}
+
+using Rows = std::vector<std::vector<std::string>>;
+
+Rows rows_of(const Outcome& o) {
+  Rows out;
+  for (const auto& r : o.result.value().rows) {
+    out.emplace_back();
+    for (const auto& v : r) out.back().push_back(v.value_or("NULL"));
+  }
+  return out;
+}
+
+// INSERT, observed on MySQL 8.4.13 (2026-11-16): values stored as columns
+// store them, DEFAULT, AUTO_INCREMENT (a statement reserves a value for each
+// of its rows when it first needs one, and those of a failed statement are
+// lost), and MySQL's refusals, a failed statement leaving nothing.
+TEST(ExecSessionRows, Insert) {
+  TableBed b;
+  run(b.s, "CREATE TABLE t (id INT AUTO_INCREMENT PRIMARY KEY, a INT, b VARCHAR(3) DEFAULT 'x', c DECIMAL(5,2), d INT NOT NULL)");
+  auto o = run(b.s, "INSERT INTO t (a, d) VALUES (1, 10)");
+  EXPECT_FALSE(o.result);
+  EXPECT_EQ(o.affected_rows, 1u);
+  EXPECT_EQ(o.last_insert_id, 1u);
+  EXPECT_EQ(o.info, "");
+  EXPECT_EQ(row(run(b.s, "SELECT LAST_INSERT_ID(), ROW_COUNT()")), (std::vector<std::string>{"1", "1"}));
+  o = run(b.s, "INSERT INTO t (a, d) VALUES (2, 20), (3, 30)");
+  EXPECT_EQ(o.affected_rows, 2u);
+  EXPECT_EQ(o.last_insert_id, 2u);
+  EXPECT_EQ(o.info, "Records: 2  Duplicates: 0  Warnings: 0");
+  EXPECT_EQ(row(run(b.s, "SELECT LAST_INSERT_ID(), ROW_COUNT()")), (std::vector<std::string>{"2", "2"}));
+  run(b.s, "INSERT INTO t VALUES (10, 4, 'abc', 1.5, 40)");
+  run(b.s, "INSERT INTO t VALUES (NULL, 5, 'y', 2, 50)");
+  run(b.s, "INSERT t SET a = 6, d = 60");
+  b.expect_refused("INSERT INTO t (d) VALUES (DEFAULT)", 1364, "HY000", "Field 'd' doesn't have a default value");
+  b.expect_refused("INSERT INTO t (a) VALUES (7)", 1364, "HY000", "Field 'd' doesn't have a default value");
+  b.expect_refused("INSERT INTO t () VALUES ()", 1364, "HY000", "Field 'd' doesn't have a default value");
+  b.expect_refused("INSERT INTO t (a, d) VALUES (8)", 1136, "21S01", "Column count doesn't match value count at row 1");
+  b.expect_refused("INSERT INTO t VALUES (1)", 1136, "21S01", "Column count doesn't match value count at row 1");
+  b.expect_refused("INSERT INTO t (zz) VALUES (1)", 1054, "42S22", "Unknown column 'zz' in 'field list'");
+  b.expect_refused("INSERT INTO t (a, a, d) VALUES (1, 1, 1)", 1110, "42000", "Column 'a' specified twice");
+  b.expect_refused("INSERT INTO t (id, d) VALUES (1, 1)", 1062, "23000", "Duplicate entry '1' for key 't.PRIMARY'");
+  b.expect_refused("INSERT INTO t (b, d) VALUES ('abcd', 1)", 1406, "22001", "Data too long for column 'b' at row 1");
+  b.expect_refused("INSERT INTO t (a, d) VALUES (99999999999, 1)", 1264, "22003", "Out of range value for column 'a' at row 1");
+  b.expect_refused("INSERT INTO t (a, d) VALUES ('x', 1)", 1366, "HY000", "Incorrect integer value: 'x' for column 'a' at row 1");
+  b.expect_refused("INSERT INTO t (a, d) VALUES ('12x', 1)", 1265, "01000", "Data truncated for column 'a' at row 1");
+  run(b.s, "INSERT INTO t (c, d) VALUES (1.234, 1)");
+  b.expect_warnings({{"Note", 1265, "Data truncated for column 'c' at row 1"}});
+  run(b.s, "INSERT INTO t (b, d) VALUES ('ab ', 1)");
+  run(b.s, "INSERT INTO t (b, d) VALUES ('abc  ', 1)");
+  b.expect_warnings({{"Note", 1265, "Data truncated for column 'b' at row 1"}});
+  b.expect_refused("INSERT INTO t (d) VALUES (NULL)", 1048, "23000", "Column 'd' cannot be null");
+  b.expect_refused("INSERT INTO t (a, d) VALUES (1, 2), (2, NULL)", 1048, "23000", "Column 'd' cannot be null");
+  b.expect_refused("INSERT INTO t (a, d) VALUES (100, 1), (101, 'q')", 1366, "HY000", "Incorrect integer value: 'q' for column 'd' at row 2");
+  // 0 is no value: the next one is taken, past the four lost above.
+  o = run(b.s, "INSERT INTO t (id, d) VALUES (0, 1)");
+  EXPECT_EQ(o.last_insert_id, 20u);
+  b.expect_refused("INSERT INTO nothere VALUES (1)", 1146, "42S02", "Table 'pt.nothere' doesn't exist");
+  b.expect_refused("INSERT INTO kv_none.t VALUES (1)", 1049, "42000", "Unknown database 'kv_none'");
+
+  o = run(b.s, "SELECT * FROM t");
+  EXPECT_EQ(rows_of(o), (Rows{{"1", "1", "x", "NULL", "10"},
+                              {"2", "2", "x", "NULL", "20"},
+                              {"3", "3", "x", "NULL", "30"},
+                              {"10", "4", "abc", "1.50", "40"},
+                              {"11", "5", "y", "2.00", "50"},
+                              {"12", "6", "x", "NULL", "60"},
+                              {"13", "NULL", "x", "1.23", "1"},
+                              {"14", "NULL", "ab ", "NULL", "1"},
+                              {"15", "NULL", "abc", "NULL", "1"},
+                              {"20", "NULL", "x", "NULL", "1"}}));
+  o = run(b.s, "SELECT * FROM t WHERE a > 3 ORDER BY id DESC LIMIT 2");
+  EXPECT_EQ(rows_of(o), (Rows{{"12", "6", "x", "NULL", "60"}, {"11", "5", "y", "2.00", "50"}}));
+  // Expressions over the columns, and a string compared under its collation.
+  o = run(b.s, "SELECT id, a + 1, b, c * 2 FROM t WHERE b = 'X' AND id < 14");
+  EXPECT_EQ(shapes(o), (std::vector<Shape>{{f::long_, bin, 11, 0, nn | pri | autoinc | num | part},
+                                           {f::longlong, bin, 12, 0, binflag | num},
+                                           {f::var_string, ai, 12, 0, 0},
+                                           {f::newdecimal, bin, 8, 2, binflag | num}}));
+  EXPECT_EQ(rows_of(o),
+            (Rows{{"1", "2", "x", "NULL"}, {"2", "3", "x", "NULL"}, {"3", "4", "x", "NULL"}, {"12", "7", "x", "NULL"}, {"13", "NULL", "x", "2.46"}}));
+}
+
+// What each type keeps, and how it is sent.
+TEST(ExecSessionRows, StoredValues) {
+  TableBed b;
+  Outcome o;
+  run(b.s, "CREATE TABLE u (a INT, b CHAR(3), c VARBINARY(4), d FLOAT, e DOUBLE, f BIGINT UNSIGNED, g TEXT, h BINARY(3))");
+  run(b.s, "INSERT INTO u VALUES (1, 'ab ', 'x', 1.1, 1.1, 18446744073709551615, 'long text', 'a')");
+  run(b.s, "INSERT INTO u (a, d) VALUES (3.5e0, 3.4e38), (-2.5, 1e-10), (2.5, NULL)");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM u")), (Rows{{"1", "ab", "x", "1.1", "1.1", "18446744073709551615", "long text", std::string("a\0\0", 3)},
+                                                        {"4", "NULL", "NULL", "3.4e38", "NULL", "NULL", "NULL", "NULL"},
+                                                        {"-3", "NULL", "NULL", "0.0000000001", "NULL", "NULL", "NULL", "NULL"},
+                                                        {"3", "NULL", "NULL", "NULL", "NULL", "NULL", "NULL", "NULL"}}));
+  // A FLOAT computes as the float it holds.
+  EXPECT_EQ(row(run(b.s, "SELECT d * 1 FROM u WHERE a = 1")), (std::vector<std::string>{"1.100000023841858"}));
+  run(b.s, "CREATE TABLE z (a INT(5) ZEROFILL, b DECIMAL(6,2) ZEROFILL, c DOUBLE, e INT UNIQUE)");
+  run(b.s, "INSERT INTO z VALUES (42, 3.5, -0.0, 1)");
+  o = run(b.s, "SELECT *, a + 0 FROM z");
+  EXPECT_EQ(rows_of(o), (Rows{{"00042", "0003.50", "0", "1", "42"}}));
+  // Arithmetic counts INT's own digits, not the display width (found by the
+  // differential gate).
+  EXPECT_EQ(o.result->columns[4].type.length, 11u);
+  b.expect_refused("INSERT INTO z (e) VALUES (1)", 1062, "23000", "Duplicate entry '1' for key 'z.e'");
+  run(b.s, "INSERT INTO z (e) VALUES (NULL), (NULL)");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT e FROM z ORDER BY e")), (Rows{{"NULL"}, {"NULL"}, {"1"}}));
+  b.expect_refused("INSERT INTO z (b) VALUES ('x')", 1366, "HY000", "Incorrect decimal value: 'x' for column 'b' at row 1");
+  b.expect_refused("INSERT INTO z (b) VALUES ('1.5x')", 1366, "HY000", "Incorrect decimal value: '1.5x' for column 'b' at row 1");
+  b.expect_refused("INSERT INTO z (c) VALUES ('x')", 1265, "01000", "Data truncated for column 'c' at row 1");
+  b.expect_refused("INSERT INTO z (b) VALUES (99999)", 1264, "22003", "Out of range value for column 'b' at row 1");
+  run(b.s, "CREATE TABLE m (b VARCHAR(5) CHARACTER SET utf8mb3)");
+  b.expect_refused("INSERT INTO m VALUES (X'F09F9880')", 1366, "HY000", "Incorrect string value: '\\xF0\\x9F\\x98\\x80' for column 'b' at row 1");
+}
+
+// Order: a table with no primary key keeps the order rows came in; ORDER BY
+// puts NULL first ascending and last descending; a string key orders and
+// collides under its collation, which pads no spaces.
+TEST(ExecSessionRows, Order) {
+  TableBed b;
+  run(b.s, "CREATE TABLE n (a INT, b VARCHAR(5))");
+  run(b.s, "INSERT INTO n VALUES (3, 'c'), (1, 'a'), (NULL, 'n'), (2, 'b')");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM n")), (Rows{{"3", "c"}, {"1", "a"}, {"NULL", "n"}, {"2", "b"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM n ORDER BY a")), (Rows{{"NULL", "n"}, {"1", "a"}, {"2", "b"}, {"3", "c"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM n ORDER BY a DESC")), (Rows{{"3", "c"}, {"2", "b"}, {"1", "a"}, {"NULL", "n"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT b FROM n ORDER BY b DESC LIMIT 1, 2")), (Rows{{"c"}, {"b"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT b AS x FROM n ORDER BY x LIMIT 1")), (Rows{{"a"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT b, a FROM n ORDER BY 2 DESC LIMIT 1")), (Rows{{"c", "3"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a, b FROM n WHERE b LIKE 'a%' OR a IS NULL")), (Rows{{"1", "a"}, {"NULL", "n"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM n AS x WHERE x.a = 1")), (Rows{{"1", "a"}}));
+  run(b.s, "CREATE TABLE k (s VARCHAR(5) PRIMARY KEY, v INT)");
+  run(b.s, "INSERT INTO k VALUES ('b', 1), ('a', 2), ('C', 3)");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM k")), (Rows{{"a", "2"}, {"b", "1"}, {"C", "3"}}));
+  b.expect_refused("INSERT INTO k VALUES ('A', 4)", 1062, "23000", "Duplicate entry 'A' for key 'k.PRIMARY'");
+  run(b.s, "INSERT INTO k VALUES ('a ', 4)");
+  EXPECT_EQ(run(b.s, "SELECT * FROM k").result->rows.size(), 4u);
+}
+
+// The manual's "Consistent Nonlocking Reads" across two sessions of one
+// node: what a transaction writes no one else sees until it commits; a
+// REPEATABLE READ transaction reads the snapshot of its first read;
+// ROLLBACK leaves nothing; a failed statement undoes only itself; DDL
+// commits first ("Statements That Cause an Implicit Commit").
+TEST(ExecSessionRows, Transactions) {
+  TableBed b;
+  auto other = b.other();
+  run(b.s, "CREATE TABLE t (a INT PRIMARY KEY)");
+  run(b.s, "BEGIN");
+  run(b.s, "INSERT INTO t VALUES (1)");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a FROM t")), (Rows{{"1"}}));
+  EXPECT_TRUE(rows_of(run(other, "SELECT a FROM t")).empty());
+  run(b.s, "COMMIT");
+  EXPECT_EQ(rows_of(run(other, "SELECT a FROM t")), (Rows{{"1"}}));
+
+  run(other, "START TRANSACTION");
+  EXPECT_EQ(rows_of(run(other, "SELECT a FROM t")), (Rows{{"1"}}));
+  run(b.s, "INSERT INTO t VALUES (2)");
+  EXPECT_EQ(rows_of(run(other, "SELECT a FROM t")), (Rows{{"1"}}));
+  run(other, "COMMIT");
+  EXPECT_EQ(rows_of(run(other, "SELECT a FROM t")), (Rows{{"1"}, {"2"}}));
+
+  // READ COMMITTED: each statement sees what has committed.
+  run(other, "SET transaction_isolation = 'READ-COMMITTED'");
+  run(other, "BEGIN");
+  EXPECT_EQ(run(other, "SELECT a FROM t").result->rows.size(), 2u);
+  run(b.s, "INSERT INTO t VALUES (3)");
+  EXPECT_EQ(run(other, "SELECT a FROM t").result->rows.size(), 3u);
+  run(other, "COMMIT");
+
+  run(b.s, "BEGIN");
+  run(b.s, "INSERT INTO t VALUES (4)");
+  b.expect_refused("INSERT INTO t VALUES (5), (4)", 1062, "23000", "Duplicate entry '4' for key 't.PRIMARY'");
+  EXPECT_EQ(run(b.s, "SELECT a FROM t").result->rows.size(), 4u);
+  run(b.s, "ROLLBACK");
+  EXPECT_EQ(run(b.s, "SELECT a FROM t").result->rows.size(), 3u);
+
+  // autocommit = 0 opens a transaction with the first statement.
+  run(b.s, "SET autocommit = 0");
+  run(b.s, "INSERT INTO t VALUES (6)");
+  EXPECT_TRUE(b.s.in_transaction());
+  EXPECT_EQ(run(other, "SELECT a FROM t").result->rows.size(), 3u);
+  // DDL commits what came before it.
+  run(b.s, "CREATE TABLE t2 (a INT)");
+  EXPECT_EQ(run(other, "SELECT a FROM t").result->rows.size(), 4u);
+  run(b.s, "SET autocommit = 1");
+
+  // A row another transaction has written and not committed: MySQL waits
+  // for its lock; Kvasir does not wait yet, and answers as a wait that timed
+  // out.
+  run(b.s, "BEGIN");
+  run(b.s, "INSERT INTO t VALUES (7)");
+  const auto r = refusal(other, "INSERT INTO t VALUES (7)");
+  EXPECT_EQ(r.code, 1205);
+  EXPECT_EQ(r.message, "Lock wait timeout exceeded; try restarting transaction");
+  run(b.s, "COMMIT");
+  EXPECT_EQ(refusal(other, "INSERT INTO t VALUES (7)").code, 1062);
+
+  // A dropped table's rows go with it.
+  run(b.s, "DROP TABLE t");
+  run(b.s, "CREATE TABLE t (a INT PRIMARY KEY)");
+  EXPECT_TRUE(run(b.s, "SELECT a FROM t").result->rows.empty());
+
+  // SERIALIZABLE needs read marks Kvasir does not keep yet.
+  run(b.s, "SET transaction_isolation = 'SERIALIZABLE'");
+  b.expect_refused("SELECT a FROM t", 1235, "42000", "This version of Kvasir doesn't yet support 'SERIALIZABLE'");
+}
+
+TEST(ExecSessionRows, InsertsKvasirDoesNotYetCarryOut) {
+  TableBed b;
+  run(b.s, "CREATE TABLE n (a INT, b INT)");
+  b.expect_refused("INSERT IGNORE INTO n VALUES (1, 2)", 1235, "42000", "This version of Kvasir doesn't yet support 'INSERT IGNORE'");
+  b.expect_refused("REPLACE INTO n VALUES (1, 2)", 1235, "42000", "This version of Kvasir doesn't yet support 'REPLACE'");
+  b.expect_refused("INSERT INTO n (a, b) VALUES (5, a)", 1235, "42000", "This version of Kvasir doesn't yet support 'columns in VALUES'");
 }
 
 }  // namespace

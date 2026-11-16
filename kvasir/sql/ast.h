@@ -186,6 +186,18 @@ struct CreateTable {
   std::string comment;
 };
 
+// INSERT [INTO] table [(columns)] VALUES (row), ... or INSERT ... SET
+// column = value, ...: SET's columns are the column list and its values one
+// row. DEFAULT in a row is ExprKind::default_value.
+struct Insert {
+  std::vector<std::string> table;  // [schema.]table
+  std::vector<std::string> columns;
+  // A column list was written, empty or not; without one every column is
+  // given, in order.
+  bool has_columns = false;
+  std::vector<std::vector<ExprPtr>> rows;
+};
+
 struct Statement {
   enum class Kind : uint8_t {
     select,
@@ -201,11 +213,13 @@ struct Statement {
     create_table,
     drop_table,
     show_tables,
+    insert,
   };
   Kind kind = Kind::select;
   Select select;
   std::vector<Assignment> assignments;
   CreateTable create_table;
+  Insert insert;
   // DROP TABLE's tables, each [schema.]table.
   std::vector<std::vector<std::string>> tables;
   // SHOW FULL TABLES.

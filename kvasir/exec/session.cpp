@@ -15,6 +15,8 @@
 
 #include "kvasir/exec/collation.h"
 #include "kvasir/exec/ddl.h"
+#include "kvasir/exec/rows.h"
+#include "kvasir/exec/store.h"
 #include "kvasir/protocol/messages.h"
 #include "kvasir/protocol/types.h"
 #include "kvasir/sql/keywords.h"
@@ -102,16 +104,50 @@ uint64_t limit_of(const sql::Expr& e) {
 
 }  // namespace
 
-Session::Session(const VariableRegistry& registry, catalog::Catalog& catalog, SessionInfo info)
-    : _registry(registry), _catalog(catalog), _info(std::move(info)), _variables(registry) {}
+Session::Session(const VariableRegistry& registry, catalog::Catalog& catalog, txn::Store& rows, SessionInfo info)
+    : _registry(registry), _catalog(catalog), _rows(rows), _info(std::move(info)), _variables(registry) {}
+
+Session::~Session() {
+  if (_transaction) _rows.rollback(*_transaction);
+}
 
 void Session::reset() {
+  rollback();
   _variables.reset();
   _user.clear();
   _database.reset();
-  _in_transaction = false;
   _read_only_transaction = false;
   _warnings.clear();
+  _last_insert_id = 0;
+}
+
+txn::Transaction& Session::transaction() {
+  if (!_transaction) {
+    _transaction = std::make_unique<txn::Transaction>(_rows.begin());
+    // Without autocommit the first statement opens the transaction.
+    if (!_variables.number("autocommit")) _in_transaction = true;
+  }
+  return *_transaction;
+}
+
+void Session::end_statement(bool failed) {
+  if (_in_transaction || !_transaction) return;
+  if (failed) {
+    _rows.rollback(*_transaction);
+  } else {
+    _rows.commit(*_transaction);
+  }
+  _transaction.reset();
+}
+
+void Session::implicit_commit() {
+  if (_in_transaction || _transaction) commit();
+}
+
+void Session::rollback() {
+  if (_transaction) _rows.rollback(*_transaction);
+  _transaction.reset();
+  _in_transaction = false;
 }
 
 EvalSettings Session::eval_settings() const {
@@ -189,7 +225,11 @@ sql::ParserOptions Session::parser_options() const {
   return o;
 }
 
-void Session::commit() { _in_transaction = false; }
+void Session::commit() {
+  if (_transaction) _rows.commit(*_transaction);
+  _transaction.reset();
+  _in_transaction = false;
+}
 
 void Session::record_error(uint16_t code, const std::string& message) {
   _previous = std::move(_warnings);
@@ -249,7 +289,7 @@ bool Session::session_function(const std::string& name, ResultType& type, Value&
     value = uint64_t{_info.connection_id};
   } else if (name == "LAST_INSERT_ID") {
     type = bigint_type(true, true);
-    value = uint64_t{0};
+    value = _last_insert_id;
   } else if (name == "ROW_COUNT") {
     type = bigint_type(false, true);
     value = _row_count;
@@ -333,13 +373,15 @@ Outcome Session::run(const sql::Statement& statement) {
       _database = statement.database;
       return {};
     case Kind::create_database:
+      implicit_commit();
       return create_database(statement);
     case Kind::drop_database:
+      implicit_commit();
       return drop_database(statement);
     case Kind::show_databases:
       return show_databases(statement);
     case Kind::begin:
-      if (_in_transaction) commit();
+      implicit_commit();
       _in_transaction = true;
       _read_only_transaction = statement.read_only;
       return {};
@@ -347,14 +389,18 @@ Outcome Session::run(const sql::Statement& statement) {
       commit();
       return {};
     case Kind::rollback:
-      _in_transaction = false;
+      rollback();
       return {};
     case Kind::create_table:
+      implicit_commit();
       return create_table(statement);
     case Kind::drop_table:
+      implicit_commit();
       return drop_table(statement);
     case Kind::show_tables:
       return show_tables(statement);
+    case Kind::insert:
+      return insert(statement);
   }
   return {};
 }
@@ -376,8 +422,8 @@ void in_clause(const char* clause, F&& f) {
 }
 
 // One table's columns, as a statement over it names them: column,
-// table.column (by its alias when it has one) or schema.table.column. Its
-// rows come with INSERT; until then there are none to read.
+// table.column (by its alias when it has one) or schema.table.column, read
+// from the row at hand.
 class TableColumns : public ColumnSource {
  public:
   TableColumns(const catalog::Table& table, std::string database, std::string alias, const EvalSettings& eval)
@@ -395,7 +441,19 @@ class TableColumns : public ColumnSource {
     return Found{column_result_type(_table, *i, _eval), column_collation_id(_table.columns[*i])};
   }
 
-  Value column_value(const std::vector<std::string>&) const override { return {}; }
+  Value column_value(const std::vector<std::string>& path) const override {
+    const auto i = index(path);
+    if (!i || !_row || !(*_row)[*i]) return {};
+    return value_of(_table.columns[*i].type, *(*_row)[*i]);
+  }
+
+  void set_row(const txn::Row* row) { _row = row; }
+
+  // A column's value as a client is sent it.
+  std::optional<std::string> text(size_t i) const {
+    if (!_row || !(*_row)[i]) return std::nullopt;
+    return display_text(_table.columns[i].type, *(*_row)[i], column_result_type(_table, i, _eval).length);
+  }
 
   // The name the table goes by in the statement.
   const std::string& qualifier() const { return _alias.empty() ? _table.name : _alias; }
@@ -414,9 +472,58 @@ class TableColumns : public ColumnSource {
   std::string _database;
   std::string _alias;
   EvalSettings _eval;
+  const txn::Row* _row = nullptr;
 };
 
+// Whether an expression names a column anywhere in it.
+bool mentions_column(const sql::Expr& e) {
+  if (e.kind == sql::ExprKind::column) return true;
+  for (const auto& a : e.args)
+    if (a && mentions_column(*a)) return true;
+  return (e.operand && mentions_column(*e.operand)) || (e.otherwise && mentions_column(*e.otherwise));
+}
+
+// Text a column's character set cannot hold, as error 1366 shows it: from
+// the first byte past ASCII, each such byte as \xHH, at most six.
+std::string escaped_bytes(const std::string& s) {
+  size_t i = 0;
+  while (i < s.size() && static_cast<uint8_t>(s[i]) < 0x80) ++i;
+  std::string out;
+  static const char* const hex = "0123456789ABCDEF";
+  for (size_t n = 0; i < s.size() && n < 6; ++i, ++n) {
+    const auto b = static_cast<uint8_t>(s[i]);
+    if (b < 0x80) {
+      out.push_back(static_cast<char>(b));
+    } else {
+      out += "\\x";
+      out.push_back(hex[b >> 4]);
+      out.push_back(hex[b & 0xf]);
+    }
+  }
+  return out;
+}
+
+// The collation an ORDER BY value sorts under: a column's own, else the
+// results'.
+uint16_t order_collation(const sql::Expr& e, const ResultType& type, const TableColumns& columns, uint16_t results) {
+  if (e.kind == sql::ExprKind::column)
+    if (const auto found = columns.find_column(e.path)) return found->collation;
+  return type.collation == protocol::collation::binary ? protocol::collation::binary : results;
+}
+
 }  // namespace
+
+void Session::check_isolation() const {
+  if (sql::same_word(_variables.text("transaction_isolation"), "SERIALIZABLE"))
+    throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'SERIALIZABLE'");
+}
+
+void Session::begin_reading(txn::Transaction& t) {
+  // READ COMMITTED (and READ UNCOMMITTED, served as it) reads afresh each
+  // statement; REPEATABLE READ keeps the snapshot of its first read.
+  const auto level = _variables.text("transaction_isolation");
+  _rows.take_snapshot(t, sql::same_word(level, "READ-COMMITTED") || sql::same_word(level, "READ-UNCOMMITTED"));
+}
 
 std::string Session::database_of(const std::vector<std::string>& name) const {
   if (name.size() == 2) return name[0];
@@ -433,11 +540,19 @@ Outcome Session::select_from_table(const sql::Select& select) {
     if (!_catalog.database(database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
     throw SqlError(1146, "42S02", "Table '" + database + "." + from.name.back() + "' doesn't exist");
   }
+  check_isolation();
   auto settings = eval_settings();
   TableColumns columns(*table, database, from.alias, settings);
   settings.columns = &columns;
   Evaluator evaluator(settings);
   ResultSet result;
+  // What each result column is made of: a table column, or an expression.
+  struct Output {
+    std::optional<size_t> column;
+    const sql::Expr* expr = nullptr;
+    ResultType type;
+  };
+  std::vector<Output> outputs;
   for (const auto& item : select.items) {
     if (item.star) {
       // *, table.* or schema.table.*
@@ -445,25 +560,261 @@ Outcome Session::select_from_table(const sql::Select& select) {
       const bool ours =
           p.empty() || (p.size() == 1 && p[0] == columns.qualifier()) || (p.size() == 2 && from.alias.empty() && p[0] == database && p[1] == table->name);
       if (!ours) throw SqlError(1051, "42S02", "Unknown table '" + p.back() + "'");
-      for (size_t i = 0; i < table->columns.size(); ++i) result.columns.push_back(columns.column(i, table->columns[i].name));
+      for (size_t i = 0; i < table->columns.size(); ++i) {
+        result.columns.push_back(columns.column(i, table->columns[i].name));
+        outputs.push_back({i, nullptr, result.columns.back().type});
+      }
       continue;
     }
     const auto type = evaluator.type(*item.expr);
     if (item.expr->kind == sql::ExprKind::column) {
       // A column keeps the name it was written with, without its qualifier.
-      result.columns.push_back(columns.column(*columns.index(item.expr->path), item.has_alias ? item.alias : item.expr->path.back()));
+      const auto i = *columns.index(item.expr->path);
+      result.columns.push_back(columns.column(i, item.has_alias ? item.alias : item.expr->path.back()));
+      outputs.push_back({i, item.expr.get(), type});
     } else {
       result.columns.push_back({column_name(item), type});
+      outputs.push_back({std::nullopt, item.expr.get(), type});
     }
   }
   if (select.where) in_clause("where clause", [&] { evaluator.type(*select.where); });
-  for (const auto& order : select.order) in_clause("order clause", [&] { evaluator.type(*order.expr); });
-  if (select.limit) limit_of(*select.limit);
-  if (select.offset) limit_of(*select.offset);
+  // ORDER BY: a select item by its position or its alias, else an
+  // expression over the row.
+  struct Sort {
+    const sql::Expr* expr = nullptr;
+    ResultType type;
+    uint16_t collation = 0;
+    bool descending = false;
+  };
+  std::vector<Sort> sorts;
+  for (const auto& order : select.order) {
+    const sql::Expr* e = order.expr.get();
+    if (e->kind == sql::ExprKind::integer) {
+      const uint64_t position = limit_of(*e);
+      if (position < 1 || position > select.items.size() || select.items[position - 1].star)
+        throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + e->value + "' in 'order clause'");
+      e = select.items[position - 1].expr.get();
+    } else if (e->kind == sql::ExprKind::column && e->path.size() == 1) {
+      for (const auto& item : select.items)
+        if (item.has_alias && sql::same_word(item.alias, e->path[0])) e = item.expr.get();
+    }
+    Sort sort;
+    sort.expr = e;
+    sort.descending = order.descending;
+    in_clause("order clause", [&] { sort.type = evaluator.type(*e); });
+    sort.collation = order_collation(*e, sort.type, columns, settings.result_collation);
+    sorts.push_back(sort);
+  }
+  const uint64_t limit = select.limit ? limit_of(*select.limit) : _variables.number("sql_select_limit");
+  const uint64_t offset = select.offset ? limit_of(*select.offset) : 0;
+
+  auto& t = transaction();
+  try {
+    begin_reading(t);
+    const auto rows = _rows.rows(t, table->id);
+    struct Chosen {
+      const txn::Row* row;
+      std::vector<Value> keys;
+    };
+    std::vector<Chosen> chosen;
+    for (const auto& row : rows) {
+      columns.set_row(&row);
+      if (select.where && !truth(evaluator.value(*select.where))) continue;
+      Chosen c{&row, {}};
+      for (const auto& sort : sorts) c.keys.push_back(evaluator.value(*sort.expr));
+      chosen.push_back(std::move(c));
+    }
+    if (!sorts.empty()) {
+      std::stable_sort(chosen.begin(), chosen.end(), [&](const Chosen& a, const Chosen& b) {
+        for (size_t i = 0; i < sorts.size(); ++i) {
+          const int order = compare_for_order(a.keys[i], b.keys[i], sorts[i].collation);
+          if (order != 0) return sorts[i].descending ? order > 0 : order < 0;
+        }
+        return false;
+      });
+    }
+    for (size_t i = 0; i < chosen.size(); ++i) {
+      if (i < offset || i - offset >= limit) continue;
+      columns.set_row(chosen[i].row);
+      std::vector<std::optional<std::string>> out;
+      for (const auto& o : outputs) out.push_back(o.column ? columns.text(*o.column) : to_text(evaluator.value(*o.expr), o.type));
+      result.rows.push_back(std::move(out));
+    }
+    columns.set_row(nullptr);
+  } catch (...) {
+    end_statement(true);
+    throw;
+  }
+  end_statement(false);
   _warnings = evaluator.warnings();
   Outcome out;
   out.result = std::move(result);
   return out;
+}
+
+Outcome Session::insert(const sql::Statement& statement) {
+  const auto& in = statement.insert;
+  const auto database = database_of(in.table);
+  const auto table = _catalog.table({database, in.table.back()});
+  if (!table) {
+    if (!_catalog.database(database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
+    throw SqlError(1146, "42S02", "Table '" + database + "." + in.table.back() + "' doesn't exist");
+  }
+  check_isolation();
+
+  // The columns given, by index.
+  std::vector<size_t> given;
+  if (in.has_columns) {
+    for (const auto& name : in.columns) {
+      const auto i = table->column(name);
+      if (!i) throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + name + "' in 'field list'");
+      if (std::find(given.begin(), given.end(), *i) != given.end()) throw SqlError(1110, "42000", "Column '" + name + "' specified twice");
+      given.push_back(*i);
+    }
+  } else {
+    for (size_t i = 0; i < table->columns.size(); ++i) given.push_back(i);
+  }
+  for (size_t r = 0; r < in.rows.size(); ++r) {
+    // VALUES () gives every column its default.
+    if (in.rows[r].size() != given.size() && !(!in.has_columns && in.rows[r].empty()))
+      throw SqlError(1136, "21S01", "Column count doesn't match value count at row " + std::to_string(r + 1));
+    for (const auto& e : in.rows[r])
+      if (mentions_column(*e)) throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'columns in VALUES'");
+  }
+
+  auto& t = transaction();
+  _rows.begin_statement(t);
+  Outcome outcome;
+  try {
+    Evaluator evaluator(eval_settings());
+    const auto primary = table->primary_key();
+    // AUTO_INCREMENT: the statement's first need reserves a value for each
+    // of its rows (observed: the values of a failed statement are lost).
+    uint64_t next_auto = 0, reserved = 0, first_auto = 0;
+    for (size_t r = 0; r < in.rows.size(); ++r) {
+      const std::string at_row = " at row " + std::to_string(r + 1);
+      txn::Row row(table->columns.size());
+      std::vector<bool> set(table->columns.size(), false);
+      std::optional<size_t> generate;
+      const auto use_default = [&](size_t i) {
+        const auto& column = table->columns[i];
+        if (column.auto_increment) {
+          generate = i;
+        } else if (column.default_kind == catalog::Column::Default::value) {
+          row[i] = column.default_value;
+        } else if (column.default_kind == catalog::Column::Default::none && !column.nullable) {
+          throw SqlError(1364, "HY000", "Field '" + column.name + "' doesn't have a default value");
+        }
+        set[i] = true;
+      };
+      for (size_t j = 0; j < in.rows[r].size(); ++j) {
+        const size_t i = given[j];
+        const auto& column = table->columns[i];
+        const auto& e = *in.rows[r][j];
+        if (e.kind == sql::ExprKind::default_value) {
+          use_default(i);
+          continue;
+        }
+        const auto from = evaluator.type(e);
+        const auto value = evaluator.value(e);
+        set[i] = true;
+        if (is_null(value)) {
+          if (column.auto_increment) {
+            generate = i;
+          } else if (!column.nullable) {
+            throw SqlError(1048, "23000", "Column '" + column.name + "' cannot be null");
+          }
+          continue;
+        }
+        const auto stored = store(column.type, value, from);
+        const auto value_text = [&]() {
+          const auto text = to_text(value, from);
+          return text.value_or("NULL");
+        };
+        switch (stored.result) {
+          case Stored::Result::truncated:
+            _warnings.push_back({"Note", 1265, "Data truncated for column '" + column.name + "'" + at_row});
+            [[fallthrough]];
+          case Stored::Result::stored:
+            row[i] = stored.text;
+            break;
+          case Stored::Result::out_of_range:
+            throw SqlError(1264, "22003", "Out of range value for column '" + column.name + "'" + at_row);
+          case Stored::Result::too_long:
+            throw SqlError(1406, "22001", "Data too long for column '" + column.name + "'" + at_row);
+          case Stored::Result::garbage:
+            if (column.type.kind != catalog::TypeKind::decimal) throw SqlError(1265, "01000", "Data truncated for column '" + column.name + "'" + at_row);
+            [[fallthrough]];
+          case Stored::Result::invalid:
+            if (catalog::is_text(column.type.kind))
+              throw SqlError(1366, "HY000", "Incorrect string value: '" + escaped_bytes(value_text()) + "' for column '" + column.name + "'" + at_row);
+            throw SqlError(1366, "HY000",
+                           std::string("Incorrect ") + (column.type.kind == catalog::TypeKind::decimal ? "decimal" : "integer") + " value: '" + value_text() +
+                               "' for column '" + column.name + "'" + at_row);
+        }
+        // 0 in an AUTO_INCREMENT column asks for the next value.
+        if (column.auto_increment) {
+          if (*row[i] == "0") {
+            generate = i;
+            row[i].reset();
+          } else if ((*row[i])[0] != '-') {
+            _rows.saw_auto(table->id, table->auto_increment, std::stoull(*row[i]));
+          }
+        }
+      }
+      for (size_t i = 0; i < table->columns.size(); ++i)
+        if (!set[i]) use_default(i);
+      if (generate) {
+        if (reserved == 0) {
+          reserved = in.rows.size() - r;
+          next_auto = _rows.reserve_auto(table->id, table->auto_increment, reserved);
+        }
+        const uint64_t value = next_auto++;
+        --reserved;
+        if (first_auto == 0) first_auto = value;
+        row[*generate] = std::to_string(value);
+      }
+      std::string key;
+      if (primary) {
+        key = encode_key(*table, table->keys[*primary], row);
+      } else {
+        key.assign(8, '\0');
+        uint64_t id = _rows.next_row_id(table->id);
+        for (int b = 7; b >= 0; --b, id >>= 8) key[static_cast<size_t>(b)] = static_cast<char>(id & 0xff);
+      }
+      std::vector<std::string> unique;
+      for (size_t k = 0; k < table->keys.size(); ++k) {
+        const auto& kd = table->keys[k];
+        if (kd.kind == catalog::Key::Kind::index || primary == k || key_has_null(kd, row)) continue;
+        unique.push_back(kd.name + std::string(1, '\0') + encode_key(*table, kd, row));
+      }
+      std::string duplicate;
+      switch (_rows.insert(t, table->id, key, unique, row, &duplicate)) {
+        case txn::Store::Inserted::inserted:
+          ++outcome.affected_rows;
+          break;
+        case txn::Store::Inserted::locked:
+          throw SqlError(1205, "HY000", "Lock wait timeout exceeded; try restarting transaction");
+        case txn::Store::Inserted::duplicate: {
+          const auto& kd = duplicate.empty() ? table->keys[*primary] : *std::find_if(table->keys.begin(), table->keys.end(), [&](const catalog::Key& k) {
+            return k.name == duplicate.substr(0, duplicate.find('\0'));
+          });
+          throw SqlError(1062, "23000", "Duplicate entry '" + key_text(kd, row) + "' for key '" + table->name + "." + kd.name + "'");
+        }
+      }
+    }
+    if (first_auto) {
+      _last_insert_id = first_auto;
+      outcome.last_insert_id = first_auto;
+    }
+  } catch (...) {
+    _rows.undo_statement(t);
+    end_statement(true);
+    throw;
+  }
+  end_statement(false);
+  if (in.rows.size() > 1) outcome.info = "Records: " + std::to_string(in.rows.size()) + "  Duplicates: 0  Warnings: " + std::to_string(_warnings.size());
+  return outcome;
 }
 
 Outcome Session::select(const sql::Select& select) {
@@ -641,6 +992,11 @@ Outcome Session::drop_database(const sql::Statement& statement) {
   // A row affected for each table dropped with it (observed).
   Outcome outcome;
   size_t tables = 0;
+  std::vector<uint64_t> ids;
+  for (const auto& table : _catalog.table_names(name).value_or(std::vector<std::string>{}))
+    if (const auto found = _catalog.table({name, table})) ids.push_back(found->id);
+  if (_catalog.database(name))
+    for (const auto id : ids) _rows.drop_table(id);
   if (!_catalog.drop_database(name, &tables)) {
     const std::string message = "Can't drop database '" + name + "'; database doesn't exist";
     if (!statement.if_exists) throw SqlError(1008, "HY000", message);
@@ -714,7 +1070,13 @@ Outcome Session::drop_table(const sql::Statement& statement) {
     if (std::find(names.begin(), names.end(), name) != names.end()) throw SqlError(1066, "42000", "Not unique table/alias: '" + name.name + "'");
     names.push_back(std::move(name));
   }
+  // Their rows go with them.
+  std::vector<uint64_t> ids;
+  for (const auto& name : names)
+    if (const auto found = _catalog.table(name)) ids.push_back(found->id);
   const auto missing = _catalog.drop_tables(names, statement.if_exists);
+  if (missing.empty() || statement.if_exists)
+    for (const auto id : ids) _rows.drop_table(id);
   if (!missing.empty()) {
     if (!statement.if_exists) {
       std::string list;

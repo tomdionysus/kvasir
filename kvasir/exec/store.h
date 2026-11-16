@@ -29,6 +29,7 @@ struct Stored {
     truncated,     // stored, losing digits past the scale or trailing spaces (Note 1265)
     out_of_range,  // past the type's range
     invalid,       // not a number where one is needed, or not text of the column's character set
+    garbage,       // a number with more after it (1265 for an integer or DOUBLE column, 1366 for DECIMAL)
     too_long,      // longer than the column
   };
   Result result = Result::stored;

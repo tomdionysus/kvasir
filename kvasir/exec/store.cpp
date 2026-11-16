@@ -31,7 +31,7 @@ std::string_view trim(std::string_view s) {
   return s;
 }
 
-enum class Parse : uint8_t { ok, not_a_number, too_big };
+enum class Parse : uint8_t { ok, not_a_number, trailing, too_big };
 
 // The digits a DECIMAL column can hold before the point, and a little more to
 // round from after it.
@@ -65,10 +65,10 @@ Parse exact_decimal(std::string_view text, Decimal& out, bool& lost) {
     if (i < text.size() && (text[i] == '+' || text[i] == '-')) exponent_negative = text[i++] == '-';
     const size_t start = i;
     for (; i < text.size() && is_digit(text[i]); ++i) exponent = std::min(exponent * 10 + (text[i] - '0'), 100000L);
-    if (i == start) return Parse::not_a_number;
+    if (i == start) return Parse::trailing;
     if (exponent_negative) exponent = -exponent;
   }
-  if (i != text.size()) return Parse::not_a_number;
+  if (i != text.size()) return Parse::trailing;
   lost = false;
   if (digits.find_first_not_of('0') == std::string::npos) {
     out = Decimal();
@@ -134,7 +134,10 @@ Parse as_exact(const Value& value, const ResultType& from, Decimal& out, bool& l
   return Parse::ok;
 }
 
-Result failure(Parse p) { return p == Parse::too_big ? Result::out_of_range : Result::invalid; }
+Result failure(Parse p) {
+  if (p == Parse::too_big) return Result::out_of_range;
+  return p == Parse::trailing ? Result::garbage : Result::invalid;
+}
 
 // The digits before the point.
 size_t whole_digits(const Decimal& d) {
@@ -182,7 +185,8 @@ Stored store_integer(const catalog::ColumnType& type, const Value& value, const 
 Stored store_decimal(const catalog::ColumnType& type, const Value& value, const ResultType& from) {
   Decimal x;
   bool lost = false;
-  if (const auto p = as_exact(value, from, x, lost); p != Parse::ok) return {failure(p), {}};
+  // A DECIMAL column calls any string it cannot read invalid (observed).
+  if (const auto p = as_exact(value, from, x, lost); p != Parse::ok) return {p == Parse::too_big ? Result::out_of_range : Result::invalid, {}};
   const auto r = x.rounded(type.scale);
   if (type.is_unsigned && r.negative()) return {Result::out_of_range, {}};
   if (whole_digits(r) > static_cast<size_t>(type.length - type.scale)) return {Result::out_of_range, {}};
@@ -193,7 +197,8 @@ Stored store_decimal(const catalog::ColumnType& type, const Value& value, const 
 bool numeric(std::string_view text) {
   Decimal unused;
   bool lost = false;
-  return exact_decimal(text, unused, lost) != Parse::not_a_number;
+  const auto p = exact_decimal(text, unused, lost);
+  return p == Parse::ok || p == Parse::too_big;
 }
 
 // A FLOAT as MySQL shows it: the fewest digits that read back as the same
@@ -224,7 +229,9 @@ Stored store_real(const catalog::ColumnType& type, const Value& value, const Res
       d = static_cast<double>(*n);
     } else {
       const std::string text(trim(*s));
-      if (!numeric(text)) return {Result::invalid, {}};
+      // A DOUBLE or FLOAT column calls any string it cannot read truncated
+      // (observed).
+      if (!numeric(text)) return {Result::garbage, {}};
       d = std::strtod(text.c_str(), nullptr);
     }
   }

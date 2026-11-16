@@ -53,7 +53,7 @@ class CommandPhase {
  private:
   CommandStep query(std::string_view text);
   void send(protocol::Bytes& out, const protocol::Bytes& payload);
-  void ok(protocol::Bytes& out, uint64_t affected_rows = 0, uint64_t last_insert_id = 0);
+  void ok(protocol::Bytes& out, uint64_t affected_rows = 0, uint64_t last_insert_id = 0, const std::string& info = {});
   void error(protocol::Bytes& out, uint16_t code, const std::string& sqlstate, const std::string& message);
   uint16_t warning_count() const;
 

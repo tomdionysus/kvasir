@@ -37,6 +37,7 @@ add_library(kvasir SHARED
   exec/decimal.cpp
   exec/expression.cpp
   exec/session.cpp
+  exec/rows.cpp
   exec/store.cpp
   exec/variables.cpp
   protocol/caching_sha2.cpp
@@ -53,6 +54,7 @@ add_library(kvasir SHARED
   sql/keywords.cpp
   sql/lexer.cpp
   sql/parser.cpp
+  txn/store.cpp
   version.cpp
 )
 target_include_directories(kvasir

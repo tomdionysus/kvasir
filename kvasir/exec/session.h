@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -19,16 +20,22 @@
 #include "kvasir/exec/variables.h"
 #include "kvasir/sql/ast.h"
 #include "kvasir/sql/parser.h"
+#include "kvasir/txn/store.h"
 
 // A client's session: its variables, user variables, current database and
 // transaction, and the statements run against them. Databases and tables are
-// the node's catalog's, shared with every other session. SELECT runs over no
-// table (a select list, WHERE, LIMIT) or over one table's columns, which hold
-// no rows until INSERT is built; SET sets variables; USE, CREATE and DROP
-// DATABASE, SHOW DATABASES, CREATE and DROP TABLE and SHOW TABLES work on the
-// catalog; BEGIN, COMMIT and ROLLBACK mark the transaction a client sees in
-// its status flags. Not thread-safe: one connection's strand owns it (the
-// catalog is safe from any thread).
+// the node's catalog's, and rows the node's store's, shared with every other
+// session. SELECT runs over no table (a select list, WHERE, LIMIT) or over
+// one table's rows (WHERE, ORDER BY, LIMIT); INSERT adds rows; SET sets
+// variables; USE, CREATE and DROP DATABASE, SHOW DATABASES, CREATE and DROP
+// TABLE and SHOW TABLES work on the catalog. Transactions are the store's:
+// BEGIN or autocommit = 0 opens one, COMMIT and ROLLBACK end it, and with
+// autocommit each statement is one; DDL commits first; a failed statement
+// undoes only itself. REPEATABLE READ (a snapshot at the first read) and
+// READ COMMITTED (a snapshot each statement) are served, READ UNCOMMITTED
+// as READ COMMITTED; SERIALIZABLE is refused until read marks exist. Not
+// thread-safe: one connection's strand owns it (the catalog and store are
+// safe from any thread).
 namespace kvasir::exec {
 
 struct Column {
@@ -51,11 +58,13 @@ struct ResultSet {
   std::vector<std::vector<std::optional<std::string>>> rows;
 };
 
-// What a statement produced: rows, or an OK's counts.
+// What a statement produced: rows, or an OK's counts and its info text
+// ("Records: 2  Duplicates: 0  Warnings: 0" after a multi-row INSERT).
 struct Outcome {
   std::optional<ResultSet> result;
   uint64_t affected_rows = 0;
   uint64_t last_insert_id = 0;
+  std::string info;
 };
 
 struct SessionInfo {
@@ -66,8 +75,12 @@ struct SessionInfo {
 
 class Session : private VariableSource {
  public:
-  // `catalog` is the node's, and outlives the session.
-  Session(const VariableRegistry& registry, catalog::Catalog& catalog, SessionInfo info);
+  // `catalog` and `rows` are the node's, and outlive the session.
+  Session(const VariableRegistry& registry, catalog::Catalog& catalog, txn::Store& rows, SessionInfo info);
+  // A session that ends rolls back its transaction, freeing its locks.
+  ~Session();
+  Session(Session&&) = default;
+  Session& operator=(Session&&) = delete;
 
   // Runs one statement. Throws SqlError; its warnings, and only its, are
   // then in warnings().
@@ -112,6 +125,20 @@ class Session : private VariableSource {
   Outcome drop_table(const sql::Statement& statement);
   Outcome show_tables(const sql::Statement& statement);
   Outcome select_from_table(const sql::Select& select);
+  Outcome insert(const sql::Statement& statement);
+  // The transaction a statement runs in: the open one, else a new one, which
+  // autocommit commits when the statement ends.
+  txn::Transaction& transaction();
+  // Ends the statement's transaction as autocommit says: committed when no
+  // explicit transaction is open, or kept.
+  void end_statement(bool failed);
+  // DDL commits what came before it.
+  void implicit_commit();
+  void rollback();
+  // SERIALIZABLE is refused until read marks exist.
+  void check_isolation() const;
+  // A statement that reads takes its snapshot as the isolation level says.
+  void begin_reading(txn::Transaction& t);
   // The database a [schema.]name refers to: the one named, else the current
   // one (1046 when there is none).
   std::string database_of(const std::vector<std::string>& name) const;
@@ -126,6 +153,11 @@ class Session : private VariableSource {
 
   const VariableRegistry& _registry;
   catalog::Catalog& _catalog;
+  txn::Store& _rows;
+  // The transaction under way, if any: an explicit one, or a statement's.
+  std::unique_ptr<txn::Transaction> _transaction;
+  // LAST_INSERT_ID(): the first value the last INSERT that made one made.
+  uint64_t _last_insert_id = 0;
   SessionInfo _info;
   SessionVariables _variables;
   std::map<std::string, UserVariable> _user;

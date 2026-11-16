@@ -1,0 +1,131 @@
+//
+// Kvasir - The Distributed Relational Database
+//
+// Copyright (C) 2026 Tom Cully <mail@tomcully.com>
+// Licensed under the GNU GPLv3 - see <https://www.gnu.org/licenses/gpl-3.0.html>
+//
+
+#pragma once
+
+#include <cstdint>
+#include <map>
+#include <optional>
+#include <set>
+#include <string>
+#include <vector>
+
+#include "dannan/contract/thread_safety.h"
+
+// A node's rows, in memory (step 2): every table's rows as versions, each
+// stamped with the commit that wrote it, and the transactions that read and
+// write them. In the cluster this becomes each range's replicated state (the
+// design's "One truth" and "Transactions"); here it is one node's, and the
+// shape of a transaction is the design's: writes buffered at the
+// coordinator, row locks taken as they are written, a snapshot per
+// transaction (REPEATABLE READ) or per statement (READ COMMITTED), and every
+// write of a transaction made visible at once by its commit.
+//
+// Rows are keyed by bytes that sort as the table's primary key does (the
+// caller encodes them; a table with no primary key keys rows by a hidden row
+// id). A unique key is a lock name too, so two transactions inserting one
+// value contend for it. The store knows nothing of SQL types.
+//
+// Waiting: a lock another transaction holds is not waited for yet; the
+// writer is told at once (the session answers 1205). Waits with a deadline
+// come with asynchronous statements.
+//
+// Thread safety: every operation takes the store's one lock, held only for
+// the operation; safe from any thread. No operation waits on anything else.
+namespace kvasir::txn {
+
+// Each column's value as stored, in the text a client is sent; nothing for
+// NULL.
+using Row = std::vector<std::optional<std::string>>;
+
+class Store;
+
+// One transaction's state. Belongs to one session; the store reads and
+// changes it only under its own lock, through the calls below.
+class Transaction {
+ public:
+  uint64_t id() const noexcept { return _id; }
+  bool has_writes() const noexcept { return !_writes.empty(); }
+
+ private:
+  friend class Store;
+  uint64_t _id = 0;
+  struct Pending {
+    Row row;
+    std::vector<std::string> unique;
+  };
+  // The commit sequence it reads at, once it has read.
+  std::optional<uint64_t> _snapshot;
+  // Rows it inserted, by table and key, not yet committed.
+  std::map<uint64_t, std::map<std::string, Pending>> _writes;
+  // Lock names it holds.
+  std::set<std::string> _locks;
+  // What the statement under way added, undone if it fails.
+  std::vector<std::pair<uint64_t, std::string>> _statement_writes;
+  std::vector<std::string> _statement_locks;
+};
+
+class Store {
+ public:
+  // A new transaction with no snapshot yet.
+  Transaction begin();
+  // Takes the snapshot now, if it has none (the first read of a REPEATABLE
+  // READ transaction, every statement of a READ COMMITTED one).
+  void take_snapshot(Transaction& t, bool fresh);
+  // Makes its writes visible, as one commit, and frees its locks.
+  void commit(Transaction& t);
+  // Drops its writes and frees its locks.
+  void rollback(Transaction& t);
+  // Marks the start of a statement: what it adds can be undone alone.
+  void begin_statement(Transaction& t);
+  void undo_statement(Transaction& t);
+
+  enum class Inserted : uint8_t { inserted, duplicate, locked };
+  // Inserts a row under `key`, locking it and each name in `unique` (the
+  // row's non-NULL unique key values, encoded with their key's name).
+  // `duplicate_of` is set to the unique name, or "" for the primary key,
+  // that another row already holds.
+  Inserted insert(Transaction& t, uint64_t table, const std::string& key, const std::vector<std::string>& unique, Row row, std::string* duplicate_of);
+
+  // The rows `t` sees, in key order: its snapshot's, and its own writes.
+  std::vector<Row> rows(Transaction& t, uint64_t table);
+
+  // AUTO_INCREMENT: `count` values from the table's counter, the first
+  // returned; it starts at `start` the first time.
+  uint64_t reserve_auto(uint64_t table, uint64_t start, uint64_t count);
+  // A value given explicitly: the counter moves past it.
+  void saw_auto(uint64_t table, uint64_t start, uint64_t value);
+  // The hidden row id of a table with no primary key.
+  uint64_t next_row_id(uint64_t table);
+
+  // A table is gone: its rows, versions and counters with it.
+  void drop_table(uint64_t table);
+
+ private:
+  struct Version {
+    uint64_t commit = 0;
+    Row row;
+  };
+  struct Rows {
+    std::map<std::string, std::vector<Version>> by_key;
+    // Committed unique names, to the key of the row that holds each.
+    std::map<std::string, std::string> unique;
+    uint64_t next_auto = 0;
+    uint64_t next_row_id = 1;
+  };
+  static std::string lock_name(uint64_t table, const std::string& name);
+  void release(Transaction& t) DANNAN_REQUIRES(_mutex);
+
+  mutable dannan::contract::Mutex _mutex;
+  std::map<uint64_t, Rows> _tables DANNAN_GUARDED_BY(_mutex);
+  // Lock name to the transaction holding it.
+  std::map<std::string, uint64_t> _locks DANNAN_GUARDED_BY(_mutex);
+  uint64_t _last_commit DANNAN_GUARDED_BY(_mutex) = 0;
+  uint64_t _next_transaction DANNAN_GUARDED_BY(_mutex) = 1;
+};
+
+}  // namespace kvasir::txn

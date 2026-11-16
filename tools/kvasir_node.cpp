@@ -73,6 +73,7 @@ int serve(const kvasir::server::NodeSettings& node) {
   // after it.
   const kvasir::exec::VariableRegistry registry(node.ack_level, server_version, version_comment);
   kvasir::catalog::Catalog catalog;
+  kvasir::txn::Store rows;
   const kvasir::server::Accounts accounts(node.users);
   kvasir::server::VerifierCache verifiers;
   dannan::sched::ClassGates gates;
@@ -106,7 +107,7 @@ int serve(const kvasir::server::NodeSettings& node) {
     settings.connection_id = next_id++;
     const auto executor = stream->get_executor();
     std::make_shared<kvasir::server::Connection>(std::make_shared<kvasir::server::StreamTransport>(std::move(stream)), executor, settings, registry, catalog,
-                                                 verifiers, checker, &backoff)
+                                                 rows, verifiers, checker, &backoff)
         ->start();
   });
   boost::asio::signal_set signals(io, SIGINT, SIGTERM);
