@@ -183,6 +183,34 @@ class Parser {
       take();
       if (peek().kind == TokenKind::hint) s.hint = take().value;
       accept_word("WORK");
+    } else if (word("CREATE")) {
+      take();
+      if (!accept_word("DATABASE")) expect_word("SCHEMA");
+      s.kind = Statement::Kind::create_database;
+      if (accept_word("IF")) {
+        expect_word("NOT");
+        expect_word("EXISTS");
+        s.if_exists = true;
+      }
+      s.database = name();
+      parse_database_options(s);
+    } else if (word("DROP")) {
+      take();
+      if (!accept_word("DATABASE")) expect_word("SCHEMA");
+      s.kind = Statement::Kind::drop_database;
+      if (accept_word("IF")) {
+        expect_word("EXISTS");
+        s.if_exists = true;
+      }
+      s.database = name();
+    } else if (word("SHOW") && (word("DATABASES", 1) || word("SCHEMAS", 1))) {
+      take();
+      take();
+      s.kind = Statement::Kind::show_databases;
+      if (accept_word("LIKE")) {
+        if (peek().kind != TokenKind::string) fail(peek());
+        s.like = take().value;
+      }
     } else if (word("SHOW")) {
       s.kind = Statement::Kind::show_warnings;
       take();
@@ -215,6 +243,27 @@ class Parser {
       fail(peek());
     }
     return s;
+  }
+
+  // CREATE DATABASE's [DEFAULT] CHARACTER SET | CHARSET [=] name and
+  // [DEFAULT] COLLATE [=] name, in any order.
+  void parse_database_options(Statement& s) {
+    while (!statement_ends()) {
+      accept_word("DEFAULT");
+      std::string* target = nullptr;
+      if (accept_word("CHARACTER")) {
+        expect_word("SET");
+        target = &s.charset;
+      } else if (accept_word("CHARSET")) {
+        target = &s.charset;
+      } else if (accept_word("COLLATE")) {
+        target = &s.collation;
+      } else {
+        fail(peek());
+      }
+      if (symbol("=")) take();
+      *target = charset_name();
+    }
   }
 
   void parse_characteristics(Statement& s) {

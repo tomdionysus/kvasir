@@ -768,3 +768,71 @@ end
 statement SELECT @tie2 = @tie3
 error 1267|HY000|Illegal mix of collations (utf8mb4_0900_ai_ci,IMPLICIT) and (utf8mb4_0900_as_cs,IMPLICIT) for operation '='
 end
+statement CREATE DATABASE kv_gate
+end
+statement CREATE DATABASE kv_gate
+error 1007|HY000|Can't create database 'kv_gate'; database exists
+end
+statement CREATE DATABASE IF NOT EXISTS kv_gate
+end
+statement CREATE SCHEMA kv_Gate
+end
+statement CREATE DATABASE kv_gate2 CHARACTER SET utf8mb4 COLLATE utf8mb4_bin
+end
+statement CREATE DATABASE kv_gate4 COLLATE nope
+error 1273|HY000|Unknown collation: 'nope'
+end
+statement CREATE DATABASE kv_gate5 CHARACTER SET utf8mb4 COLLATE latin1_swedish_ci
+error 1253|42000|COLLATION 'latin1_swedish_ci' is not valid for CHARACTER SET 'utf8mb4'
+end
+statement CREATE DATABASE `kv gate `
+error 1102|42000|Incorrect database name 'kv gate '
+end
+statement CREATE DATABASE information_schema
+error 1044|42000|Access denied for user 'root'@'localhost' to database 'information_schema'
+end
+statement SHOW DATABASES LIKE 'kv_gate%'
+column Database (kv_gate%)|VAR_STRING|255|256|0|NOT_NULL BINARY NO_DEFAULT_VALUE
+row kv_gate
+row kv_gate2
+end
+statement SHOW SCHEMAS LIKE 'kv\_gate_'
+column Database (kv\_gate_)|VAR_STRING|255|256|0|NOT_NULL BINARY NO_DEFAULT_VALUE
+row kv_gate2
+end
+statement USE kv_gate
+end
+statement SELECT DATABASE()
+column DATABASE()|VAR_STRING|255|256|31|
+row kv_gate
+end
+statement SELECT * FROM kv_gate.t
+error 1146|42S02|Table 'kv_gate.t' doesn't exist
+end
+statement SELECT * FROM t
+error 1146|42S02|Table 'kv_gate.t' doesn't exist
+end
+statement SELECT * FROM kv_none.t
+error 1049|42000|Unknown database 'kv_none'
+end
+statement DROP DATABASE kv_gate
+end
+statement SELECT DATABASE()
+column DATABASE()|VAR_STRING|255|256|31|
+row \N
+end
+statement DROP DATABASE kv_gate
+error 1008|HY000|Can't drop database 'kv_gate'; database doesn't exist
+end
+statement DROP DATABASE IF EXISTS kv_gate
+end
+statement USE kv_gate
+error 1049|42000|Unknown database 'kv_gate'
+end
+statement DROP SCHEMA kv_Gate
+end
+statement DROP DATABASE kv_gate2
+end
+statement SHOW DATABASES LIKE 'kv_gate%'
+column Database (kv_gate%)|VAR_STRING|255|256|0|NOT_NULL BINARY NO_DEFAULT_VALUE
+end

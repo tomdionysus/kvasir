@@ -6,6 +6,7 @@
 #
 
 add_executable(kvasir_tests
+  catalog_catalog_test.cpp
   differential_test.cpp
   exec_collation_test.cpp
   exec_decimal_test.cpp

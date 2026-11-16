@@ -60,6 +60,8 @@ std::string flag_names(uint16_t flags) {
       {c::auto_increment, "AUTO_INCREMENT"},
       {c::timestamp, "TIMESTAMP"},
       {c::set, "SET"},
+      {c::no_default_value, "NO_DEFAULT_VALUE"},
+      {c::on_update_now, "ON_UPDATE_NOW"},
       {c::num, "NUM"},
   };
   std::string out;
@@ -123,7 +125,8 @@ std::vector<std::string> answer(exec::Session& session, const std::string& state
 
 void run(const std::string& name) {
   static const exec::VariableRegistry registry("replicated", "8.4.13-kvasir", "Kvasir - The Distributed Relational Database (in memory, not durable)");
-  exec::Session session(registry, exec::SessionInfo{"root", "localhost", 1});
+  catalog::Catalog node;
+  exec::Session session(registry, node, exec::SessionInfo{"root", "localhost", 1});
   const auto cases = load(name);
   ASSERT_FALSE(cases.empty());
   size_t matched = 0;

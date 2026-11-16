@@ -177,6 +177,7 @@ std::vector<Packet> packets(const Bytes& bytes) {
 struct Bed {
   boost::asio::io_context io;
   std::shared_ptr<FakeTransport> transport = std::make_shared<FakeTransport>(io);
+  catalog::Catalog node;
   VerifierCache verifiers;
   FakeChecker checker;
   std::shared_ptr<Connection> connection;
@@ -185,7 +186,7 @@ struct Bed {
     ConnectionSettings settings;
     settings.server_version = "8.4.13-kvasir";
     settings.connection_id = 7;
-    connection = std::make_shared<Connection>(transport, io.get_executor(), settings, registry(), verifiers, checker);
+    connection = std::make_shared<Connection>(transport, io.get_executor(), settings, registry(), node, verifiers, checker);
     connection->start();
     run();
   }

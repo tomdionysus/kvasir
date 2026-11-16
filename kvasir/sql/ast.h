@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -126,11 +127,19 @@ struct Assignment {
 };
 
 struct Statement {
-  enum class Kind : uint8_t { select, set, use, begin, commit, rollback, show_warnings };
+  enum class Kind : uint8_t { select, set, use, begin, commit, rollback, show_warnings, create_database, drop_database, show_databases };
   Kind kind = Kind::select;
   Select select;
   std::vector<Assignment> assignments;
+  // USE, CREATE DATABASE and DROP DATABASE: the database named.
   std::string database;
+  // CREATE DATABASE IF NOT EXISTS, DROP DATABASE IF EXISTS.
+  bool if_exists = false;
+  // CREATE DATABASE's character set and collation, empty for none given.
+  std::string charset;
+  std::string collation;
+  // SHOW DATABASES LIKE: the pattern.
+  std::optional<std::string> like;
   // START TRANSACTION READ ONLY.
   bool read_only = false;
   // COMMIT's optimizer hint, Kvasir's place for ack_level.

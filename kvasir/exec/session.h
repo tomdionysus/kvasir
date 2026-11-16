@@ -13,18 +13,21 @@
 #include <string>
 #include <vector>
 
+#include "kvasir/catalog/catalog.h"
 #include "kvasir/exec/expression.h"
 #include "kvasir/exec/variables.h"
 #include "kvasir/sql/ast.h"
 #include "kvasir/sql/parser.h"
 
 // A client's session: its variables, user variables, current database and
-// transaction, and the statements run against them. No tables exist yet, so
-// a statement that names one is refused as MySQL refuses it when there is no
-// such table: SELECT runs over no table (a select list, WHERE, LIMIT),
-// SET sets variables, USE knows no database, and BEGIN, COMMIT and ROLLBACK
-// mark the transaction a client sees in its status flags. Not thread-safe:
-// one connection's strand owns it.
+// transaction, and the statements run against them. Databases are the node's
+// catalog's, shared with every other session; no tables exist yet, so a
+// statement that names one is refused as MySQL refuses it when there is no
+// such table: SELECT runs over no table (a select list, WHERE, LIMIT), SET
+// sets variables, USE, CREATE DATABASE, DROP DATABASE and SHOW DATABASES
+// work on the catalog, and BEGIN, COMMIT and ROLLBACK mark the transaction a
+// client sees in its status flags. Not thread-safe: one connection's strand
+// owns it (the catalog is safe from any thread).
 namespace kvasir::exec {
 
 struct Column {
@@ -53,7 +56,8 @@ struct SessionInfo {
 
 class Session : private VariableSource {
  public:
-  Session(const VariableRegistry& registry, SessionInfo info);
+  // `catalog` is the node's, and outlives the session.
+  Session(const VariableRegistry& registry, catalog::Catalog& catalog, SessionInfo info);
 
   // Runs one statement. Throws SqlError; its warnings, and only its, are
   // then in warnings().
@@ -91,6 +95,12 @@ class Session : private VariableSource {
   Outcome select(const sql::Select& select);
   void set(const std::vector<sql::Assignment>& assignments);
   void commit();
+  Outcome create_database(const sql::Statement& statement);
+  Outcome drop_database(const sql::Statement& statement);
+  Outcome show_databases(const sql::Statement& statement);
+  // MySQL's checks on a database name: 1059, 1102, and 1044 for
+  // information_schema.
+  void check_database_name(const std::string& name) const;
 
   struct UserVariable {
     Value value;
@@ -98,6 +108,7 @@ class Session : private VariableSource {
   };
 
   const VariableRegistry& _registry;
+  catalog::Catalog& _catalog;
   SessionInfo _info;
   SessionVariables _variables;
   std::map<std::string, UserVariable> _user;

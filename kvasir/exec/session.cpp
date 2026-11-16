@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <utility>
 
+#include "kvasir/exec/collation.h"
 #include "kvasir/protocol/messages.h"
 #include "kvasir/protocol/types.h"
 #include "kvasir/sql/keywords.h"
@@ -99,7 +100,8 @@ uint64_t limit_of(const sql::Expr& e) {
 
 }  // namespace
 
-Session::Session(const VariableRegistry& registry, SessionInfo info) : _registry(registry), _info(std::move(info)), _variables(registry) {}
+Session::Session(const VariableRegistry& registry, catalog::Catalog& catalog, SessionInfo info)
+    : _registry(registry), _catalog(catalog), _info(std::move(info)), _variables(registry) {}
 
 void Session::reset() {
   _variables.reset();
@@ -323,7 +325,15 @@ Outcome Session::run(const sql::Statement& statement) {
       set(statement.assignments);
       return {};
     case Kind::use:
-      throw SqlError(er_bad_db_error, "42000", "Unknown database '" + statement.database + "'");
+      if (!_catalog.database(statement.database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + statement.database + "'");
+      _database = statement.database;
+      return {};
+    case Kind::create_database:
+      return create_database(statement);
+    case Kind::drop_database:
+      return drop_database(statement);
+    case Kind::show_databases:
+      return show_databases(statement);
     case Kind::begin:
       if (_in_transaction) commit();
       _in_transaction = true;
@@ -341,8 +351,12 @@ Outcome Session::run(const sql::Statement& statement) {
 
 Outcome Session::select(const sql::Select& select) {
   if (!select.from.empty()) {
+    // No database holds a table yet.
     const auto& table = select.from.front();
-    if (table.name.size() == 2) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + table.name[0] + "'");
+    if (table.name.size() == 2) {
+      if (!_catalog.database(table.name[0])) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + table.name[0] + "'");
+      throw SqlError(1146, "42S02", "Table '" + table.name[0] + "." + table.name[1] + "' doesn't exist");
+    }
     if (!_database) throw SqlError(er_no_db_error, "3D000", "No database selected");
     throw SqlError(1146, "42S02", "Table '" + *_database + "." + table.name[0] + "' doesn't exist");
   }
@@ -460,6 +474,89 @@ void Session::set(const std::vector<sql::Assignment>& assignments) {
       }
     }
   }
+}
+
+void Session::check_database_name(const std::string& name) const {
+  size_t characters = 0;
+  for (const char ch : name)
+    if ((static_cast<uint8_t>(ch) & 0xc0) != 0x80) ++characters;
+  if (characters > 64) throw SqlError(1059, "42000", "Identifier name '" + name + "' is too long");
+  if (name.empty() || name.back() == ' ') throw SqlError(1102, "42000", "Incorrect database name '" + name + "'");
+  if (sql::same_word(name, "information_schema"))
+    throw SqlError(1044, "42000", "Access denied for user '" + _info.user + "'@'" + _info.host + "' to database '" + name + "'");
+}
+
+Outcome Session::create_database(const sql::Statement& statement) {
+  const auto& name = statement.database;
+  check_database_name(name);
+  // The character set and collation: as given, else the server's defaults.
+  std::string charset = statement.charset;
+  std::string collation = statement.collation;
+  if (!charset.empty()) {
+    if (charset_not_converted(charset))
+      throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'character set " + lower(charset) + "'");
+    if (!default_collation(charset)) throw SqlError(1115, "42000", "Unknown character set: '" + charset + "'");
+    charset = default_collation(charset)->charset;
+  }
+  if (!collation.empty()) {
+    const auto* info = find_collation(collation);
+    const std::string against = charset.empty() ? _variables.text("character_set_server") : charset;
+    if (!info) {
+      if (charset_not_converted(std::string_view(collation).substr(0, collation.find('_'))))
+        throw SqlError(1253, "42000", "COLLATION '" + collation + "' is not valid for CHARACTER SET '" + against + "'");
+      throw SqlError(1273, "HY000", "Unknown collation: '" + collation + "'");
+    }
+    if (!charset.empty() && info->charset != charset)
+      throw SqlError(1253, "42000", "COLLATION '" + collation + "' is not valid for CHARACTER SET '" + charset + "'");
+    charset = info->charset;
+    collation = info->name;
+  } else if (!charset.empty()) {
+    collation = default_collation(charset)->name;
+  } else {
+    charset = _variables.text("character_set_server");
+    collation = _variables.text("collation_server");
+  }
+  // One row affected even when IF NOT EXISTS finds it there (observed).
+  Outcome outcome;
+  outcome.affected_rows = 1;
+  if (!_catalog.create_database({name, charset, collation})) {
+    const std::string message = "Can't create database '" + name + "'; database exists";
+    if (!statement.if_exists) throw SqlError(1007, "HY000", message);
+    _warnings.push_back({"Note", 1007, message});
+  }
+  return outcome;
+}
+
+Outcome Session::drop_database(const sql::Statement& statement) {
+  const auto& name = statement.database;
+  check_database_name(name);
+  // No tables to drop yet: no rows affected.
+  if (!_catalog.drop_database(name)) {
+    const std::string message = "Can't drop database '" + name + "'; database doesn't exist";
+    if (!statement.if_exists) throw SqlError(1008, "HY000", message);
+    _warnings.push_back({"Note", 1008, message});
+  } else if (_database == name) {
+    _database.reset();
+  }
+  return {};
+}
+
+Outcome Session::show_databases(const sql::Statement& statement) {
+  ResultType type;
+  type.field_type = f::var_string;
+  type.collation = protocol::collation::utf8mb4_0900_ai_ci;
+  type.length = 256;
+  type.decimals = 0;
+  type.flags = c::not_null | c::binary | c::no_default_value;
+  ResultSet result;
+  result.columns.push_back({statement.like ? "Database (" + *statement.like + ")" : "Database", type});
+  // Names are matched as bytes, as they are compared.
+  const auto* bytes = collation_by_id(46);
+  for (const auto& name : _catalog.database_names())
+    if (!statement.like || bytes->like(name, *statement.like, "\\")) result.rows.push_back({name});
+  Outcome outcome;
+  outcome.result = std::move(result);
+  return outcome;
 }
 
 }  // namespace kvasir::exec

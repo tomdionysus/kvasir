@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "kvasir/catalog/catalog.h"
 #include "kvasir/exec/session.h"
 #include "kvasir/protocol/types.h"
 
@@ -29,7 +30,13 @@ const VariableRegistry& registry() {
   return r;
 }
 
-Session make() { return Session(registry(), SessionInfo{"root", "10.0.0.1", 7}); }
+// The node's catalog, which every session of a node shares.
+catalog::Catalog& node_catalog() {
+  static catalog::Catalog c;
+  return c;
+}
+
+Session make(catalog::Catalog& c = node_catalog()) { return Session(registry(), c, SessionInfo{"root", "10.0.0.1", 7}); }
 
 // Runs every statement in `sql`; the last one's outcome.
 Outcome run(Session& s, const std::string& sql) {
@@ -332,6 +339,87 @@ TEST(ExecSession, ColumnNames) {
   std::vector<std::string> names;
   for (const auto& c : o.result->columns) names.push_back(c.name);
   EXPECT_EQ(names, (std::vector<std::string>{"1+1", "abc", "one", "@@version_comment", "@a"}));
+}
+
+// CREATE DATABASE, DROP DATABASE, SHOW DATABASES and USE, observed on MySQL
+// 8.4.13, 2026-11-16 (lower_case_table_names = 0).
+TEST(ExecSession, Databases) {
+  catalog::Catalog node;
+  auto s = make(node);
+  auto other = make(node);
+  const auto expect_refused = [&](const std::string& sql, uint16_t code, const std::string& state, const std::string& message) {
+    SCOPED_TRACE(sql);
+    const auto r = refusal(s, sql);
+    EXPECT_EQ(r.code, code);
+    EXPECT_EQ(r.sqlstate, state);
+    EXPECT_EQ(r.message, message);
+  };
+
+  auto o = run(s, "CREATE DATABASE kv_probe");
+  EXPECT_FALSE(o.result);
+  EXPECT_EQ(o.affected_rows, 1u);
+  expect_refused("CREATE DATABASE kv_probe", 1007, "HY000", "Can't create database 'kv_probe'; database exists");
+  // IF NOT EXISTS: one row affected all the same, and a note.
+  o = run(s, "CREATE DATABASE IF NOT EXISTS kv_probe");
+  EXPECT_EQ(o.affected_rows, 1u);
+  ASSERT_EQ(s.warnings().size(), 1u);
+  EXPECT_EQ(s.warnings()[0].level, "Note");
+  EXPECT_EQ(s.warnings()[0].code, 1007);
+  run(s, "CREATE SCHEMA kv_Probe");
+  run(s, "CREATE DATABASE kv_probe2 CHARACTER SET utf8mb4 COLLATE utf8mb4_bin");
+  run(s, "CREATE DATABASE `kv.probe`");
+  expect_refused("CREATE DATABASE kv_probe4 COLLATE nope", 1273, "HY000", "Unknown collation: 'nope'");
+  expect_refused("CREATE DATABASE kv_probe5 CHARACTER SET utf8mb4 COLLATE latin1_swedish_ci", 1253, "42000",
+                 "COLLATION 'latin1_swedish_ci' is not valid for CHARACTER SET 'utf8mb4'");
+  expect_refused("CREATE DATABASE `kv probe `", 1102, "42000", "Incorrect database name 'kv probe '");
+  const std::string long_name(65, 'a');
+  expect_refused("CREATE DATABASE " + long_name, 1059, "42000", "Identifier name '" + long_name + "' is too long");
+  expect_refused("CREATE DATABASE information_schema", 1044, "42000", "Access denied for user 'root'@'10.0.0.1' to database 'information_schema'");
+  // Kvasir's own refusal: a character set it does not yet convert.
+  expect_refused("CREATE DATABASE kv_probe3 DEFAULT CHARSET = latin1", 1235, "42000", "This version of Kvasir doesn't yet support 'character set latin1'");
+
+  // Another session of the node sees them.
+  run(other, "USE kv_probe");
+  EXPECT_EQ(other.database(), "kv_probe");
+
+  o = run(s, "SHOW DATABASES LIKE 'kv%'");
+  ASSERT_TRUE(o.result);
+  ASSERT_EQ(o.result->columns.size(), 1u);
+  const auto& column = o.result->columns[0];
+  EXPECT_EQ(column.name, "Database (kv%)");
+  EXPECT_EQ(column.type.field_type, f::var_string);
+  EXPECT_EQ(column.type.collation, 255);
+  EXPECT_EQ(column.type.length, 256u);
+  EXPECT_EQ(column.type.decimals, 0);
+  EXPECT_EQ(column.type.flags, c::not_null | c::binary | c::no_default_value);
+  std::vector<std::string> names;
+  for (size_t i = 0; i < o.result->rows.size(); ++i) names.push_back(row(o, i).at(0));
+  EXPECT_EQ(names, (std::vector<std::string>{"kv.probe", "kv_Probe", "kv_probe", "kv_probe2"}));
+  o = run(s, "SHOW SCHEMAS LIKE 'kv_probe'");
+  names.clear();
+  for (size_t i = 0; i < o.result->rows.size(); ++i) names.push_back(row(o, i).at(0));
+  EXPECT_EQ(names, (std::vector<std::string>{"kv.probe", "kv_probe"}));
+  EXPECT_EQ(run(s, "SHOW DATABASES").result->columns[0].name, "Database");
+
+  run(s, "USE kv_probe");
+  expect_refused("SELECT * FROM kv_probe.t", 1146, "42S02", "Table 'kv_probe.t' doesn't exist");
+  expect_refused("SELECT * FROM t", 1146, "42S02", "Table 'kv_probe.t' doesn't exist");
+  o = run(s, "DROP DATABASE kv_probe");
+  EXPECT_EQ(o.affected_rows, 0u);
+  // Dropping the current database leaves none current.
+  EXPECT_FALSE(s.database());
+  expect_refused("DROP DATABASE kv_probe", 1008, "HY000", "Can't drop database 'kv_probe'; database doesn't exist");
+  // Known difference: MySQL's OK packet counts one warning here but its
+  // diagnostics area is left empty (SHOW WARNINGS lists nothing,
+  // @@warning_count is 0); Kvasir keeps the note its OK packet counts.
+  o = run(s, "DROP DATABASE IF EXISTS kv_probe");
+  EXPECT_EQ(o.affected_rows, 0u);
+  ASSERT_EQ(s.warnings().size(), 1u);
+  EXPECT_EQ(s.warnings()[0].code, 1008);
+  expect_refused("USE kv_probe", 1049, "42000", "Unknown database 'kv_probe'");
+  run(s, "DROP SCHEMA kv_Probe");
+  EXPECT_EQ(node.database_names(), (std::vector<std::string>{"kv.probe", "kv_probe2"}));
+  EXPECT_EQ(node.database("kv_probe2")->collation, "utf8mb4_bin");
 }
 
 }  // namespace

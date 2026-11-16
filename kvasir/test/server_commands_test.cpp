@@ -52,7 +52,8 @@ Packet command(uint8_t code, std::string_view body = {}, uint8_t sequence = 0) {
 }
 
 struct Fixture {
-  exec::Session session{registry(), exec::SessionInfo{"root", "10.0.0.1", 7}};
+  catalog::Catalog node;
+  exec::Session session{registry(), node, exec::SessionInfo{"root", "10.0.0.1", 7}};
   CommandPhase phase;
   explicit Fixture(uint32_t capabilities = capability::protocol_41 | capability::deprecate_eof) : phase(session, capabilities) {}
   std::vector<Packet> query(std::string_view sql) { return packets(phase.received(command(command::query, sql)).out); }

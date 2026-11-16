@@ -77,8 +77,10 @@ struct ConnectionSettings {
 
 class Connection : public std::enable_shared_from_this<Connection> {
  public:
+  // `registry`, `catalog`, `verifiers` and `checker` are the node's and
+  // outlive the connection.
   Connection(std::shared_ptr<Transport> transport, boost::asio::any_io_executor executor, ConnectionSettings settings, const exec::VariableRegistry& registry,
-             VerifierCache& verifiers, PasswordChecker& checker);
+             catalog::Catalog& catalog, VerifierCache& verifiers, PasswordChecker& checker);
 
   // Sends the greeting and serves the client until either side ends. On the
   // connection's executor; returns at once.
@@ -102,6 +104,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
   boost::asio::any_io_executor _executor;
   ConnectionSettings _settings;
   const exec::VariableRegistry& _registry;
+  catalog::Catalog& _catalog;
   PasswordChecker& _checker;
   SignIn _sign_in;
   protocol::PacketReader _reader;

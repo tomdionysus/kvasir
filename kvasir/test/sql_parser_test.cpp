@@ -397,5 +397,39 @@ TEST(SqlParser, TheErrorQuotesTheRestOfTheText) {
   }
 }
 
+// The manual's CREATE DATABASE, DROP DATABASE and SHOW DATABASES.
+TEST(SqlParser, DatabaseStatements) {
+  auto s = one("CREATE DATABASE d");
+  EXPECT_EQ(s.kind, Kind::create_database);
+  EXPECT_EQ(s.database, "d");
+  EXPECT_FALSE(s.if_exists);
+  EXPECT_TRUE(s.charset.empty());
+  s = one("CREATE SCHEMA IF NOT EXISTS `a b` DEFAULT CHARACTER SET = utf8mb4 DEFAULT COLLATE = utf8mb4_bin");
+  EXPECT_EQ(s.kind, Kind::create_database);
+  EXPECT_EQ(s.database, "a b");
+  EXPECT_TRUE(s.if_exists);
+  EXPECT_EQ(s.charset, "utf8mb4");
+  EXPECT_EQ(s.collation, "utf8mb4_bin");
+  s = one("CREATE DATABASE d CHARSET latin1 COLLATE 'x'");
+  EXPECT_EQ(s.charset, "latin1");
+  EXPECT_EQ(s.collation, "x");
+  s = one("DROP DATABASE IF EXISTS d");
+  EXPECT_EQ(s.kind, Kind::drop_database);
+  EXPECT_TRUE(s.if_exists);
+  s = one("DROP SCHEMA d");
+  EXPECT_EQ(s.kind, Kind::drop_database);
+  EXPECT_FALSE(s.if_exists);
+  s = one("SHOW DATABASES");
+  EXPECT_EQ(s.kind, Kind::show_databases);
+  EXPECT_FALSE(s.like);
+  s = one("SHOW SCHEMAS LIKE 'kv%'");
+  EXPECT_EQ(s.kind, Kind::show_databases);
+  EXPECT_EQ(s.like.value_or(""), "kv%");
+  EXPECT_EQ(error_at("CREATE DATABASE"), 15u);
+  EXPECT_EQ(error_at("DROP DATABASE IF d"), 17u);
+  EXPECT_EQ(error_at("SHOW DATABASES LIKE 1"), 20u);
+  EXPECT_EQ(error_at("CREATE DATABASE d NOPE"), 18u);
+}
+
 }  // namespace
 }  // namespace kvasir::sql
