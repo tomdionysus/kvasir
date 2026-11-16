@@ -66,7 +66,7 @@ sanitizer gate, since ASan cannot start on the Pis' 39-bit kernels):
   credential.
 - The differential gate, recorded: `tools/record_mysql.sh` runs
   `kvasir/test/differential/session.sql` on the reference server, and
-  `differential_test.cpp` replays it through a session: 128 of 128
+  `differential_test.cpp` replays it through a session: 140 of 140
   statements answer as MySQL 8.4 does. Re-record when the list grows.
 - Collations (ruling 32): `tools/kvasir_ducet.cpp` compiles
   `kvasir/data/unicode/allkeys-9.0.0.txt` into the library at build time;
@@ -81,7 +81,8 @@ sanitizer gate, since ASan cannot start on the Pis' 39-bit kernels):
   utf8mb3_general_ci and utf8mb4_general_ci (ruling 33):
   `tools/kvasir_general_ci.cpp` derives their weights from
   `UnicodeData-3.0.0.txt`; all 63,488 BMP weights equal the reference
-  server's. PAD SPACE pads the shorter string, as MySQL does.
+  server's. PAD SPACE pads the shorter string, as MySQL does. LIKE
+  matches under the pair's collation, one character at a time.
 - The fuzz targets have run (libFuzzer, clang 19 on node-a, fuzzer and
   UBSan): the lexer's found an empty token, fixed; the packet reader and
   parser ran clean for a minute each. Corpora in `/root/kvasir-work/corpus`
@@ -117,9 +118,10 @@ and the reference server first, and watched to fail:
 2. `kvasir-node` listening on port 3306 with its YAML settings (`ack_level`
    with no built-in default, the users), then a real `mysql` client against
    it by hand on a build Pi. Needs 0.8.4.
-3. LIKE under a collation (refused with 1235), the COLLATE clause,
-   utf8mb4_unicode_ci, and character sets besides utf8mb4, utf8mb3 and
-   binary (N'...' and _latin1'...' are refused). Then the catalog and DDL.
+3. The COLLATE clause, utf8mb4_unicode_ci, and character sets besides
+   utf8mb4, utf8mb3 and binary (N'...' and _latin1'...' are refused); an
+   alias holding a character past the BMP (MySQL refuses it with 3854,
+   Kvasir accepts it). Then the catalog and DDL.
 4. Dannan 0.8.4 is built on its `release/0.8.4` (start_tls_unanswered at
    383b6f5), waiting on its release gate and the maintainer's push word. When tagged:
    move `KVASIR_DANNAN_TAG`, write the stream transport and the worker-pool

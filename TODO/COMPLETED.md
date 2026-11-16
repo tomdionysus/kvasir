@@ -2,6 +2,23 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-16: LIKE under a collation
+
+- Landed: `Collation::like`, one character at a time, each pair compared
+  under the collation by sort key, never padded, a byte at a time under the
+  binary character set; ESCAPE (one character, none when empty, 1210
+  otherwise); numbers matched by their text. Every expectation observed on
+  the reference server, including two ESCAPE '' answers reasoned first and
+  then confirmed.
+- Found by the differential gate: MySQL holds generated column names in
+  utf8mb3, so a character past the BMP in one becomes '?'; fixed with a
+  test. An alias holding one is refused by MySQL (3854) and still accepted
+  by Kvasir: recorded in the plan.
+- Test-first: against a stub, 3 failed (both LIKE suites and the gate, 132
+  of 140).
+- Gate: release on node-b **267 passed, 0 failed**, the
+  differential gate **140 of 140**.
+
 ## 2026-11-16: the general_ci collations, derived from Unicode 3.0.0
 
 - Ruling 33 (the maintainer, "Derive from Unicode"): Unicode 3.0.0's UnicodeData.txt
