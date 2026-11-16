@@ -1,0 +1,431 @@
+statement SELECT 1, -1, 2147483648, 9223372036854775807, 9223372036854775808, -9223372036854775808, 18446744073709551615, 18446744073709551616, 007, TRUE, FALSE
+column 1|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+column -1|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+column 2147483648|LONGLONG|63|11|0|NOT_NULL BINARY NUM
+column 9223372036854775807|LONGLONG|63|20|0|NOT_NULL BINARY NUM
+column 9223372036854775808|LONGLONG|63|19|0|NOT_NULL UNSIGNED BINARY NUM
+column -9223372036854775808|LONGLONG|63|20|0|NOT_NULL BINARY NUM
+column 18446744073709551615|LONGLONG|63|20|0|NOT_NULL UNSIGNED BINARY NUM
+column 18446744073709551616|NEWDECIMAL|63|21|0|NOT_NULL BINARY NUM
+column 007|LONGLONG|63|4|0|NOT_NULL BINARY NUM
+column TRUE|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column FALSE|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 1	-1	2147483648	9223372036854775807	9223372036854775808	-9223372036854775808	18446744073709551615	18446744073709551616	7	1	0
+end
+statement SELECT 1.5, -1.5, .5, 5., 1.50, 0.0, 123456789012345678901234567890.5
+column 1.5|NEWDECIMAL|63|4|1|NOT_NULL BINARY NUM
+column -1.5|NEWDECIMAL|63|4|1|NOT_NULL BINARY NUM
+column .5|NEWDECIMAL|63|3|1|NOT_NULL BINARY NUM
+column 5.|NEWDECIMAL|63|2|0|NOT_NULL BINARY NUM
+column 1.50|NEWDECIMAL|63|5|2|NOT_NULL BINARY NUM
+column 0.0|NEWDECIMAL|63|4|1|NOT_NULL BINARY NUM
+column 123456789012345678901234567890.5|NEWDECIMAL|63|33|1|NOT_NULL BINARY NUM
+row 1.5	-1.5	0.5	5	1.50	0.0	123456789012345678901234567890.5
+end
+statement SELECT 1e3, 1.5e-3, 0.1e1, -1e308, 1e14, 1e15, 1e-15, 1e-16, 1.7976931348623157e308
+column 1e3|DOUBLE|63|3|31|NOT_NULL BINARY NUM
+column 1.5e-3|DOUBLE|63|6|31|NOT_NULL BINARY NUM
+column 0.1e1|DOUBLE|63|5|31|NOT_NULL BINARY NUM
+column -1e308|DOUBLE|63|23|31|NOT_NULL BINARY NUM
+column 1e14|DOUBLE|63|4|31|NOT_NULL BINARY NUM
+column 1e15|DOUBLE|63|4|31|NOT_NULL BINARY NUM
+column 1e-15|DOUBLE|63|5|31|NOT_NULL BINARY NUM
+column 1e-16|DOUBLE|63|5|31|NOT_NULL BINARY NUM
+column 1.7976931348623157e308|DOUBLE|63|22|31|NOT_NULL BINARY NUM
+row 1000	0.0015	1	-1e308	100000000000000	1e15	0.000000000000001	1e-16	1.7976931348623157e308
+end
+statement SELECT 'abc', '', _latin1'x', N'n', 0x41, X'4142', 0b1000001, NULL
+column abc|VAR_STRING|255|12|31|NOT_NULL
+column |VAR_STRING|255|0|31|NOT_NULL
+column x|VAR_STRING|255|4|31|NOT_NULL
+column n|VAR_STRING|255|4|31|NOT_NULL
+column 0x41|VAR_STRING|63|1|0|NOT_NULL UNSIGNED BINARY
+column X'4142'|VAR_STRING|63|2|0|NOT_NULL UNSIGNED BINARY
+column 0b1000001|VAR_STRING|63|1|0|NOT_NULL BINARY
+column NULL|NULL|63|0|0|BINARY NUM
+row abc		x	n	A	AB	A	\N
+end
+statement SELECT 'a' 'b'
+column a|VAR_STRING|255|8|31|NOT_NULL
+row ab
+end
+statement SELECT 1+1, 1-2, 2*3, 7 DIV 2, 7 % 3, -7 % 3, 9223372036854775807+0, 18446744073709551615-1
+column 1+1|LONGLONG|63|3|0|NOT_NULL BINARY NUM
+column 1-2|LONGLONG|63|3|0|NOT_NULL BINARY NUM
+column 2*3|LONGLONG|63|3|0|NOT_NULL BINARY NUM
+column 7 DIV 2|LONGLONG|63|2|0|BINARY NUM
+column 7 % 3|LONGLONG|63|2|0|BINARY NUM
+column -7 % 3|LONGLONG|63|2|0|BINARY NUM
+column 9223372036854775807+0|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+column 18446744073709551615-1|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+row 2	-1	6	3	1	-1	9223372036854775807	18446744073709551614
+end
+statement SELECT 1.5+2.25, 1.5-2.25, 1.5*2.25, 1+1.5, 1.5/2.25, 1/3, 10/4, 1/3/3/3, 7.5 % 2, 7 % 2.5
+column 1.5+2.25|NEWDECIMAL|63|6|2|NOT_NULL BINARY NUM
+column 1.5-2.25|NEWDECIMAL|63|6|2|NOT_NULL BINARY NUM
+column 1.5*2.25|NEWDECIMAL|63|7|3|NOT_NULL BINARY NUM
+column 1+1.5|NEWDECIMAL|63|5|1|NOT_NULL BINARY NUM
+column 1.5/2.25|NEWDECIMAL|63|10|5|BINARY NUM
+column 1/3|NEWDECIMAL|63|7|4|BINARY NUM
+column 10/4|NEWDECIMAL|63|8|4|BINARY NUM
+column 1/3/3/3|NEWDECIMAL|63|15|12|BINARY NUM
+column 7.5 % 2|NEWDECIMAL|63|4|1|BINARY NUM
+column 7 % 2.5|NEWDECIMAL|63|4|1|BINARY NUM
+row 3.75	-0.75	3.375	2.5	0.66667	0.3333	2.5000	0.037037037000	1.5	2.0
+end
+statement SELECT 99999999999999999999999999999999999999999999999999999999999999999 + 1
+column 99999999999999999999999999999999999999999999999999999999999999999 + 1|NEWDECIMAL|63|67|0|NOT_NULL BINARY NUM
+row 100000000000000000000000000000000000000000000000000000000000000000
+end
+statement SELECT 1.000000000000000000000000000001 * 1.5
+column 1.000000000000000000000000000001 * 1.5|NEWDECIMAL|63|35|30|NOT_NULL BINARY NUM
+row 1.500000000000000000000000000002
+end
+statement SELECT 1+1e0, 7e0 % 2, 1/3e0, 0.1+0.2e0
+column 1+1e0|DOUBLE|63|23|31|NOT_NULL BINARY NUM
+column 7e0 % 2|DOUBLE|63|23|31|BINARY NUM
+column 1/3e0|DOUBLE|63|23|31|BINARY NUM
+column 0.1+0.2e0|DOUBLE|63|23|31|NOT_NULL BINARY NUM
+row 2	1	0.3333333333333333	0.30000000000000004
+end
+statement SELECT 5 DIV 2.5, 7.5 DIV 2, 1e0 DIV 2
+column 5 DIV 2.5|LONGLONG|63|3|0|BINARY NUM
+column 7.5 DIV 2|LONGLONG|63|2|0|BINARY NUM
+column 1e0 DIV 2|LONGLONG|63|22|0|BINARY NUM
+row 2	3	0
+end
+statement SELECT -18446744073709551615, - 9223372036854775808, -(-9223372036854775808), - -1, -0, -0.0, -1e0
+column -18446744073709551615|NEWDECIMAL|63|21|0|NOT_NULL BINARY NUM
+column - 9223372036854775808|LONGLONG|63|20|0|NOT_NULL BINARY NUM
+column -(-9223372036854775808)|NEWDECIMAL|63|20|0|NOT_NULL BINARY NUM
+column - -1|NEWDECIMAL|63|2|0|NOT_NULL BINARY NUM
+column -0|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+column -0.0|NEWDECIMAL|63|4|1|NOT_NULL BINARY NUM
+column -1e0|DOUBLE|63|23|31|NOT_NULL BINARY NUM
+row -18446744073709551615	-9223372036854775808	9223372036854775808	1	0	0.0	-1
+end
+statement SELECT ~0, 1|2, 6&3, 1<<3, 5^3, ~1.5, 1.5 | 0
+column ~0|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column 1|2|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column 6&3|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column 1<<3|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column 5^3|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column ~1.5|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column 1.5 | 0|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+row 18446744073709551615	3	2	8	6	18446744073709551613	2
+end
+statement SELECT 1=1, 1<2, 1<=>NULL, 1=NULL, NOT 1, NOT NULL, 1 AND 0, 1 AND NULL, 0 AND NULL, 1 OR NULL, NULL OR 0, 1 XOR 1
+column 1=1|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 1<2|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 1<=>NULL|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 1=NULL|LONGLONG|63|1|0|BINARY NUM
+column NOT 1|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column NOT NULL|LONGLONG|63|1|0|BINARY NUM
+column 1 AND 0|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 1 AND NULL|LONGLONG|63|1|0|BINARY NUM
+column 0 AND NULL|LONGLONG|63|1|0|BINARY NUM
+column 1 OR NULL|LONGLONG|63|1|0|BINARY NUM
+column NULL OR 0|LONGLONG|63|1|0|BINARY NUM
+column 1 XOR 1|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 1	1	0	\N	0	\N	0	\N	0	1	\N	0
+end
+statement SELECT 1 IS NULL, NULL IS NULL, 1 IS TRUE, 0 IS FALSE, NULL IS UNKNOWN, 1 IS NOT NULL, 2 IN (1,2), 3 NOT IN (1,2), 2 BETWEEN 1 AND 3, 5 NOT BETWEEN 1 AND 3
+column 1 IS NULL|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column NULL IS NULL|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 1 IS TRUE|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 0 IS FALSE|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column NULL IS UNKNOWN|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 1 IS NOT NULL|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 2 IN (1,2)|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 3 NOT IN (1,2)|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 2 BETWEEN 1 AND 3|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 5 NOT BETWEEN 1 AND 3|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 0	1	1	1	1	1	1	1	1	1
+end
+statement SELECT '1'+1, '1.5x'+0, 'abc'*2
+column '1'+1|DOUBLE|63|23|31|NOT_NULL BINARY NUM
+column '1.5x'+0|DOUBLE|63|23|31|NOT_NULL BINARY NUM
+column 'abc'*2|DOUBLE|63|23|31|NOT_NULL BINARY NUM
+row 2	1.5	0
+end
+statement SELECT 1/0, 1.5/0, 1 DIV 0, 1 % 0, 1/0e0
+column 1/0|NEWDECIMAL|63|7|4|BINARY NUM
+column 1.5/0|NEWDECIMAL|63|8|5|BINARY NUM
+column 1 DIV 0|LONGLONG|63|2|0|BINARY NUM
+column 1 % 0|LONGLONG|63|2|0|BINARY NUM
+column 1/0e0|DOUBLE|63|23|31|BINARY NUM
+row \N	\N	\N	\N	\N
+end
+statement SELECT 9223372036854775807+1
+error 1690|22003|BIGINT value is out of range in '(9223372036854775807 + 1)'
+end
+statement SELECT -9223372036854775808 - 1
+error 1690|22003|BIGINT value is out of range in '(-(9223372036854775808) - 1)'
+end
+statement SELECT 18446744073709551615 + 1
+error 1690|22003|BIGINT UNSIGNED value is out of range in '(18446744073709551615 + 1)'
+end
+statement SELECT 0 - 18446744073709551615
+error 1690|22003|BIGINT UNSIGNED value is out of range in '(0 - 18446744073709551615)'
+end
+statement SELECT 1e308*10
+error 1690|22003|DOUBLE value is out of range in '(1e308 * 10)'
+end
+statement SELECT 1 LIMIT 0
+column 1|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+end
+statement SELECT 1 WHERE 0
+column 1|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+end
+statement SELECT 1 FROM DUAL WHERE 1
+column 1|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+row 1
+end
+statement SELECT 1, 2 LIMIT 1 OFFSET 1
+column 1|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+column 2|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+end
+statement SELECT 1, 2 LIMIT 1, 1
+column 1|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+column 2|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+end
+statement SELECT 1 AS one, 2 two, 3 'three', 1+1
+column one|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+column two|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+column three|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+column 1+1|LONGLONG|63|3|0|NOT_NULL BINARY NUM
+row 1	2	3	2
+end
+statement SELECT *
+error 1096|HY000|No tables used
+end
+statement SELECT a FROM t
+error 1046|3D000|No database selected
+end
+statement SELECT * FROM nope.t
+error 1049|42000|Unknown database 'nope'
+end
+statement SELECT 1 ORDER BY nope
+error 1054|42S22|Unknown column 'nope' in 'order clause'
+end
+statement SELEC 1
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'SELEC 1' at line 1
+end
+statement SELECT select
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'select' at line 1
+end
+statement USE nope
+error 1049|42000|Unknown database 'nope'
+end
+statement SELECT DATABASE()
+column DATABASE()|VAR_STRING|255|256|31|
+row \N
+end
+statement SELECT @@session.auto_increment_increment AS auto_increment_increment, @@character_set_client AS character_set_client, @@character_set_connection AS character_set_connection, @@character_set_results AS character_set_results, @@collation_connection AS collation_connection
+column auto_increment_increment|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+column character_set_client|VAR_STRING|255|87380|31|
+column character_set_connection|VAR_STRING|255|87380|31|
+column character_set_results|VAR_STRING|255|87380|31|
+column collation_connection|VAR_STRING|255|87380|31|
+row 1	utf8mb4	utf8mb4	utf8mb4	utf8mb4_0900_ai_ci
+end
+statement SELECT @@max_allowed_packet AS max_allowed_packet, @@sql_mode AS sql_mode, @@time_zone AS time_zone, @@transaction_isolation AS transaction_isolation, @@wait_timeout AS wait_timeout, @@net_write_timeout AS net_write_timeout
+column max_allowed_packet|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+column sql_mode|VAR_STRING|255|87380|31|
+column time_zone|VAR_STRING|255|87380|31|
+column transaction_isolation|VAR_STRING|255|87380|31|
+column wait_timeout|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+column net_write_timeout|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+row 67108864	ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION	SYSTEM	REPEATABLE-READ	28800	60
+end
+statement SELECT @@lower_case_table_names, @@autocommit, @@interactive_timeout, @@net_buffer_length, @@license, @@init_connect, @@div_precision_increment, @@transaction_read_only, @@system_time_zone
+column @@lower_case_table_names|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+column @@autocommit|LONGLONG|63|1|0|BINARY NUM
+column @@interactive_timeout|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+column @@net_buffer_length|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+column @@license|VAR_STRING|255|87380|31|
+column @@init_connect|VAR_STRING|255|87380|31|
+column @@div_precision_increment|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+column @@transaction_read_only|LONGLONG|63|1|0|BINARY NUM
+column @@system_time_zone|VAR_STRING|255|87380|31|
+row 0	1	28800	16384	GPL		4	0	UTC
+end
+statement SELECT @@global.autocommit, @@local.sql_mode
+column @@global.autocommit|LONGLONG|63|1|0|BINARY NUM
+column @@local.sql_mode|VAR_STRING|255|87380|31|
+row 1	ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+end
+statement SELECT @@session.version_comment
+error 1238|HY000|Variable 'version_comment' is a GLOBAL variable
+end
+statement SELECT @@nope
+error 1193|HY000|Unknown system variable 'nope'
+end
+statement SET @i = 1, @d = 1.5, @r = 1e0, @s = 'abc', @n = NULL, @u = 18446744073709551615
+end
+statement SELECT @i, @d, @r, @s, @n, @u, @i + 1, @s + 0, @d + 1, @d * 2, @nope
+column @i|LONGLONG|63|21|0|BINARY NUM
+column @d|NEWDECIMAL|63|67|30|BINARY NUM
+column @r|DOUBLE|63|23|31|BINARY NUM
+column @s|LONG_BLOB|255|268435440|31|
+column @n|MEDIUM_BLOB|63|16777215|31|BINARY
+column @u|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+column @i + 1|LONGLONG|63|22|0|BINARY NUM
+column @s + 0|DOUBLE|63|23|31|BINARY NUM
+column @d + 1|NEWDECIMAL|63|68|30|BINARY NUM
+column @d * 2|NEWDECIMAL|63|67|30|BINARY NUM
+column @nope|VAR_STRING|63|65532|31|BINARY
+row 1	1.5	1	abc	\N	18446744073709551615	2	0	2.500000000000000000000000000000	3.000000000000000000000000000000	\N
+end
+statement SET @a = 1, @b = @a + 1
+end
+statement SELECT @b
+column @b|DOUBLE|63|23|31|BINARY NUM
+row \N
+end
+statement SET @b = @a + 1
+end
+statement SELECT @b, @A
+column @b|LONGLONG|63|21|0|BINARY NUM
+column @A|LONGLONG|63|21|0|BINARY NUM
+row 2	1
+end
+statement SET autocommit = 0
+end
+statement SELECT @@autocommit
+column @@autocommit|LONGLONG|63|1|0|BINARY NUM
+row 0
+end
+statement SET autocommit = ON
+end
+statement SELECT @@autocommit
+column @@autocommit|LONGLONG|63|1|0|BINARY NUM
+row 1
+end
+statement SET autocommit = OFF
+end
+statement SELECT @@autocommit
+column @@autocommit|LONGLONG|63|1|0|BINARY NUM
+row 0
+end
+statement SET @@session.autocommit = DEFAULT
+end
+statement SELECT @@autocommit
+column @@autocommit|LONGLONG|63|1|0|BINARY NUM
+row 1
+end
+statement SET autocommit = 2
+error 1231|42000|Variable 'autocommit' can't be set to the value of '2'
+end
+statement SET autocommit = 'x'
+error 1231|42000|Variable 'autocommit' can't be set to the value of 'x'
+end
+statement SET autocommit = 1.5
+error 1232|42000|Incorrect argument type to variable 'autocommit'
+end
+statement SET version_comment = 'x'
+error 1238|HY000|Variable 'version_comment' is a read only variable
+end
+statement SET max_allowed_packet = 1024
+error 1621|HY000|SESSION variable 'max_allowed_packet' is read-only. Use SET GLOBAL to assign the value
+end
+statement SET nope = 1
+error 1193|HY000|Unknown system variable 'nope'
+end
+statement SET sql_mode = 'ansi_quotes,real_as_float'
+end
+statement SELECT @@sql_mode
+column @@sql_mode|VAR_STRING|255|87380|31|
+row REAL_AS_FLOAT,ANSI_QUOTES
+end
+statement SET sql_mode = 'ANSI'
+end
+statement SELECT @@sql_mode
+column @@sql_mode|VAR_STRING|255|87380|31|
+row REAL_AS_FLOAT,PIPES_AS_CONCAT,ANSI_QUOTES,IGNORE_SPACE,ONLY_FULL_GROUP_BY,ANSI
+end
+statement SET sql_mode = 'TRADITIONAL'
+end
+statement SELECT @@sql_mode
+column @@sql_mode|VAR_STRING|255|87380|31|
+row STRICT_TRANS_TABLES,STRICT_ALL_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,TRADITIONAL,NO_ENGINE_SUBSTITUTION
+end
+statement SET sql_mode = ''
+end
+statement SELECT @@sql_mode
+column @@sql_mode|VAR_STRING|255|87380|31|
+row 
+end
+statement SET sql_mode = 3
+end
+statement SELECT @@sql_mode
+column @@sql_mode|VAR_STRING|255|87380|31|
+row REAL_AS_FLOAT,PIPES_AS_CONCAT
+end
+statement SET sql_mode = 'NOPE'
+error 1231|42000|Variable 'sql_mode' can't be set to the value of 'NOPE'
+end
+statement SET sql_mode = DEFAULT
+end
+statement SELECT @@sql_mode
+column @@sql_mode|VAR_STRING|255|87380|31|
+row ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+end
+statement SET wait_timeout = 0
+end
+statement SELECT @@wait_timeout
+column @@wait_timeout|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+row 1
+end
+statement SET wait_timeout = DEFAULT
+end
+statement SELECT @@wait_timeout
+column @@wait_timeout|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+row 28800
+end
+statement SET transaction_isolation = 'read-committed'
+end
+statement SELECT @@transaction_isolation
+column @@transaction_isolation|VAR_STRING|255|87380|31|
+row READ-COMMITTED
+end
+statement SET transaction_isolation = 'nope'
+error 1231|42000|Variable 'transaction_isolation' can't be set to the value of 'nope'
+end
+statement SET NAMES nope
+error 1115|42000|Unknown character set: 'nope'
+end
+statement SET NAMES utf8mb4 COLLATE utf8mb4_bin
+end
+statement SELECT @@character_set_client, @@collation_connection, 'a'
+column @@character_set_client|VAR_STRING|46|87380|31|
+column @@collation_connection|VAR_STRING|46|87380|31|
+column a|VAR_STRING|46|4|31|NOT_NULL BINARY
+row utf8mb4	utf8mb4_bin	a
+end
+statement SET NAMES DEFAULT
+end
+statement SELECT @@collation_connection
+column @@collation_connection|VAR_STRING|255|87380|31|
+row utf8mb4_0900_ai_ci
+end
+statement SET CHARACTER SET utf8mb4
+end
+statement SELECT @@character_set_client, @@character_set_connection, @@collation_connection
+column @@character_set_client|VAR_STRING|255|87380|31|
+column @@character_set_connection|VAR_STRING|255|87380|31|
+column @@collation_connection|VAR_STRING|255|87380|31|
+row utf8mb4	utf8mb4	utf8mb4_0900_ai_ci
+end
+statement BEGIN
+end
+statement SELECT 1
+column 1|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+row 1
+end
+statement COMMIT
+end
+statement START TRANSACTION
+end
+statement ROLLBACK
+end

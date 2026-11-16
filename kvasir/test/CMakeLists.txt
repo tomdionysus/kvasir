@@ -6,6 +6,7 @@
 #
 
 add_executable(kvasir_tests
+  differential_test.cpp
   exec_decimal_test.cpp
   exec_expression_test.cpp
   exec_session_test.cpp
@@ -24,4 +25,5 @@ add_executable(kvasir_tests
 )
 target_link_libraries(kvasir_tests PRIVATE kvasir GTest::gtest_main kvasir_warnings)
 # Dannan's fixtures write only inside Kvasir's build tree.
-target_compile_definitions(kvasir_tests PRIVATE DANNAN_TEST_TEMP_ROOT="${PROJECT_BINARY_DIR}/test-tmp")
+target_compile_definitions(kvasir_tests PRIVATE DANNAN_TEST_TEMP_ROOT="${PROJECT_BINARY_DIR}/test-tmp"
+                                                  KVASIR_DIFFERENTIAL_DIR="${CMAKE_CURRENT_SOURCE_DIR}/differential")
