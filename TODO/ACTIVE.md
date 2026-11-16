@@ -95,7 +95,13 @@ and the reference server first, and watched to fail:
    on Dannan's listener, driving the two state machines;
    the full path's Argon2id check posted to a worker, never the strand. Read
    SSLRequest with exact-length reads so nothing past it is consumed. The
-   back-off per principal and per source before any hashing.
+   back-off per principal and per source before any hashing: Lugh's Backoff
+   moves into Dannan as `dannan::listen::Backoff` (`dannan/listen/backoff.h`,
+   on `contract::TimePoint`; agreed by Dannan and Lugh 2026-11-16, stack
+   rule 3), in 0.9 or an 0.8.x patch at the maintainer's word. Kvasir writes none of
+   its own; the sign-in path is written against wait(key, now),
+   failed(key, now), succeeded(key), with keys per principal and per
+   source, a waiting client answered before any hashing.
    **`Stream::start_tls` (0.8.2 and Dannan's develop) does not fit MySQL**:
    it refuses the upgrade if any byte is waiting after the request, and a
    MySQL client sends its ClientHello straight after SSLRequest with no
@@ -108,7 +114,8 @@ and the reference server first, and watched to fail:
    with no built-in default, the users), then a real `mysql` client against
    it by hand on a build Pi. Needs 0.8.4.
 3. The rest of ruling 32's collations: utf8mb3_general_ci and
-   utf8mb4_general_ci (system variables and USER() compare under the first,
+   utf8mb4_general_ci, derived from UnicodeData.txt (ruling 33)
+   (system variables and USER() compare under the first,
    so `@@sql_mode = '...'` is still refused with 1235), then LIKE under a
    collation (refused with 1235), the COLLATE clause, and character sets
    besides utf8mb4 and binary. Then the catalog and DDL.

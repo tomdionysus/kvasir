@@ -100,6 +100,13 @@ against Dannan's agreement design, not run.
     table at build time; the algorithm is written by hand; nothing of MySQL
     is copied; the differential gate checks the results.
     utf8mb4_0900_ai_ci first, then _as_cs, _bin and general_ci.
+33. general_ci (2026-11-16, chosen from the options put): "Derive from
+    Unicode". utf8mb3_general_ci's and utf8mb4_general_ci's weights are
+    derived by hand from Unicode's UnicodeData.txt (checked in as data, with
+    its license): accents stripped by decomposition, then uppercased. All
+    65,536 BMP weights are verified against the reference server's
+    WEIGHT_STRING, and where the rule and MySQL differ the exceptions found
+    are recorded. MySQL's table is not dumped or copied.
 
 ## Relayed
 
