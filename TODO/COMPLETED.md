@@ -2,6 +2,42 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-16: tables in the catalog
+
+- Observed on MySQL 8.4.13 first (six probe runs on node-b): column types,
+  lengths, decimals and flags (PRI_KEY, UNIQUE_KEY, MULTIPLE_KEY, PART_KEY,
+  NO_DEFAULT_VALUE; a UNIQUE key of NOT NULL columns promoted to primary),
+  key naming (a, a_2, ... in the order written, a column's own keys among
+  the table's), DEFAULT checks and notes, the 3,072-byte key and
+  65,535-byte row limits (pack lengths, a byte per eight nullable columns),
+  the engine (1286, or 1286 and 1266 without NO_ENGINE_SUBSTITUTION), the
+  1681 deprecation warnings, and DROP TABLE all-or-none.
+- Landed: `catalog/table.h` (column types, pack and key lengths, the
+  primary key); the catalog holds tables (create, drop all or none, names in
+  byte order, an id per table; DROP DATABASE takes its tables and counts
+  them); the parser reads CREATE TABLE (MySQL's integer, decimal, float and
+  string types and their aliases, column attributes, PRIMARY/UNIQUE/INDEX
+  keys, table options), DROP TABLE(S), SHOW [FULL] TABLES, and marks valid
+  MySQL not yet carried out (temporal, BIT, ENUM, SET, JSON and spatial
+  types, CHECK, FOREIGN KEY, generated columns, DEFAULT (expression),
+  LIKE, ... SELECT, TEMPORARY, partitioning, other table options) for a
+  1235; `exec/ddl.h` makes MySQL's checks (1050, 1059, 1060, 1061, 1063,
+  1067, 1068, 1070, 1071, 1072, 1074, 1075, 1089, 1101, 1103, 1115, 1118,
+  1166, 1170, 1171, 1253, 1273, 1280, 1286, 1425, 1426, 1427, 1439) and
+  reports a column's result type; `exec/store.h` stores a value as a column
+  does under strict mode (DEFAULT now, INSERT next); SELECT over one table
+  gives its columns' definitions (schema, table, alias, original names) and
+  types expressions over them, with no rows yet. utf8mb3 columns are held
+  (utf8mb3_general_ci, utf8mb3_bin) though no session speaks utf8mb3.
+- Found by the gate: arithmetic on an INT column was typed DOUBLE (the
+  evaluator knew only BIGINT as an integer type), fixed.
+- Test-first: the 19 new tests were run against empty stubs on node-b and
+  all failed, the 279 before them passing; then the code.
+- Gate: release on node-d (-j1; -j2 ran out of memory) **298
+  passed, 0 failed**, the differential gate **304 of 304** (117 new
+  statements, recorded on node-b; the first 187 unchanged). Sanitizers: the
+  Pis were all held; hosted CI's run on the push.
+
 ## 2026-11-16: the sign-in back-off, on Dannan 0.8.5
 
 - Dannan 0.8.5 (de631cc) carries Lugh's Backoff as

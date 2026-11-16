@@ -22,7 +22,7 @@ it.
 
 Step 2a, one node speaking the MySQL protocol, is in hand.
 
-**Done and pushed** (279 tests; sanitizers run on the Pis and in hosted
+**Done and pushed** (298 tests; sanitizers run on the Pis and in hosted
 CI's x86-64 jobs):
 
 - `kvasir/protocol/`: the value codec, packet framing, the connection
@@ -65,7 +65,7 @@ CI's x86-64 jobs):
   credential.
 - The differential gate, recorded: `tools/record_mysql.sh` runs
   `kvasir/test/differential/session.sql` on the reference server, and
-  `differential_test.cpp` replays it through a session: 187 of 187
+  `differential_test.cpp` replays it through a session: 304 of 304
   statements answer as MySQL 8.4 does. Re-record when the list grows.
 - Collations (ruling 32): `tools/kvasir_ducet.cpp` compiles
   `kvasir/data/unicode/allkeys-9.0.0.txt` into the library at build time;
@@ -104,10 +104,16 @@ CI's x86-64 jobs):
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 and the reference server first, and watched to fail:
 
-1. Tables: CREATE TABLE with MySQL's types into the catalog, then INSERT
-   and SELECT over in-memory rows (the design's surface order). Then
-   SHOW STATUS and the other statements a client's `status` command and
-   connectors send.
+1. Rows: INSERT (with `exec/store.h`'s outcomes as row errors: 1264,
+   1366, 1406, 1265; AUTO_INCREMENT; DEFAULT), then SELECT over in-memory
+   rows, with transactions that keep ACID on one node (ROLLBACK undoes,
+   another session never sees uncommitted rows). Then SHOW STATUS and the
+   other statements a client's `status` command and connectors send.
+   Tables themselves are done: CREATE TABLE, DROP TABLE and SHOW TABLES
+   (see COMPLETED). Known differences there: an engine other than InnoDB
+   is refused as unknown (MySQL makes MyISAM and MEMORY tables); column
+   names compare case-insensitively in ASCII only; utf8mb3 columns cannot
+   yet be compared (no session collation for utf8mb3_bin).
 2. utf8mb4_unicode_ci, and character sets besides
    utf8mb4, utf8mb3 and binary (N'...' and _latin1'...' are refused); an
    alias holding a character past the BMP (MySQL refuses it with 3854,
