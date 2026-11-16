@@ -245,9 +245,15 @@ builds on node-d (4 GB).
     as kept (confirmed). Reads, in part 6 too: a `change_deltas` with no
     delta commits without an accept when every promiser names the same
     accepted ballot and summary, so a current read is one round trip with
-    no keep(); otherwise it falls back to a ballot-only accept. Asked: is
-    the read's promise kept durably (one sync per promiser) or not (safe,
-    by Kvasir's reading, but to be shown in the simulator with crashes)?
+    no accept; otherwise it falls back to a ballot-only accept. The read's
+    promises are kept like any prepare's (Dannan, for 0.9.0), so a current
+    read costs one round trip and one sync per promiser. Kvasir's
+    suggestion of unkept promises was unsafe as put: the fallback accept,
+    built at the read's ballot, could overwrite a lower-ballot write
+    committed by an acceptor that lost the promise in a crash. Dannan
+    records the safe form for after 0.9.0 (an unkept read-only prepare
+    that returns only on matching answers, else starts again with a kept
+    one), with a simulator run of those crashes.
     Added at Mimir's review, accepted by Kvasir: `Deltas::decline` (Kvasir
     declines when not `local` and forwards); `Deltas::summaries`, the
     summary keep() will set, which the fast path checks with the ballot
