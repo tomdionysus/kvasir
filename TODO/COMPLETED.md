@@ -2,6 +2,30 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-16: the connection, the differential gate, the first fuzz runs
+
+- Landed: the client connection over a transport seam; the recorded
+  differential gate (109 of 109 statements as MySQL 8.4 answers them); the
+  diagnostics area and SHOW WARNINGS / ERRORS; the session functions; the
+  node's settings and `kvasir-node hash-password`.
+- Found and fixed by the gates, each with a test: the gate's first run
+  found two type differences (an unset variable read as a hex literal in
+  arithmetic; strings under a _bin collation flagged BINARY); hosted CI's
+  LeakSanitizer found that a connection whose client left mid-read kept
+  itself alive through its own continuation (it would have leaked every
+  such connection in the node); the lexer's first fuzz run found an empty
+  token after "name..". The recorder's own marker queries were found to
+  clear the diagnostics it was recording, and now mark from the client.
+- Test-first: the connection 10 of 10, the settings 7 of 7, the session's
+  diagnostics and functions 3 of 3 failed first; the parser's SHOW test was
+  written after its code, and the leak test after the fix (the failing
+  evidence is CI's report).
+- Gate: release on node-a **254 passed, 0 failed**, check passed;
+  each fuzz target a minute clean after the fix (lexer 3.2 million inputs).
+  Hosted CI on the fixes: see the next entry or the run for 5755e42.
+- Mistake made and undone: a clang-format pass was run on the fuzz
+  CMakeLists.txt and mangled it; restored from git before commit.
+
 ## 2026-11-16: step 2a, the evaluator, the session and the command phase
 
 - The MySQL 8.4.13 reference server (ruling 30) was set up on node-b

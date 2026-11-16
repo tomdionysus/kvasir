@@ -53,6 +53,25 @@ sanitizer gate, since ASan cannot start on the Pis' 39-bit kernels):
   (COM_QUERY, COM_PING, COM_INIT_DB, COM_QUIT, COM_RESET_CONNECTION, 1047
   for others), text result sets ended by EOF or by OK under
   CLIENT_DEPRECATE_EOF, one statement per query.
+- The diagnostics area (SHOW WARNINGS and SHOW ERRORS with LIMIT and
+  COUNT(*), @@warning_count, @@error_count, errors recorded), and the
+  session functions connectors call (CONNECTION_ID, VERSION, USER,
+  CURRENT_USER, LAST_INSERT_ID, ROW_COUNT, FOUND_ROWS, DATABASE).
+- `kvasir/server/connection.h`: a client connection over a `Transport`
+  seam (Dannan's stream in the node, a fake in tests), exact-length reads,
+  the password checked by a `PasswordChecker` off the strand (the node will
+  use Dannan's `WorkerPool`, whose tasks own a Secret).
+  `node_settings.h`: the node's settings (no built-in ack_level, TLS
+  required, at least one user); `kvasir-node hash-password` makes a
+  credential.
+- The differential gate, recorded: `tools/record_mysql.sh` runs
+  `kvasir/test/differential/session.sql` on the reference server, and
+  `differential_test.cpp` replays it through a session: 109 of 109
+  statements answer as MySQL 8.4 does. Re-record when the list grows.
+- The fuzz targets have run (libFuzzer, clang 19 on node-a, fuzzer and
+  UBSan): the lexer's found an empty token, fixed; the packet reader and
+  parser ran clean for a minute each. Corpora in `/root/kvasir-work/corpus`
+  on node-a.
 - Almost every expected type, length, flag and value in `exec_*_test.cpp`
   and the greeting's bytes were observed on the MySQL 8.4.13 container
   (see "Waiting on the maintainer" for where it runs). Known difference: arithmetic on
@@ -62,7 +81,8 @@ sanitizer gate, since ASan cannot start on the Pis' 39-bit kernels):
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 and the reference server first, and watched to fail:
 
-1. The connection on Dannan's listener, driving the two state machines;
+1. (Built over the seam; what remains is the node's side.) The connection
+   on Dannan's listener, driving the two state machines;
    the full path's Argon2id check posted to a worker, never the strand. Read
    SSLRequest with exact-length reads so nothing past it is consumed. The
    back-off per principal and per source before any hashing.
@@ -77,11 +97,13 @@ and the reference server first, and watched to fail:
 2. `kvasir-node` listening on port 3306 with its YAML settings (`ack_level`
    with no built-in default, the users), then a real `mysql` client against
    it by hand on a build Pi. Needs 0.8.4.
-3. The differential gate as a tool: one list of statements run against the
-   reference server and against Kvasir, compared up to the written list of
-   allowed differences.
-4. String comparison under utf8mb4's collations (refused with 1235 today),
-   then the functions connectors call, then the catalog and DDL.
+3. String comparison under utf8mb4's collations (refused with 1235 today):
+   needs Unicode's collation data (UCA 9.0.0 for utf8mb4_0900_ai_ci), a
+   decision put to the maintainer. Then the catalog and DDL.
+4. Dannan 0.8.4 is built on its `release/0.8.4` (start_tls_unanswered at
+   383b6f5), waiting on its release gate and the maintainer's push word. When tagged:
+   move `KVASIR_DANNAN_TAG`, write the stream transport and the worker-pool
+   password checker, and have `kvasir-node` listen.
 
 **Known and unverified**, to settle at the first run against a real client:
 
