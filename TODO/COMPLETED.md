@@ -2,6 +2,35 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-16: lock waits
+
+- A writer that meets another transaction's lock now waits, as InnoDB's
+  do and the design says: the store registers the wait (who waits for
+  whom), refuses one that closes a cycle (1213, 40001, the victim's whole
+  transaction rolled back), and wakes waiters when the holder commits,
+  rolls back or undoes a statement. The statement is undone and run again
+  from the start once woken; nothing of it shows meanwhile. The command
+  phase keeps it (`CommandStep::waiting`, `wait`, `resume`, `give_up`);
+  the connection reads nothing while it waits and answers 1205 at
+  innodb_lock_wait_timeout, the transaction kept.
+- Found with MySQL's own client (kvasir-node on node-a, clients from
+  node-b's container): a waiting connection was dropped at once, nothing
+  holding it while no read was pending. A connection test now drops its
+  own reference and waits (watched failing); the wait's timer holds the
+  connection. After the fix, with the real client: a second writer
+  waited about 3 s for a commit and got 1062; with
+  innodb_lock_wait_timeout = 1 it got 1205 after about 1.3 s; after a
+  rollback its insert went in. The throwaway node, certificate and
+  account were removed.
+- Test-first: the store's and command phase's tests were run against a
+  store whose waits did nothing (every wait a deadlock, nobody woken) and
+  failed, the 309 before them passing.
+- Gate: release on node-a **312 passed, 0 failed**; ASan and
+  UBSan (tools/ci.sh asan) on node-a **311 passed** before the
+  connection test was added; the differential gate **382 of 382**. Note:
+  that ASan run used all four of node-a's cores against a claim of two
+  (ci.sh reads KVASIR_CI_JOBS, not JOBS).
+
 ## 2026-11-16: rows and transactions on one node
 
 - Observed on MySQL 8.4.13 first (two probe runs): INSERT's refusals

@@ -22,7 +22,7 @@ it.
 
 Step 2a, one node speaking the MySQL protocol, is in hand.
 
-**Done and pushed** (309 tests; sanitizers run on the Pis and in hosted
+**Done and pushed** (312 tests; sanitizers run on the Pis and in hosted
 CI's x86-64 jobs):
 
 - `kvasir/protocol/`: the value codec, packet framing, the connection
@@ -107,12 +107,10 @@ CI's x86-64 jobs):
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 and the reference server first, and watched to fail:
 
-1. Lock waits: a writer that meets another transaction's row lock waits,
-   as the design says (1205 at innodb_lock_wait_timeout, 1213 on a
-   cycle), which makes a statement asynchronous: the session hands back a
-   pending statement and the command phase resumes it. Until then a
-   locked row answers 1205 at once (ACID holds; clients see a timeout
-   that did not wait).
+1. Lock waits are done (see COMPLETED): a waiting statement is undone and
+   run again once woken. Known difference: MySQL's statement keeps the
+   locks it took before the wait; Kvasir's lets them go and takes them
+   again.
 2. UPDATE and DELETE over the store (versions marked deleted), then the
    functions clients use most (COUNT and the other aggregates, GROUP BY,
    string and number functions), then SHOW STATUS and the other
