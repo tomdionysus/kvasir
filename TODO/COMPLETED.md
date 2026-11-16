@@ -2,6 +2,26 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-16: the node serves MySQL clients
+
+- Dannan 0.8.4 tagged (52fd53c) with `Stream::start_tls_unanswered`; the
+  pin moved. Landed: `StreamTransport` (a connection over an accepted
+  Stream, TLS begun after exactly the SSLRequest), `PoolPasswordChecker`
+  (Argon2id on a WorkerPool as foreground work with a deadline, owning the
+  Secret, answering on the connection's executor; false when refused or
+  dropped), and `kvasir-node` listening (TLS required, SIGINT/SIGTERM stop).
+- Tried by hand on the Pis: kvasir-node on node-d, MySQL 8.4.13's own
+  `mysql` client from node-b's container with --ssl-mode=REQUIRED:
+  signed in over TLS, ran expressions, collations and LIKE, created, used
+  and dropped a database, read @@ack_level; a wrong password got 1045, a
+  plaintext attempt 3159; the node stopped cleanly on SIGTERM. The
+  throwaway certificate and account were removed afterwards.
+- Test-first: the checker's two tests were written with it, not watched to
+  fail first; the transport is proven by the real client, with no unit
+  test of its own.
+- Gate: release on node-d (-j1) **275 passed, 0 failed**, the
+  differential gate **187 of 187**.
+
 ## 2026-11-16: the catalog's databases
 
 - Landed: `kvasir::catalog::Catalog` (in memory, one lock, names as

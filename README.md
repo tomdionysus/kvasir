@@ -12,9 +12,9 @@ cluster behaves as one server, with ACID transactions and no node in charge. It 
 [Dannan](https://github.com/tomdionysus/dannan), the network, and persists in
 [Dagda](https://github.com/tomdionysus/dagda), the store.
 
-Kvasir is in development: the design is settled, and the MySQL protocol, sign-in and SQL
-front end are built. It does not yet listen on a port or run SQL. "Status" below says
-exactly what is built.
+Kvasir is in development: the design is settled, and one node, in memory, serves MySQL
+clients over TLS: sign-in, session statements, expressions, collations and databases. It
+has no tables yet and no cluster. "Status" below says exactly what is built.
 
 ## Why it exists
 
@@ -162,34 +162,51 @@ cmake --build build
 
 ### Run a node
 
-Not yet. `kvasir-node --version` prints the version; any other use says the node serves
-nothing yet, rather than listening on a port it cannot answer. Running a node, a cluster,
-configuration and the MySQL client's view of them are written here as they are built.
+One node, in memory and not durable. Make a credential, then start it with a TLS
+certificate and key (clients sign in only over TLS) and an acknowledgement level, which
+has no built-in default:
+
+```
+echo 'a password' | kvasir-node hash-password        # prints a credential
+kvasir-node --tls-certificate node.pem --tls-key node.key --ack-level replicated \
+            --user "root:<credential>" [--listen 0.0.0.0] [--port 3306]
+mysql -h <node> -u root -p --ssl-mode=REQUIRED
+```
+
+Every setting is also a key in a YAML file (`--config PATH`, `$KVASIR_CONFIG`, or
+`/usr/local/etc/kvasir/config.yaml`), in `secrets.yaml` beside it, or a `KVASIR_*`
+variable. SIGINT or SIGTERM stops it. A cluster and its configuration are written here
+as they are built.
 
 ## Repository layout
 
 ```
 kvasir/protocol/   the MySQL wire codec, packet framing, connection messages,
                    caching_sha2_password
-kvasir/server/     the sign-in, the verifier cache and the built-in accounts
+kvasir/server/     the sign-in, the command phase, the connection and its transport over
+                   Dannan's stream, the built-in accounts and the node's settings
 kvasir/sql/        the lexer, reserved words, syntax tree and parser
+kvasir/exec/       values, exact decimals, expressions, collations, variables, sessions
+kvasir/catalog/    the node's databases
+kvasir/data/       Unicode's data the collations are compiled from, with its license
 kvasir/include/    the public headers (the version)
-kvasir/test/       GoogleTest, one binary (kvasir_tests)
+kvasir/test/       GoogleTest, one binary (kvasir_tests), and the differential gate's
+                   statements and MySQL 8.4's recorded answers
 kvasir/fuzz/       libFuzzer targets for the packet reader, lexer and parser
-tools/             kvasir-node, and ci.sh
+tools/             kvasir-node, the collation table generators, record_mysql.sh, ci.sh
 docs/              the principles and laws shared with the stack
 TODO/              now and next (ACTIVE.md), the design, the level standard, and what
                    landed (COMPLETED.md)
 ```
 
-The catalog, execution and transactions (`kvasir/catalog/`, `kvasir/exec/`,
-`kvasir/txn/`) join as they are built. Conventions, shared with the stack:
+Transactions (`kvasir/txn/`) join as they are built. Conventions, shared with the stack:
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Status
 
-Version 0.1.0, in development; no release is cut yet. Built and tested (163 tests, under
-release and AddressSanitizer builds):
+Version 0.1.0, in development; no release is cut yet. Built and tested (275 tests, under
+release, AddressSanitizer and ThreadSanitizer builds), and tried with MySQL 8.4's own
+`mysql` client:
 
 - The MySQL client/server protocol's codec: its integer and string encodings, packet
   framing with every length bounded, and the connection phase's messages, OK, ERR, EOF,
@@ -202,16 +219,23 @@ release and AddressSanitizer builds):
 - The SQL lexer, MySQL 8.4's 262 reserved words, and the parser for the statements a
   client sends as it connects: SELECT (a select list, FROM DUAL or tables, WHERE, ORDER
   BY, LIMIT), SET (variables, NAMES, CHARACTER SET), USE, BEGIN, START TRANSACTION,
-  COMMIT and ROLLBACK, with MySQL's operator precedence.
+  COMMIT and ROLLBACK, CREATE and DROP DATABASE, SHOW DATABASES and SHOW WARNINGS, with
+  MySQL's operator precedence.
+- Typing and evaluating expressions with MySQL's result types, exact decimals, overflow
+  and division rules; the session's system and user variables; the command phase.
+- Collations: utf8mb4_0900_ai_ci and _as_cs from Unicode's UCA 9.0.0 table, the
+  general_ci collations derived from Unicode 3.0.0's character database, the binary
+  ones; comparison, LIKE and COLLATE under MySQL's coercibility rules.
+- The node's catalog of databases, and `kvasir-node` serving clients over Dannan's
+  listener, the Argon2id check on a worker pool.
 
-Not yet compared with a MySQL 8.4 server: the tests follow the manual's text.
+The differential gate replays 187 statements and compares every column's type, length,
+flags, value and error with what a MySQL 8.4.13 server answered: 187 of 187 match.
 
 Next, in order (`TODO/ACTIVE.md`):
 
-1. One node, in memory: values and expressions, the session and its variables, the
-   command phase, then `kvasir-node` on port 3306 with a real `mysql` client, then the
-   SQL and transactions real drivers and tools use, with the differential gate. The TLS
-   upgrade waits on Dannan 0.8.4.
+1. One node, in memory: tables and rows, then the SQL and transactions real drivers and
+   tools use, with the differential gate; the sign-in back-off from Dannan 0.8.5.
 2. The commit protocol written down and passed through Dannan's deterministic simulator.
 3. The cluster at `decided` and `replicated`.
 4. Persistence in Dagda, with backup and restore to a point in time.

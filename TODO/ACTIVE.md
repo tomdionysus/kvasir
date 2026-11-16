@@ -104,51 +104,35 @@ sanitizer gate, since ASan cannot start on the Pis' 39-bit kernels):
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 and the reference server first, and watched to fail:
 
-1. (Built over the seam; what remains is the node's side.) The connection
-   on Dannan's listener, driving the two state machines;
-   the full path's Argon2id check posted to a worker, never the strand. Read
-   SSLRequest with exact-length reads so nothing past it is consumed. The
-   back-off per principal and per source before any hashing: Lugh's Backoff
+1. The back-off per principal and per source before any hashing: Lugh's Backoff
    moves into Dannan as `dannan::listen::Backoff` (`dannan/listen/backoff.h`,
    on `contract::TimePoint`; agreed by Dannan and Lugh 2026-11-16, stack
-   rule 3), in 0.9 or an 0.8.x patch at the maintainer's word. Kvasir writes none of
-   its own; the sign-in path is written against wait(key, now),
-   failed(key, now), succeeded(key), with keys per principal and per
-   source, a waiting client answered before any hashing.
-   **`Stream::start_tls` (0.8.2 and Dannan's develop) does not fit MySQL**:
-   it refuses the upgrade if any byte is waiting after the request, and a
-   MySQL client sends its ClientHello straight after SSLRequest with no
-   answer between. Dannan agreed `void Stream::start_tls_unanswered(
-   std::function<void(std::string)> done)` (no answer, no waiting-bytes
-   check, every other check kept), proposed to the maintainer for 0.8.4, not yet built.
-   When tagged, move the pin (`KVASIR_DANNAN_TAG`). The connection can be
-   built and tested before then over a seam for the TLS step.
-2. `kvasir-node` listening on port 3306 with its YAML settings (`ack_level`
-   with no built-in default, the users), then a real `mysql` client against
-   it by hand on a build Pi. Needs 0.8.4.
+   rule 3), in Dannan 0.8.5 (in its gate, 2026-11-16 03:00Z). Kvasir writes
+   none of its own; the sign-in path is written against wait(key, now),
+   failed(key, now), succeeded(key), with keys "principal:<name>" and
+   "source:<address>", a waiting client answered before any hashing. When
+   0.8.5 is tagged: move the pin, wire it into the connection.
+2. Tables: CREATE TABLE with MySQL's types into the catalog, then INSERT
+   and SELECT over in-memory rows (the design's surface order). Then
+   SHOW STATUS and the other statements a client's `status` command and
+   connectors send.
 3. utf8mb4_unicode_ci, and character sets besides
    utf8mb4, utf8mb3 and binary (N'...' and _latin1'...' are refused); an
    alias holding a character past the BMP (MySQL refuses it with 3854,
-   Kvasir accepts it). Then tables: CREATE TABLE with MySQL's types into
-   the catalog, then INSERT and SELECT over in-memory rows (the design's
-   surface order).
-4. Dannan 0.8.4 is built on its `release/0.8.4` (start_tls_unanswered at
-   383b6f5), waiting on its release gate and the maintainer's push word. When tagged:
-   move `KVASIR_DANNAN_TAG`, write the stream transport and the worker-pool
-   password checker, and have `kvasir-node` listen.
+   Kvasir accepts it).
 
-**Known and unverified**, to settle at the first run against a real client:
+**A real client works** (2026-11-16): `kvasir-node` on Dannan 0.8.4
+(`StreamTransport` over its Stream, `start_tls_unanswered` after exactly the
+SSLRequest; `PoolPasswordChecker`, Argon2id on a WorkerPool as foreground
+work with a deadline) answered MySQL 8.4.13's own `mysql` client from
+another Pi: TLS required and negotiated, statements, databases, 1045 for a
+wrong password, 3159 without TLS, a clean stop on SIGTERM. So the OK, ERR
+and result-set bytes and the response decoder suit a real client. Still
+unchecked: other connectors (JDBC, Python's, Go's), and compression.
 
-- OK, ERR and EOF bytes follow the manual as recalled; the greeting alone
-  has been checked against the bytes MySQL 8.4 sends.
-- The response decoder refuses bytes after the last field it knows; a real
-  client may send more (a compression level, for one).
-- No fuzz target has run. Dannan's exported harness, when it comes, runs
-  them in the test binary; clang 19 on node-a, node-b or node-c can run
-  them as libFuzzer meanwhile.
-- The stub runs for the session and the command phase crashed (dereferencing
-  an empty result) instead of reporting each failure; they failed, but
-  their failure counts were not seen.
+**Known**: the stub runs for the session and the command phase crashed
+(dereferencing an empty result) instead of reporting each failure; they
+failed, but their failure counts were not seen.
 
 **The repository is public** (`github.com/tomdionysus/kvasir`), at the maintainer's
 word, 2026-11-15, after a check that no local notes, keys or server
