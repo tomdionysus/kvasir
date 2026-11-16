@@ -251,7 +251,9 @@ Token Lexer::word_or_number() {
     while (word_byte(_at)) _at += utf8_length(_at);
     return make(TokenKind::word, std::string(_text.substr(start, _at - start)), start);
   };
-  if (_dot_after_name && start == _last_end) return scan_word();
+  // After "name." a name begins, if anything a name holds follows: a second
+  // dot does not (found by the fuzz target, which met an empty word).
+  if (_dot_after_name && start == _last_end && word_byte(start)) return scan_word();
   const char c = _text[_at];
   if (c == '.') return number(start);
   if (!ascii_digit(c)) return scan_word();

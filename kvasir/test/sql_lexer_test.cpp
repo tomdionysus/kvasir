@@ -167,6 +167,13 @@ TEST(SqlLexer, DigitsAfterANameAndADotAreAName) {
   EXPECT_EQ(shape("t .5"), (V{"word:t", "dec:.5"}));
 }
 
+// Found by the lexer's fuzz target: after "name." a second dot begins no
+// name, and no token is ever empty.
+TEST(SqlLexer, ADotAfterANamesDotIsNoName) {
+  EXPECT_EQ(shape("t..5"), (V{"word:t", "sym:.", "dec:.5"}));
+  for (const auto& token : lex("nn..8!=..6")) EXPECT_GT(token.length, 0u);
+}
+
 TEST(SqlLexer, NamesBeyondAscii) { EXPECT_EQ(shape("SELECT café, 名前"), (V{"word:SELECT", "word:café", "sym:,", "word:名前"})); }
 
 TEST(SqlLexer, BytesThatAreNotUtf8AreRefusedOutsideStrings) {
