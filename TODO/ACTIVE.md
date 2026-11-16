@@ -87,26 +87,18 @@ word, 2026-11-15, after a check that no local notes, keys or server
 addresses are in its history (his email is there only as the commit
 author, as on Lir).
 
-**Hosted CI had stopped running** (from the push of 7cc0940, 2026-11-15):
-GitHub refused every job with "recent account payments have failed or your
-spending limit needs to be increased", while the repository was private.
-Whether it runs now the repository is public is to be seen on the next
-push. While it does not: the clang thread-safety analysis runs nowhere (no Pi
-has clang); ASan/UBSan runs by hand on a Pi (`tools/ci.sh asan`); TSan
-cannot run under g++ on the 47-bit Pis ("FATAL: ThreadSanitizer: unsupported
-VMA range, Found 47 - Supported 39, 42 and 48"), but node-a has a
-39-bit kernel and clang 19, where TSan, clang's thread-safety analysis and
-the fuzz targets can run (`CC=clang-19 CXX=clang++-19`, Makefiles). The maintainer,
-2026-11-16: TSan on the Mac only when hunting a specific bug.
+**Hosted CI runs every job on each push** (check, release on x86-64 and
+arm64, clang, ASan/UBSan, TSan, coverage, CodeQL). It stopped while the
+repository was private (GitHub refused jobs for the account's billing) and
+ran again once it was public. Its x86-64 sanitizers are part of the gate:
+they found a use-after-free the Pi's arm64 ASan run passed. Dependabot's two
+pull requests (actions bumps) are untouched, the maintainer's to merge.
 
-Before that, on hosted CI: every CI job
-(check, release on x86-64 and arm64, clang, ASan/UBSan, TSan, coverage)
-passes on `develop`. CodeQL's analysis completed but its `analyze` step
-failed with "Resource not accessible by integration" reading its own
-workflow run: the job lacked `actions: read`, added 2026-11-15. Code
-scanning needs no Advanced Security on a public repository. Dependabot's two pull requests (actions bumps) failed `check`
-only because they branched before the format fix; untouched, the maintainer's to
-merge.
+On the Pis: ASan/UBSan by hand (`tools/ci.sh asan`); since 2026-11-16 every
+build Pi runs a 4K-page kernel and TSan works on all of them; clang 19
+(thread-safety analysis, libFuzzer) is on node-a, node-b and node-c.
+The maintainer's rules: TSan on the Mac only when hunting a specific bug; no sanitizer
+builds on node-d (4 GB).
 
 ## How work is done
 
