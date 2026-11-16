@@ -36,8 +36,10 @@ statements=$(mktemp)
 trap 'rm -f "$statements"' EXIT
 grep -v -e '^[[:space:]]*$' -e '^#' "$input" > "$statements"
 
-# Each statement between numbered marker queries.
-awk '{ print "SELECT " NR " AS kvasir_case_start;"; print $0 ";"; print "SELECT 0 AS kvasir_case_end;" }' "$statements" |
+# Each statement between numbered markers the client prints itself (its
+# "system" command), so no query of the recorder's touches the session's
+# diagnostics between a statement and a SHOW WARNINGS after it.
+awk '{ print "\\! echo kvasir_case_start " NR; print $0 ";"; print "\\! echo kvasir_case_end" }' "$statements" |
   docker exec -i "$container" sh -c \
     'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --default-character-set=utf8mb4 --column-type-info --force -t --raw -n 2>&1' |
   grep -v 'Using a password' |
@@ -51,11 +53,11 @@ awk '{ print "SELECT " NR " AS kvasir_case_start;"; print $0 ";"; print "SELECT 
     /^Decimals:/ { decimals = $2; next }
     /^Flags:/ {
       flags = $0; sub(/^Flags: */, "", flags); sub(/ *$/, "", flags)
-      marker = name
-      if (marker != "kvasir_case_start" && marker != "kvasir_case_end")
-        print "column " name "|" type "|" id "|" length_ "|" decimals "|" flags
+      print "column " name "|" type "|" id "|" length_ "|" decimals "|" flags
       next
     }
+    /^kvasir_case_start [0-9]+$/ { print "statement " statement[$2 + 0]; next }
+    /^kvasir_case_end$/ { print "end"; next }
     /^$/ { next }
     # A table: a border, the header, a border, the rows, a border.
     /^\+/ { borders++; next }
@@ -68,8 +70,6 @@ awk '{ print "SELECT " NR " AS kvasir_case_start;"; print $0 ";"; print "SELECT 
         if (v == "NULL") v = "\\N"
         line = line (i > 1 ? "\t" : "") v
       }
-      if (marker == "kvasir_case_start") { print "statement " statement[line + 0]; marker = ""; next }
-      if (marker == "kvasir_case_end") { print "end"; marker = ""; next }
       print "row " line
       next
     }

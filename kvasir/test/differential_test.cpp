@@ -110,8 +110,10 @@ std::vector<std::string> answer(exec::Session& session, const std::string& state
       out.push_back(line);
     }
   } catch (const sql::SyntaxError& e) {
+    session.record_error(1064, e.what());
     out.push_back("error 1064|42000|" + std::string(e.what()));
   } catch (const sql::EmptyQuery& e) {
+    session.record_error(1065, e.what());
     out.push_back("error 1065|42000|" + std::string(e.what()));
   } catch (const exec::SqlError& e) {
     out.push_back("error " + std::to_string(e.code()) + "|" + e.sqlstate() + "|" + e.what());

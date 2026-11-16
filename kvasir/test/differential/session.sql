@@ -13,6 +13,9 @@
 # - Kvasir's own version strings: @@version, @@version_comment, and the
 #   server's build (@@version_compile_os, @@version_compile_machine).
 # - @@performance_schema: Kvasir has none, and says 0.
+# - VERSION(), USER(), CURRENT_USER() and CONNECTION_ID()'s values: the
+#   server's and the account's own (Kvasir's accounts have no host part, so
+#   CURRENT_USER() is user@%).
 # - Arithmetic on a bare NULL literal (NULL+1): Kvasir types it DOUBLE with
 #   length 23 and 31 decimals, MySQL with smaller lengths; the value is NULL.
 # - Warnings are not compared yet (SHOW WARNINGS is not built).
@@ -113,3 +116,18 @@ SELECT 1
 COMMIT
 START TRANSACTION
 ROLLBACK
+SELECT 1/0, '1.5x'+0
+SHOW WARNINGS
+SHOW WARNINGS LIMIT 1
+SHOW COUNT(*) WARNINGS
+SELECT @@warning_count, @@error_count
+SELECT nope
+SHOW ERRORS
+SHOW COUNT(*) ERRORS
+SELECT 1
+SHOW WARNINGS
+SELEC 1
+SHOW WARNINGS
+SELECT CONNECTION_ID() > 0, LAST_INSERT_ID(), ROW_COUNT(), FOUND_ROWS(), DATABASE(), SCHEMA()
+SET @x = 1
+SELECT ROW_COUNT()

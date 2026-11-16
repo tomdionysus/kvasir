@@ -429,3 +429,76 @@ statement START TRANSACTION
 end
 statement ROLLBACK
 end
+statement SELECT 1/0, '1.5x'+0
+column 1/0|NEWDECIMAL|63|7|4|BINARY NUM
+column '1.5x'+0|DOUBLE|63|23|31|NOT_NULL BINARY NUM
+row \N	1.5
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1365	Division by 0
+row Warning	1292	Truncated incorrect DOUBLE value: '1.5x'
+end
+statement SHOW WARNINGS LIMIT 1
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1365	Division by 0
+end
+statement SHOW COUNT(*) WARNINGS
+column @@session.warning_count|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+row 2
+end
+statement SELECT @@warning_count, @@error_count
+column @@warning_count|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+column @@error_count|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+row 2	0
+end
+statement SELECT nope
+error 1054|42S22|Unknown column 'nope' in 'field list'
+end
+statement SHOW ERRORS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Error	1054	Unknown column 'nope' in 'field list'
+end
+statement SHOW COUNT(*) ERRORS
+column @@session.error_count|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+row 1
+end
+statement SELECT 1
+column 1|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+row 1
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+end
+statement SELEC 1
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'SELEC 1' at line 1
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Error	1064	You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'SELEC 1' at line 1
+end
+statement SELECT CONNECTION_ID() > 0, LAST_INSERT_ID(), ROW_COUNT(), FOUND_ROWS(), DATABASE(), SCHEMA()
+column CONNECTION_ID() > 0|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column LAST_INSERT_ID()|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column ROW_COUNT()|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+column FOUND_ROWS()|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+column DATABASE()|VAR_STRING|255|256|31|
+column SCHEMA()|VAR_STRING|255|256|31|
+row 1	0	-1	1	\N	\N
+end
+statement SET @x = 1
+end
+statement SELECT ROW_COUNT()
+column ROW_COUNT()|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+row 0
+end
