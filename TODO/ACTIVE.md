@@ -226,7 +226,18 @@ builds on node-d (4 GB).
     `Kept{kept, need_whole}` (need_whole non-empty means nothing kept); a
     repeated accept already kept is answered by the rule from the recorded
     state, the store not asked; `keep()` is asynchronous, never inline.
-    Dannan will say when the store interface is final.
+    Final interface reviewed (Dannan 1c624d3, 2026-11-16): the store side
+    fits ranges; ballot-only accepts make a caught-up transfer value-less.
+    Kvasir does not need the whole resend in pieces for 0.9.0: it keeps a
+    range's value under `max_value` (256 MiB) itself, splitting before it,
+    and later holding only the manifest head and unfolded tail, and catches
+    lagging acceptors up before they are sent anything. Asked of Dannan
+    (open): a value-less change, where Change gets each base's ballot and
+    summary and returns deltas only, the fast path keeps ballots and
+    summaries, and an acceptor needing whole is not counted but named for
+    the owner to catch up. Otherwise the sticky proposer holds and rebuilds
+    each range's whole value per batch. If it is left past 0.9.0, it goes
+    to the maintainer.
   Dannan has also taken Kvasir's
   ask to export its fuzz harness with the test fixtures (a 0.9 item, not
   started). Dannan's working tree may be on a feature branch: read
