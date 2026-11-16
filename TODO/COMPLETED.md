@@ -2,6 +2,32 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-16: collations from Unicode's table, and string comparison
+
+- Landed (ruling 32): Unicode's allkeys.txt for UCA 9.0.0 with its license;
+  `kvasir-ducet`, which compiles it at build time; the collation algorithm
+  by hand for utf8mb4_0900_ai_ci, _as_cs, utf8mb4_bin, utf8mb4_0900_bin and
+  binary; string comparison in the evaluator under the collation MySQL
+  derives for the pair. Nothing of MySQL copied: every expected sort key
+  and answer was observed on the reference server.
+- Found on the reference server: MySQL's 0900 collations weigh each code
+  point alone, applying none of the table's 868 contractions (L with a
+  middle dot, Cyrillic short I, Thai and Lao prevowels, Tibetan and Tamil
+  sequences all checked). A first implementation that applied them, and a
+  second that reordered prevowels, each failed on observed keys and were
+  dropped.
+- Found by the gates, each fixed with a test: a binary string against text
+  (X'61' = 'a', and every comparison under SET NAMES binary) was compared as
+  numbers, giving wrong answers silently; the parser refused SET NAMES
+  binary, since BINARY is a reserved word.
+- Test-first: the collation suite failed against a stub (the stub run
+  crashed on a null collation, exit 139, so its count was not seen); the
+  comparison tests and the differential gate's twelve new statements failed
+  first (4 failed, the gate 113 of 121).
+- Gate: release on node-c and node-b **262 passed, 0
+  failed**, the differential gate **121 of 121**. Hosted CI on 2f13512: see
+  the next entry or its run.
+
 ## 2026-11-16: the connection, the differential gate, the first fuzz runs
 
 - Landed: the client connection over a transport seam; the recorded

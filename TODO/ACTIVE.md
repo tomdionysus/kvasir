@@ -66,8 +66,18 @@ sanitizer gate, since ASan cannot start on the Pis' 39-bit kernels):
   credential.
 - The differential gate, recorded: `tools/record_mysql.sh` runs
   `kvasir/test/differential/session.sql` on the reference server, and
-  `differential_test.cpp` replays it through a session: 109 of 109
+  `differential_test.cpp` replays it through a session: 121 of 121
   statements answer as MySQL 8.4 does. Re-record when the list grows.
+- Collations (ruling 32): `tools/kvasir_ducet.cpp` compiles
+  `kvasir/data/unicode/allkeys-9.0.0.txt` into the library at build time;
+  `kvasir/exec/collation.h` weighs strings by hand under
+  utf8mb4_0900_ai_ci, utf8mb4_0900_as_cs, utf8mb4_bin, utf8mb4_0900_bin and
+  binary, with sort keys equal to MySQL's WEIGHT_STRING() for 31 observed
+  characters. Found on the reference server: MySQL's 0900 collations apply
+  none of the table's contractions (Thai and Lao prevowels included). The
+  evaluator compares strings under the collation derived for the pair
+  (coercibility: literal 4, system variable and session function 3, user
+  variable 2; a binary string on either side compares bytes).
 - The fuzz targets have run (libFuzzer, clang 19 on node-a, fuzzer and
   UBSan): the lexer's found an empty token, fixed; the packet reader and
   parser ran clean for a minute each. Corpora in `/root/kvasir-work/corpus`
@@ -97,9 +107,11 @@ and the reference server first, and watched to fail:
 2. `kvasir-node` listening on port 3306 with its YAML settings (`ack_level`
    with no built-in default, the users), then a real `mysql` client against
    it by hand on a build Pi. Needs 0.8.4.
-3. String comparison under utf8mb4's collations (refused with 1235 today):
-   needs Unicode's collation data (UCA 9.0.0 for utf8mb4_0900_ai_ci), a
-   decision put to the maintainer. Then the catalog and DDL.
+3. The rest of ruling 32's collations: utf8mb3_general_ci and
+   utf8mb4_general_ci (system variables and USER() compare under the first,
+   so `@@sql_mode = '...'` is still refused with 1235), then LIKE under a
+   collation (refused with 1235), the COLLATE clause, and character sets
+   besides utf8mb4 and binary. Then the catalog and DDL.
 4. Dannan 0.8.4 is built on its `release/0.8.4` (start_tls_unanswered at
    383b6f5), waiting on its release gate and the maintainer's push word. When tagged:
    move `KVASIR_DANNAN_TAG`, write the stream transport and the worker-pool
