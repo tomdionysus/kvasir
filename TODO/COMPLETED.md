@@ -2,6 +2,27 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-16: the general_ci collations, derived from Unicode 3.0.0
+
+- Ruling 33 (the maintainer, "Derive from Unicode"): Unicode 3.0.0's UnicodeData.txt
+  checked in; `kvasir-general-ci` derives one weight per BMP code point.
+  The rule was found by checking candidates against all 63,488 BMP weights
+  dumped from the reference server (the dump stays on node-b, used only to
+  verify): Unicode 3.0.0 matches best of 3.0.0 to 9.0.0; accents are
+  stripped by canonical decomposition, never through a singleton, only in
+  Latin, Greek and Cyrillic and only to a letter; then uppercase. Three
+  exceptions recorded: sharp s weighs as S, and short i keeps its breve.
+  The generated table equals MySQL's at every one of the 63,488.
+- Found and fixed: PAD SPACE was implemented as trimming trailing spaces,
+  so 'a\t' < 'a' under utf8mb4_bin answered wrongly (in 528b5a4); the
+  shorter string now compares as padded with spaces. utf8mb4_bin's sort key
+  is now three bytes per code point, as MySQL's.
+- Test-first: 4 failed first (three collation tests and the gate, 124 of
+  128). One expected key in the new test was wrong (U+0459 written for
+  U+0451) and was corrected to the observed value.
+- Gate: release on node-b **265 passed, 0 failed**, the
+  differential gate **128 of 128**.
+
 ## 2026-11-16: collations from Unicode's table, and string comparison
 
 - Landed (ruling 32): Unicode's allkeys.txt for UCA 9.0.0 with its license;
