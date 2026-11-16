@@ -40,6 +40,9 @@ struct ResultType {
   // A decimal shown at its value's own scale, not the column's: a user
   // variable holding a DECIMAL reports 30 decimals and shows 1.5 as 1.5.
   bool own_scale = false;
+  // A hex or bit literal: an unsigned integer in a numeric context, where
+  // another binary string (an unset user variable) is read as a number's text.
+  bool number_string = false;
 
   bool nullable() const noexcept;
   bool is_unsigned() const noexcept;

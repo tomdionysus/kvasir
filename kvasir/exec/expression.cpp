@@ -83,8 +83,8 @@ enum class Domain { integer, decimal, real };
 Domain domain_of(const ResultType& t) {
   if (t.field_type == f::longlong) return Domain::integer;
   if (t.field_type == f::newdecimal) return Domain::decimal;
-  // A binary string (hex, bits) is an unsigned integer in a numeric context.
-  if (t.field_type == f::var_string && t.collation == binary_collation) return Domain::integer;
+  // A hex or bit literal is an unsigned integer in a numeric context.
+  if (t.number_string) return Domain::integer;
   return Domain::real;
 }
 
@@ -184,7 +184,7 @@ ResultType Evaluator::type(const Expr& e) const {
       t.collation = _settings.result_collation;
       t.length = static_cast<uint32_t>(characters(e.value)) * _settings.result_max_bytes;
       t.decimals = any_decimals;
-      t.flags = c::not_null;
+      t.flags = static_cast<uint16_t>(c::not_null | (_settings.result_collation_binary ? c::binary : 0));
       return t;
     }
     case ExprKind::hex:
@@ -194,6 +194,7 @@ ResultType Evaluator::type(const Expr& e) const {
       t.collation = binary_collation;
       t.length = static_cast<uint32_t>(e.value.size());
       t.precision = static_cast<int>(e.value.size());
+      t.number_string = true;
       t.flags = static_cast<uint16_t>(c::not_null | c::binary | (e.kind == ExprKind::hex ? c::unsigned_ : 0));
       return t;
     }

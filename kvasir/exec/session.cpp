@@ -117,6 +117,7 @@ EvalSettings Session::eval_settings() const {
   const auto* collation = find_collation(_variables.text("collation_connection"));
   e.result_collation = collation ? collation->id : protocol::collation::utf8mb4_0900_ai_ci;
   e.result_max_bytes = collation && collation->charset == "binary" ? 1 : 4;
+  e.result_collation_binary = collation && collation->name.size() > 4 && collation->name.compare(collation->name.size() - 4, 4, "_bin") == 0;
   return e;
 }
 

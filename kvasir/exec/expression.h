@@ -49,6 +49,9 @@ struct EvalSettings {
   uint16_t result_collation = 255;
   // Its widest character, in bytes.
   uint32_t result_max_bytes = 4;
+  // Whether it is a _bin collation, whose string results MySQL flags BINARY
+  // (observed).
+  bool result_collation_binary = false;
 };
 
 class Evaluator {
