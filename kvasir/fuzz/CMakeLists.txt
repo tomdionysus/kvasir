@@ -12,10 +12,14 @@ if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   message(FATAL_ERROR "KVASIR_BUILD_FUZZING needs clang")
 endif()
 
+# AddressSanitizer cannot start on a kernel with a 39-bit address space (the
+# Pi build servers' since 2026-11-16); there, "fuzzer,undefined".
+set(KVASIR_FUZZ_SANITIZERS "fuzzer,address,undefined" CACHE STRING "The -fsanitize= list the fuzz targets build with")
+
 set(kvasir_fuzz_targets packet lexer parser)
 foreach(target IN LISTS kvasir_fuzz_targets)
   add_executable(${target}_fuzz ${target}_fuzz.cpp)
-  target_compile_options(${target}_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
-  target_link_options(${target}_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
+  target_compile_options(${target}_fuzz PRIVATE -fsanitize=${KVASIR_FUZZ_SANITIZERS})
+  target_link_options(${target}_fuzz PRIVATE -fsanitize=${KVASIR_FUZZ_SANITIZERS})
   target_link_libraries(${target}_fuzz PRIVATE kvasir kvasir_warnings)
 endforeach()
