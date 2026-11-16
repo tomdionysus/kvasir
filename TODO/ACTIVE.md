@@ -104,19 +104,11 @@ sanitizer gate, since ASan cannot start on the Pis' 39-bit kernels):
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 and the reference server first, and watched to fail:
 
-1. The back-off per principal and per source before any hashing: Lugh's Backoff
-   moves into Dannan as `dannan::listen::Backoff` (`dannan/listen/backoff.h`,
-   on `contract::TimePoint`; agreed by Dannan and Lugh 2026-11-16, stack
-   rule 3), in Dannan 0.8.5 (in its gate, 2026-11-16 03:00Z). Kvasir writes
-   none of its own; the sign-in path is written against wait(key, now),
-   failed(key, now), succeeded(key), with keys "principal:<name>" and
-   "source:<address>", a waiting client answered before any hashing. When
-   0.8.5 is tagged: move the pin, wire it into the connection.
-2. Tables: CREATE TABLE with MySQL's types into the catalog, then INSERT
+1. Tables: CREATE TABLE with MySQL's types into the catalog, then INSERT
    and SELECT over in-memory rows (the design's surface order). Then
    SHOW STATUS and the other statements a client's `status` command and
    connectors send.
-3. utf8mb4_unicode_ci, and character sets besides
+2. utf8mb4_unicode_ci, and character sets besides
    utf8mb4, utf8mb3 and binary (N'...' and _latin1'...' are refused); an
    alias holding a character past the BMP (MySQL refuses it with 3854,
    Kvasir accepts it).
@@ -126,7 +118,9 @@ and the reference server first, and watched to fail:
 SSLRequest; `PoolPasswordChecker`, Argon2id on a WorkerPool as foreground
 work with a deadline) answered MySQL 8.4.13's own `mysql` client from
 another Pi: TLS required and negotiated, statements, databases, 1045 for a
-wrong password, 3159 without TLS, a clean stop on SIGTERM. So the OK, ERR
+wrong password, 3159 without TLS, a clean stop on SIGTERM. On Dannan
+0.8.5 the sign-in asks `dannan::listen::Backoff` (Lugh's, moved into Dannan
+by stack rule 3) per principal and per source before any hashing. So the OK, ERR
 and result-set bytes and the response decoder suit a real client. Still
 unchecked: other connectors (JDBC, Python's, Go's), and compression.
 

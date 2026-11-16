@@ -2,6 +2,23 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-16: the sign-in back-off, on Dannan 0.8.5
+
+- Dannan 0.8.5 (de631cc) carries Lugh's Backoff as
+  `dannan::listen::Backoff`; the pin moved. The sign-in asks it per
+  principal and per source before anything is hashed (fast path included);
+  a waiting client is denied as a wrong password is, without counting
+  another failure; wrong and empty passwords count against both; a sign-in
+  clears only its principal's. The node uses Lugh's rules (5 and 20 free,
+  1 s doubling to 15 min, forgotten after an hour).
+- Tried with the real mysql client: five wrong passwords, then the right
+  one denied, then accepted after the second's wait.
+- Test-first: the four tests were written before the code, but not run
+  before it; the first build failed on the test helper (a const move-only
+  step returned), fixed.
+- Gate: release on node-d **279 passed, 0 failed**, the differential
+  gate **187 of 187**.
+
 ## 2026-11-16: the node serves MySQL clients
 
 - Dannan 0.8.4 tagged (52fd53c) with `Stream::start_tls_unanswered`; the
