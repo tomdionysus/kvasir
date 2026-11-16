@@ -231,13 +231,19 @@ builds on node-d (4 GB).
     Kvasir does not need the whole resend in pieces for 0.9.0: it keeps a
     range's value under `max_value` (256 MiB) itself, splitting before it,
     and later holding only the manifest head and unfolded tail, and catches
-    lagging acceptors up before they are sent anything. Asked of Dannan
-    (open): a value-less change, where Change gets each base's ballot and
-    summary and returns deltas only, the fast path keeps ballots and
-    summaries, and an acceptor needing whole is not counted but named for
-    the owner to catch up. Otherwise the sticky proposer holds and rebuilds
-    each range's whole value per batch. If it is left past 0.9.0, it goes
-    to the maintainer.
+    lagging acceptors up before they are sent anything. The value-less
+    change Kvasir asked for is in 0.9.0 at the maintainer's word (part 6, reviewed by
+    Kvasir 2026-11-16): `change_deltas(..., DeltaChange)`, the change given
+    each name's base (ballot, summary, has_value, and `local`: this node's
+    acceptor holds exactly it) and returning deltas only; commit on a
+    majority that took it; need_whole nodes named in `Outcome::need_whole`
+    for Kvasir to catch up, never resent; the fast path keeping ballots,
+    not bytes, and checking the base by ballot only (right for ranges,
+    which change only through agreement). Kvasir makes a delta only when
+    `local`, else forwards the batch to a replica. Asked (open, may follow
+    0.9.0): a read with no deltas that commits without an accept when a
+    majority promised one base, so a current read is a round trip with no
+    sync.
   Dannan has also taken Kvasir's
   ask to export its fuzz harness with the test fixtures (a 0.9 item, not
   started). Dannan's working tree may be on a feature branch: read
