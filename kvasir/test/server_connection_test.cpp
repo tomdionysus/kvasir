@@ -284,6 +284,38 @@ TEST(ServerConnection, TheFullPathSignsInAndServesQueries) {
   EXPECT_TRUE(bed.connection->finished());
 }
 
+// A statement waiting for another transaction's lock keeps its connection,
+// though no read is pending then and the node holds no reference of its own
+// (found with the real mysql client: the connection was dropped at once),
+// and answers when the lock is let go.
+TEST(ServerConnection, AStatementWaitsForALockAndKeepsItsConnection) {
+  Bed bed;
+  bed.verifiers.remember("root", sha2::fast_verifier({reinterpret_cast<const uint8_t*>("secret"), 6}));
+  bed.through_tls("secret");
+  ASSERT_TRUE(bed.connection->signed_in());
+  exec::Session other(registry(), bed.node, bed.rows, exec::SessionInfo{"root", "10.0.0.2", 8});
+  const auto run_other = [&](const std::string& sql) {
+    for (const auto& s : sql::parse(sql, other.parser_options())) other.execute(s);
+  };
+  run_other("CREATE DATABASE d; USE d; CREATE TABLE t (a INT PRIMARY KEY); BEGIN; INSERT INTO t VALUES (1)");
+  std::weak_ptr<Connection> weak = bed.connection;
+  bed.connection.reset();
+  const size_t before = packets(bed.transport->sent).size();
+  bed.transport->push(framed(query("INSERT INTO d.t VALUES (1)"), 0));
+  bed.run();
+  EXPECT_FALSE(weak.expired());
+  EXPECT_EQ(packets(bed.transport->sent).size(), before);
+  EXPECT_FALSE(bed.transport->closed);
+  run_other("COMMIT");
+  bed.run();
+  const auto sent = bed.sent_after(before);
+  ASSERT_EQ(sent.size(), 1u);
+  EXPECT_EQ(sent[0].payload[0], 0xff);
+  EXPECT_EQ(sent[0].payload[1] | (sent[0].payload[2] << 8), 1062);
+  bed.connection = weak.lock();
+  ASSERT_TRUE(bed.connection);
+}
+
 TEST(ServerConnection, TheFastPathNeedsNoCheck) {
   Bed bed;
   bed.verifiers.remember("root", sha2::fast_verifier({reinterpret_cast<const uint8_t*>("secret"), 6}));

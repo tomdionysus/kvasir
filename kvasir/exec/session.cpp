@@ -108,8 +108,36 @@ Session::Session(const VariableRegistry& registry, catalog::Catalog& catalog, tx
     : _registry(registry), _catalog(catalog), _rows(rows), _info(std::move(info)), _variables(registry) {}
 
 Session::~Session() {
+  if (_waiting) _rows.stop_waiting(*_waiting);
   if (_transaction) _rows.rollback(*_transaction);
 }
+
+bool Session::wait_for_lock(const LockWaitNeeded& wait, std::function<void()> wake) {
+  switch (_rows.wait(wait.waiter(), wait.holder(), wake)) {
+    case txn::Store::Wait::waiting:
+      _waiting = wait.waiter();
+      return true;
+    case txn::Store::Wait::free:
+      // Let go already: run it again at once (`wake` only posts).
+      wake();
+      return true;
+    case txn::Store::Wait::deadlock:
+      break;
+  }
+  // The deadlock's victim: its whole transaction goes (InnoDB's choice when
+  // its own wait closes the cycle).
+  rollback();
+  record_error(er_lock_deadlock, "Deadlock found when trying to get lock; try restarting transaction");
+  return false;
+}
+
+void Session::give_up_waiting(const LockWaitNeeded& wait) {
+  _rows.stop_waiting(wait.waiter());
+  _waiting.reset();
+  record_error(er_lock_wait_timeout, "Lock wait timeout exceeded; try restarting transaction");
+}
+
+uint64_t Session::lock_wait_timeout() const { return _variables.number("innodb_lock_wait_timeout"); }
 
 void Session::reset() {
   rollback();
@@ -339,6 +367,7 @@ Outcome Session::execute(const sql::Statement& statement) {
   // The statement before's diagnostics stay readable (SHOW WARNINGS,
   // @@warning_count) while this one runs; then this one's replace them, an
   // error among them.
+  _waiting.reset();
   _previous = std::move(_warnings);
   _warnings.clear();
   try {
@@ -352,6 +381,11 @@ Outcome Session::execute(const sql::Statement& statement) {
     return outcome;
   } catch (const SqlError& e) {
     _warnings.push_back({"Error", e.code(), e.what()});
+    throw;
+  } catch (const LockWaitNeeded&) {
+    // Not run yet, as far as anyone can tell: the diagnostics stay the
+    // statement before's.
+    _warnings = std::move(_previous);
     throw;
   }
 }
@@ -789,12 +823,13 @@ Outcome Session::insert(const sql::Statement& statement) {
         unique.push_back(kd.name + std::string(1, '\0') + encode_key(*table, kd, row));
       }
       std::string duplicate;
-      switch (_rows.insert(t, table->id, key, unique, row, &duplicate)) {
+      uint64_t holder = 0;
+      switch (_rows.insert(t, table->id, key, unique, row, &duplicate, &holder)) {
         case txn::Store::Inserted::inserted:
           ++outcome.affected_rows;
           break;
         case txn::Store::Inserted::locked:
-          throw SqlError(1205, "HY000", "Lock wait timeout exceeded; try restarting transaction");
+          throw LockWaitNeeded(t.id(), holder);
         case txn::Store::Inserted::duplicate: {
           const auto& kd = duplicate.empty() ? table->keys[*primary] : *std::find_if(table->keys.begin(), table->keys.end(), [&](const catalog::Key& k) {
             return k.name == duplicate.substr(0, duplicate.find('\0'));

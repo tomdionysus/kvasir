@@ -8,6 +8,8 @@
 #pragma once
 
 #include <cstdint>
+#include <exception>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -67,6 +69,24 @@ struct Outcome {
   std::string info;
 };
 
+// A statement met a lock another transaction holds. It has been undone, and
+// may be run again once that transaction lets its locks go (Session::
+// wait_for_lock); nothing of it shows in the diagnostics.
+class LockWaitNeeded : public std::exception {
+ public:
+  LockWaitNeeded(uint64_t waiter, uint64_t holder) : _waiter(waiter), _holder(holder) {}
+  const char* what() const noexcept override { return "a lock wait is needed"; }
+  uint64_t waiter() const noexcept { return _waiter; }
+  uint64_t holder() const noexcept { return _holder; }
+
+ private:
+  uint64_t _waiter;
+  uint64_t _holder;
+};
+
+inline constexpr uint16_t er_lock_wait_timeout = 1205;
+inline constexpr uint16_t er_lock_deadlock = 1213;
+
 struct SessionInfo {
   std::string user;
   std::string host;
@@ -83,8 +103,17 @@ class Session : private VariableSource {
   Session& operator=(Session&&) = delete;
 
   // Runs one statement. Throws SqlError; its warnings, and only its, are
-  // then in warnings().
+  // then in warnings(). Throws LockWaitNeeded for a statement that must wait.
   Outcome execute(const sql::Statement& statement);
+
+  // After LockWaitNeeded: waits for the holder, `wake` being called once on
+  // the thread that frees it (it must only post). False for a deadlock: this
+  // session's transaction is rolled back whole, its error (1213) recorded.
+  bool wait_for_lock(const LockWaitNeeded& wait, std::function<void()> wake);
+  // The wait is given up: its error (1205) recorded; the transaction goes on.
+  void give_up_waiting(const LockWaitNeeded& wait);
+  // innodb_lock_wait_timeout, in seconds.
+  uint64_t lock_wait_timeout() const;
 
   // COM_RESET_CONNECTION: variables back to their defaults, user variables
   // gone, any transaction rolled back, no current database. Who is signed in
@@ -158,6 +187,8 @@ class Session : private VariableSource {
   std::unique_ptr<txn::Transaction> _transaction;
   // LAST_INSERT_ID(): the first value the last INSERT that made one made.
   uint64_t _last_insert_id = 0;
+  // The transaction id a lock wait is registered for, if one is.
+  std::optional<uint64_t> _waiting;
   SessionInfo _info;
   SessionVariables _variables;
   std::map<std::string, UserVariable> _user;

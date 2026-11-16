@@ -145,7 +145,46 @@ CommandStep CommandPhase::query(std::string_view text) {
     refuse(sql::er_empty_query, "42000", e.what());
   } catch (const exec::SqlError& e) {
     refuse(e.code(), e.sqlstate(), e.what());
+  } catch (const exec::LockWaitNeeded& e) {
+    // Nothing is sent: the statement runs again from the start once the lock
+    // is let go, its reply from this same sequence.
+    step.out.clear();
+    _sequence = first;
+    _pending = Pending{std::string(text), first, e};
+    step.waiting = true;
   }
+  return step;
+}
+
+CommandStep CommandPhase::wait(std::function<void()> wake) {
+  CommandStep step;
+  if (!_pending) return step;
+  if (_session.wait_for_lock(_pending->wait, std::move(wake))) {
+    step.waiting = true;
+    return step;
+  }
+  // A deadlock: this transaction was the victim.
+  _sequence = _pending->sequence;
+  _pending.reset();
+  error(step.out, exec::er_lock_deadlock, "40001", "Deadlock found when trying to get lock; try restarting transaction");
+  return step;
+}
+
+CommandStep CommandPhase::resume() {
+  if (!_pending) return {};
+  const auto pending = std::move(*_pending);
+  _pending.reset();
+  _sequence = pending.sequence;
+  return query(pending.text);
+}
+
+CommandStep CommandPhase::give_up() {
+  CommandStep step;
+  if (!_pending) return step;
+  _session.give_up_waiting(_pending->wait);
+  _sequence = _pending->sequence;
+  _pending.reset();
+  error(step.out, exec::er_lock_wait_timeout, "HY000", "Lock wait timeout exceeded; try restarting transaction");
   return step;
 }
 

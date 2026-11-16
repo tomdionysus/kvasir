@@ -7,6 +7,8 @@
 
 #include "kvasir/server/connection.h"
 
+#include <boost/asio/post.hpp>
+#include <chrono>
 #include <utility>
 
 #include "kvasir/protocol/messages.h"
@@ -40,7 +42,8 @@ Connection::Connection(std::shared_ptr<Transport> transport, boost::asio::any_io
       _rows(rows),
       _checker(checker),
       _sign_in(sign_in_settings(_settings, *_transport), verifiers, backoff),
-      _reader(_settings.limits) {
+      _reader(_settings.limits),
+      _lock_timer(_executor) {
   _reader.restrict(true);
 }
 
@@ -126,7 +129,15 @@ void Connection::packet_arrived() {
     sign_in_step(_sign_in.received(_packet));
     return;
   }
-  auto step = _commands->received(_packet);
+  command_step(_commands->received(_packet));
+}
+
+void Connection::command_step(CommandStep step) {
+  if (_finished) return;
+  if (step.waiting) {
+    wait_for_lock();
+    return;
+  }
   if (!step.out.empty()) _transport->send(as_string(step.out));
   if (step.close) {
     _transport->close();
@@ -134,6 +145,44 @@ void Connection::packet_arrived() {
     return;
   }
   read_header();
+}
+
+// A statement waits for another transaction's lock: until it is let go
+// (woken, then run again) or innodb_lock_wait_timeout passes (1205). Nothing
+// is read meanwhile. The wake comes on whatever thread let the lock go, and
+// only posts here.
+void Connection::wait_for_lock() {
+  std::weak_ptr<Connection> weak = shared_from_this();
+  _waiting = true;
+  auto step = _commands->wait([weak, executor = _executor] {
+    boost::asio::post(executor, [weak] {
+      if (auto self = weak.lock()) self->lock_released();
+    });
+  });
+  if (!step.waiting) {
+    _waiting = false;
+    command_step(std::move(step));
+    return;
+  }
+  // No read is pending while it waits: the timer holds the connection, until
+  // it fires or the wake cancels it.
+  _lock_timer.expires_after(std::chrono::seconds(static_cast<int64_t>(_session->lock_wait_timeout())));
+  _lock_timer.async_wait([self = shared_from_this()](const boost::system::error_code& error) {
+    if (!error) self->lock_timed_out();
+  });
+}
+
+void Connection::lock_released() {
+  if (_finished || !_waiting) return;
+  _waiting = false;
+  _lock_timer.cancel();
+  command_step(_commands->resume());
+}
+
+void Connection::lock_timed_out() {
+  if (_finished || !_waiting) return;
+  _waiting = false;
+  command_step(_commands->give_up());
 }
 
 void Connection::sign_in_step(SignInStep step) {
@@ -179,6 +228,7 @@ void Connection::sign_in_step(SignInStep step) {
 void Connection::finish(bool) {
   _finished = true;
   _then = nullptr;
+  _lock_timer.cancel();
 }
 
 }  // namespace kvasir::server

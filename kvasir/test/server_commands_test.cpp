@@ -122,6 +122,94 @@ ErrFields err(const Packet& p) {
   return e;
 }
 
+// Two clients of one node, for lock waits.
+struct TwoClients {
+  catalog::Catalog node;
+  txn::Store rows;
+  exec::Session a{registry(), node, rows, exec::SessionInfo{"root", "10.0.0.1", 7}};
+  exec::Session b{registry(), node, rows, exec::SessionInfo{"root", "10.0.0.2", 8}};
+  CommandPhase pa{a, capability::protocol_41 | capability::deprecate_eof};
+  CommandPhase pb{b, capability::protocol_41 | capability::deprecate_eof};
+  static CommandStep send(CommandPhase& p, std::string_view sql) { return p.received(command(command::query, sql)); }
+  static void ran(CommandPhase& p, std::string_view sql) {
+    const auto sent = packets(send(p, sql).out);
+    ASSERT_EQ(sent.size(), 1u) << sql;
+    EXPECT_EQ(sent[0].payload.at(0), 0x00) << sql;
+  }
+};
+
+// InnoDB's lock waits (the manual, "InnoDB Locking" and "Deadlocks in
+// InnoDB"): a writer that meets another transaction's lock waits for it to
+// end, then goes on as if it had not waited; a wait past
+// innodb_lock_wait_timeout ends the statement with 1205; a wait that closes a
+// cycle ends the whole transaction with 1213.
+TEST(ServerCommands, AWriterWaitsForAnothersLock) {
+  TwoClients c;
+  EXPECT_EQ(c.b.lock_wait_timeout(), 50u);
+  TwoClients::ran(c.pa, "CREATE DATABASE d");
+  TwoClients::ran(c.pa, "USE d");
+  TwoClients::ran(c.pb, "USE d");
+  TwoClients::ran(c.pa, "CREATE TABLE t (a INT PRIMARY KEY)");
+  TwoClients::ran(c.pa, "BEGIN");
+  TwoClients::ran(c.pa, "INSERT INTO t VALUES (7)");
+  auto step = TwoClients::send(c.pb, "INSERT INTO t VALUES (7)");
+  EXPECT_TRUE(step.waiting);
+  EXPECT_TRUE(step.out.empty());
+  int woken = 0;
+  step = c.pb.wait([&] { ++woken; });
+  EXPECT_TRUE(step.waiting);
+  EXPECT_TRUE(step.out.empty());
+  TwoClients::ran(c.pa, "COMMIT");
+  EXPECT_EQ(woken, 1);
+  step = c.pb.resume();
+  EXPECT_FALSE(step.waiting);
+  auto sent = packets(step.out);
+  ASSERT_EQ(sent.size(), 1u);
+  EXPECT_EQ(sent[0].first_sequence, 1u);
+  EXPECT_EQ(err(sent[0]).code, 1062);
+
+  // Too long a wait: the statement ends, the transaction does not.
+  TwoClients::ran(c.pa, "BEGIN");
+  TwoClients::ran(c.pa, "INSERT INTO t VALUES (8)");
+  TwoClients::ran(c.pb, "BEGIN");
+  TwoClients::ran(c.pb, "INSERT INTO t VALUES (9)");
+  EXPECT_TRUE(TwoClients::send(c.pb, "INSERT INTO t VALUES (8)").waiting);
+  EXPECT_TRUE(c.pb.wait([&] { ++woken; }).waiting);
+  sent = packets(c.pb.give_up().out);
+  ASSERT_EQ(sent.size(), 1u);
+  const auto timeout = err(sent[0]);
+  EXPECT_EQ(timeout.code, 1205);
+  EXPECT_EQ(timeout.sqlstate, "HY000");
+  EXPECT_EQ(timeout.message, "Lock wait timeout exceeded; try restarting transaction");
+  EXPECT_TRUE(c.b.in_transaction());
+  TwoClients::ran(c.pa, "ROLLBACK");
+  EXPECT_EQ(woken, 1);
+
+  // Each waits for the other: the second to wait is the victim, rolled back
+  // whole, and the first goes on.
+  TwoClients::ran(c.pa, "BEGIN");
+  TwoClients::ran(c.pa, "INSERT INTO t VALUES (10)");
+  EXPECT_TRUE(TwoClients::send(c.pa, "INSERT INTO t VALUES (9)").waiting);
+  int a_woken = 0;
+  EXPECT_TRUE(c.pa.wait([&] { ++a_woken; }).waiting);
+  EXPECT_TRUE(TwoClients::send(c.pb, "INSERT INTO t VALUES (10)").waiting);
+  sent = packets(c.pb.wait([] {}).out);
+  ASSERT_EQ(sent.size(), 1u);
+  const auto deadlock = err(sent[0]);
+  EXPECT_EQ(deadlock.code, 1213);
+  EXPECT_EQ(deadlock.sqlstate, "40001");
+  EXPECT_EQ(deadlock.message, "Deadlock found when trying to get lock; try restarting transaction");
+  EXPECT_FALSE(c.b.in_transaction());
+  EXPECT_EQ(a_woken, 1);
+  sent = packets(c.pa.resume().out);
+  ASSERT_EQ(sent.size(), 1u);
+  EXPECT_EQ(ok(sent[0]).affected, 1u);
+  TwoClients::ran(c.pa, "COMMIT");
+  // b's row 9 went with its transaction; a's 9 and 10 are there.
+  sent = packets(TwoClients::send(c.pb, "SELECT a FROM t ORDER BY a").out);
+  EXPECT_EQ(sent.size(), 6u);
+}
+
 TEST(ServerCommands, TheVersionCommentQueryWithDeprecateEof) {
   Fixture f;
   const auto sent = f.query("select @@version_comment limit 1");

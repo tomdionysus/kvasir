@@ -124,5 +124,66 @@ TEST(TxnStore, CountersAndDrops) {
   EXPECT_EQ(s.reserve_auto(1, 1, 1), 1u);
 }
 
+// InnoDB's lock waits ("InnoDB Locking", "Deadlocks in InnoDB"): a writer
+// meeting another's lock waits until that transaction ends; a wait that
+// would close a cycle is a deadlock.
+TEST(TxnStore, WaitsAndDeadlocks) {
+  Store s;
+  auto first = s.begin();
+  auto second = s.begin();
+  ASSERT_EQ(s.insert(first, 1, "a", {}, row("a"), nullptr), Store::Inserted::inserted);
+  uint64_t holder = 0;
+  EXPECT_EQ(s.insert(second, 1, "a", {}, row("a"), nullptr, &holder), Store::Inserted::locked);
+  EXPECT_EQ(holder, first.id());
+  int woken = 0;
+  EXPECT_EQ(s.wait(second.id(), holder, [&] { ++woken; }), Store::Wait::waiting);
+  EXPECT_EQ(woken, 0);
+  s.commit(first);
+  EXPECT_EQ(woken, 1);
+  // Woken once only.
+  auto third = s.begin();
+  s.insert(third, 1, "b", {}, row("b"), nullptr);
+  s.commit(third);
+  EXPECT_EQ(woken, 1);
+  EXPECT_EQ(s.insert(second, 1, "a", {}, row("a"), nullptr), Store::Inserted::duplicate);
+
+  // A rollback wakes too, and so does a statement undone.
+  auto x = s.begin();
+  auto y = s.begin();
+  s.begin_statement(x);
+  s.insert(x, 1, "c", {}, row("c"), nullptr);
+  EXPECT_EQ(s.insert(y, 1, "c", {}, row("c"), nullptr, &holder), Store::Inserted::locked);
+  EXPECT_EQ(s.wait(y.id(), holder, [&] { ++woken; }), Store::Wait::waiting);
+  s.undo_statement(x);
+  EXPECT_EQ(woken, 2);
+  EXPECT_EQ(s.insert(y, 1, "c", {}, row("c"), nullptr), Store::Inserted::inserted);
+
+  // Each holds what the other wants: the second wait is a deadlock.
+  auto p = s.begin();
+  auto q = s.begin();
+  s.insert(p, 2, "1", {}, row("1"), nullptr);
+  s.insert(q, 2, "2", {}, row("2"), nullptr);
+  EXPECT_EQ(s.insert(p, 2, "2", {}, row("2"), nullptr, &holder), Store::Inserted::locked);
+  EXPECT_EQ(s.wait(p.id(), holder, [&] { ++woken; }), Store::Wait::waiting);
+  EXPECT_EQ(s.insert(q, 2, "1", {}, row("1"), nullptr, &holder), Store::Inserted::locked);
+  EXPECT_EQ(s.wait(q.id(), holder, [] {}), Store::Wait::deadlock);
+  // The victim rolls back, and the other goes on.
+  s.rollback(q);
+  EXPECT_EQ(woken, 3);
+  EXPECT_EQ(s.insert(p, 2, "2", {}, row("2"), nullptr), Store::Inserted::inserted);
+
+  // A waiter that gives up is not woken; a holder that holds nothing now is
+  // free.
+  auto r = s.begin();
+  auto w = s.begin();
+  s.insert(r, 3, "k", {}, row("k"), nullptr);
+  EXPECT_EQ(s.wait(w.id(), r.id(), [&] { ++woken; }), Store::Wait::waiting);
+  s.stop_waiting(w.id());
+  s.commit(r);
+  EXPECT_EQ(woken, 3);
+  EXPECT_EQ(s.wait(w.id(), r.id(), [&] { ++woken; }), Store::Wait::free);
+  EXPECT_EQ(woken, 3);
+}
+
 }  // namespace
 }  // namespace kvasir::txn

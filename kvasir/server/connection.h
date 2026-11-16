@@ -9,6 +9,7 @@
 
 #include <array>
 #include <boost/asio/any_io_executor.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -36,7 +37,10 @@
 // A full-path password is checked by a PasswordChecker away from the
 // connection (Argon2id spends tens of milliseconds and megabytes, never on a
 // connection's strand); its answer comes back on the connection's executor.
-// Everything else runs on that executor; not thread-safe otherwise.
+// A statement that meets another transaction's lock waits without reading:
+// woken (posted here) when the lock is let go, or answered 1205 at
+// innodb_lock_wait_timeout. Everything else runs on that executor; not
+// thread-safe otherwise.
 namespace kvasir::server {
 
 class Transport {
@@ -98,6 +102,10 @@ class Connection : public std::enable_shared_from_this<Connection> {
   // _packet has arrived whole.
   void packet_arrived();
   void sign_in_step(SignInStep step);
+  void command_step(CommandStep step);
+  void wait_for_lock();
+  void lock_released();
+  void lock_timed_out();
   void finish(bool clean);
 
   std::shared_ptr<Transport> _transport;
@@ -116,6 +124,10 @@ class Connection : public std::enable_shared_from_this<Connection> {
   std::function<void()> _then;
   protocol::Packet _packet;
   bool _finished = false;
+  // A statement waits for a lock, until this timer (innodb_lock_wait_timeout)
+  // or a wake.
+  bool _waiting = false;
+  boost::asio::steady_timer _lock_timer;
 };
 
 }  // namespace kvasir::server

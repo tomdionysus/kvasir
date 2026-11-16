@@ -38,8 +38,51 @@ void Store::release(Transaction& t) {
   t._snapshot.reset();
 }
 
-void Store::commit(Transaction& t) {
+std::vector<std::function<void()>> Store::waking(uint64_t holder) {
+  std::vector<std::function<void()>> wakes;
+  for (auto it = _waits.begin(); it != _waits.end();) {
+    if (it->second.holder == holder) {
+      wakes.push_back(std::move(it->second.wake));
+      it = _waits.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  return wakes;
+}
+
+Store::Wait Store::wait(uint64_t waiter, uint64_t holder, std::function<void()> wake) {
   dannan::contract::Lock lock(_mutex);
+  const bool holds = std::any_of(_locks.begin(), _locks.end(), [&](const auto& l) { return l.second == holder; });
+  if (!holds) return Wait::free;
+  // Follow what the holder waits for: back at the waiter is a cycle.
+  for (uint64_t at = holder;;) {
+    if (at == waiter) return Wait::deadlock;
+    const auto next = _waits.find(at);
+    if (next == _waits.end()) break;
+    at = next->second.holder;
+  }
+  _waits[waiter] = {holder, std::move(wake)};
+  return Wait::waiting;
+}
+
+void Store::stop_waiting(uint64_t waiter) {
+  dannan::contract::Lock lock(_mutex);
+  _waits.erase(waiter);
+}
+
+void Store::commit(Transaction& t) {
+  std::vector<std::function<void()>> wakes;
+  {
+    dannan::contract::Lock lock(_mutex);
+    commit_locked(t);
+    wakes = waking(t._id);
+    _waits.erase(t._id);
+  }
+  for (auto& wake : wakes) wake();
+}
+
+void Store::commit_locked(Transaction& t) {
   if (!t._writes.empty()) {
     const uint64_t at = ++_last_commit;
     for (auto& [table, writes] : t._writes) {
@@ -57,8 +100,14 @@ void Store::commit(Transaction& t) {
 }
 
 void Store::rollback(Transaction& t) {
-  dannan::contract::Lock lock(_mutex);
-  release(t);
+  std::vector<std::function<void()>> wakes;
+  {
+    dannan::contract::Lock lock(_mutex);
+    release(t);
+    wakes = waking(t._id);
+    _waits.erase(t._id);
+  }
+  for (auto& wake : wakes) wake();
 }
 
 void Store::begin_statement(Transaction& t) {
@@ -68,24 +117,30 @@ void Store::begin_statement(Transaction& t) {
 }
 
 void Store::undo_statement(Transaction& t) {
-  dannan::contract::Lock lock(_mutex);
-  for (const auto& [table, key] : t._statement_writes) {
-    const auto found = t._writes.find(table);
-    if (found == t._writes.end()) continue;
-    found->second.erase(key);
-    if (found->second.empty()) t._writes.erase(found);
+  std::vector<std::function<void()>> wakes;
+  {
+    dannan::contract::Lock lock(_mutex);
+    for (const auto& [table, key] : t._statement_writes) {
+      const auto found = t._writes.find(table);
+      if (found == t._writes.end()) continue;
+      found->second.erase(key);
+      if (found->second.empty()) t._writes.erase(found);
+    }
+    for (const auto& name : t._statement_locks) {
+      const auto it = _locks.find(name);
+      if (it != _locks.end() && it->second == t._id) _locks.erase(it);
+      t._locks.erase(name);
+    }
+    // Those waiting may find what they wanted free now.
+    if (!t._statement_locks.empty()) wakes = waking(t._id);
+    t._statement_writes.clear();
+    t._statement_locks.clear();
   }
-  for (const auto& name : t._statement_locks) {
-    const auto it = _locks.find(name);
-    if (it != _locks.end() && it->second == t._id) _locks.erase(it);
-    t._locks.erase(name);
-  }
-  t._statement_writes.clear();
-  t._statement_locks.clear();
+  for (auto& wake : wakes) wake();
 }
 
 Store::Inserted Store::insert(Transaction& t, uint64_t table, const std::string& key, const std::vector<std::string>& unique, Row row,
-                              std::string* duplicate_of) {
+                              std::string* duplicate_of, uint64_t* holder) {
   dannan::contract::Lock lock(_mutex);
   auto& rows = _tables[table];
   // The names this row must hold: its key, and each unique value.
@@ -93,7 +148,10 @@ Store::Inserted Store::insert(Transaction& t, uint64_t table, const std::string&
   for (const auto& u : unique) names.push_back(lock_name(table, "u" + u));
   for (const auto& name : names) {
     const auto held = _locks.find(name);
-    if (held != _locks.end() && held->second != t._id) return Inserted::locked;
+    if (held != _locks.end() && held->second != t._id) {
+      if (holder) *holder = held->second;
+      return Inserted::locked;
+    }
   }
   // A duplicate is judged against the latest committed rows, whatever the
   // snapshot (as InnoDB judges it), and against the transaction's own.

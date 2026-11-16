@@ -1057,14 +1057,13 @@ TEST(ExecSessionRows, Transactions) {
   EXPECT_EQ(run(other, "SELECT a FROM t").result->rows.size(), 4u);
   run(b.s, "SET autocommit = 1");
 
-  // A row another transaction has written and not committed: MySQL waits
-  // for its lock; Kvasir does not wait yet, and answers as a wait that timed
-  // out.
+  // A row another transaction has written and not committed: the statement
+  // must wait for its lock (the command phase waits; see
+  // server_commands_test), and leaves nothing behind meanwhile.
   run(b.s, "BEGIN");
   run(b.s, "INSERT INTO t VALUES (7)");
-  const auto r = refusal(other, "INSERT INTO t VALUES (7)");
-  EXPECT_EQ(r.code, 1205);
-  EXPECT_EQ(r.message, "Lock wait timeout exceeded; try restarting transaction");
+  EXPECT_THROW(run(other, "INSERT INTO t VALUES (7)"), LockWaitNeeded);
+  EXPECT_FALSE(other.in_transaction());
   run(b.s, "COMMIT");
   EXPECT_EQ(refusal(other, "INSERT INTO t VALUES (7)").code, 1062);
 

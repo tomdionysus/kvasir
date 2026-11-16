@@ -8,6 +8,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <set>
@@ -30,9 +31,10 @@
 // id). A unique key is a lock name too, so two transactions inserting one
 // value contend for it. The store knows nothing of SQL types.
 //
-// Waiting: a lock another transaction holds is not waited for yet; the
-// writer is told at once (the session answers 1205). Waits with a deadline
-// come with asynchronous statements.
+// Waiting: a writer that meets another transaction's lock is told who holds
+// it, and may wait for that transaction to let its locks go (InnoDB's lock
+// wait); the store refuses a wait that closes a cycle (a deadlock). The
+// deadline is the caller's.
 //
 // Thread safety: every operation takes the store's one lock, held only for
 // the operation; safe from any thread. No operation waits on anything else.
@@ -88,8 +90,20 @@ class Store {
   // Inserts a row under `key`, locking it and each name in `unique` (the
   // row's non-NULL unique key values, encoded with their key's name).
   // `duplicate_of` is set to the unique name, or "" for the primary key,
-  // that another row already holds.
-  Inserted insert(Transaction& t, uint64_t table, const std::string& key, const std::vector<std::string>& unique, Row row, std::string* duplicate_of);
+  // that another row already holds; `holder` to the transaction holding a
+  // lock it needs.
+  Inserted insert(Transaction& t, uint64_t table, const std::string& key, const std::vector<std::string>& unique, Row row, std::string* duplicate_of,
+                  uint64_t* holder = nullptr);
+
+  // A transaction (by id) waits for another to release its locks: `wake` is
+  // called once, on the thread that releases them (commit, rollback, or a
+  // statement undone), and must only post. A wait that would close a cycle
+  // of waits is a deadlock and is not made; a holder that holds nothing now
+  // is free, and nothing is waited for.
+  enum class Wait : uint8_t { waiting, deadlock, free };
+  Wait wait(uint64_t waiter, uint64_t holder, std::function<void()> wake);
+  // The waiter gives up (its timeout, its session's end); `wake` is dropped.
+  void stop_waiting(uint64_t waiter);
 
   // The rows `t` sees, in key order: its snapshot's, and its own writes.
   std::vector<Row> rows(Transaction& t, uint64_t table);
@@ -117,10 +131,20 @@ class Store {
     uint64_t next_auto = 0;
     uint64_t next_row_id = 1;
   };
+  struct Waiting {
+    uint64_t holder = 0;
+    std::function<void()> wake;
+  };
   static std::string lock_name(uint64_t table, const std::string& name);
   void release(Transaction& t) DANNAN_REQUIRES(_mutex);
+  void commit_locked(Transaction& t) DANNAN_REQUIRES(_mutex);
+  // The wakes of those waiting for `holder`, taken out to be called once the
+  // lock is let go.
+  std::vector<std::function<void()>> waking(uint64_t holder) DANNAN_REQUIRES(_mutex);
 
   mutable dannan::contract::Mutex _mutex;
+  // Waiter to what it waits for.
+  std::map<uint64_t, Waiting> _waits DANNAN_GUARDED_BY(_mutex);
   std::map<uint64_t, Rows> _tables DANNAN_GUARDED_BY(_mutex);
   // Lock name to the transaction holding it.
   std::map<std::string, uint64_t> _locks DANNAN_GUARDED_BY(_mutex);

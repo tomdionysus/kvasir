@@ -8,6 +8,8 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -41,6 +43,10 @@ inline constexpr uint16_t er_unknown_com_error = 1047;
 struct CommandStep {
   protocol::Bytes out;
   bool close = false;
+  // The statement met another transaction's lock: nothing is sent yet. The
+  // caller calls wait(), then resume() once woken, or give_up() at
+  // innodb_lock_wait_timeout; no other packet is read meanwhile.
+  bool waiting = false;
 };
 
 class CommandPhase {
@@ -50,7 +56,23 @@ class CommandPhase {
 
   CommandStep received(const protocol::Packet& packet);
 
+  // A waiting statement waits: `wake` is called once, on whatever thread
+  // frees the lock, and must only post. The step is still waiting, or is
+  // the deadlock's error (1213, the transaction rolled back).
+  CommandStep wait(std::function<void()> wake);
+  // Runs the waiting statement again.
+  CommandStep resume();
+  // The wait took too long: 1205, the statement undone, the transaction
+  // kept.
+  CommandStep give_up();
+
  private:
+  struct Pending {
+    std::string text;
+    // The reply's first sequence.
+    uint8_t sequence;
+    exec::LockWaitNeeded wait;
+  };
   CommandStep query(std::string_view text);
   void send(protocol::Bytes& out, const protocol::Bytes& payload);
   void ok(protocol::Bytes& out, uint64_t affected_rows = 0, uint64_t last_insert_id = 0, const std::string& info = {});
@@ -60,6 +82,7 @@ class CommandPhase {
   exec::Session& _session;
   const uint32_t _capabilities;
   uint8_t _sequence = 0;
+  std::optional<Pending> _pending;
 };
 
 }  // namespace kvasir::server
