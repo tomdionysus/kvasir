@@ -360,6 +360,20 @@ TEST(ServerConnection, AClientThatGoesIsFinished) {
   EXPECT_TRUE(bed.transport->aborted);
 }
 
+// Found by LeakSanitizer on hosted CI: a connection whose client went while it
+// waited for a packet kept itself alive through its own pending continuation.
+TEST(ServerConnection, AConnectionIsFreedWhenItsClientGoes) {
+  Bed bed;
+  bed.verifiers.remember("root", sha2::fast_verifier({reinterpret_cast<const uint8_t*>("secret"), 6}));
+  bed.through_tls("secret");
+  ASSERT_TRUE(bed.connection->signed_in());
+  std::weak_ptr<Connection> watch = bed.connection;
+  bed.transport->hang_up();
+  bed.run();
+  bed.connection.reset();
+  EXPECT_TRUE(watch.expired());
+}
+
 TEST(ServerConnection, PacketsSplitAcrossReadsAreJoined) {
   Bed bed;
   bed.verifiers.remember("root", sha2::fast_verifier({reinterpret_cast<const uint8_t*>("secret"), 6}));

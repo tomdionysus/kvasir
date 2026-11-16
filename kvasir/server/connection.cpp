@@ -169,6 +169,12 @@ void Connection::sign_in_step(SignInStep step) {
   read_header();
 }
 
-void Connection::finish(bool) { _finished = true; }
+// A continuation still waiting holds the connection itself: dropped here, or a
+// connection whose client went mid-read would keep itself for ever (found by
+// LeakSanitizer).
+void Connection::finish(bool) {
+  _finished = true;
+  _then = nullptr;
+}
 
 }  // namespace kvasir::server
