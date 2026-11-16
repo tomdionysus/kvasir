@@ -10,6 +10,7 @@
 # "kvasir/<subsystem>/x.h".
 add_library(kvasir SHARED
   exec/decimal.cpp
+  exec/expression.cpp
   protocol/caching_sha2.cpp
   protocol/codec.cpp
   protocol/messages.cpp
