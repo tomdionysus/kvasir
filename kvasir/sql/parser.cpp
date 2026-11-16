@@ -615,7 +615,8 @@ class Parser {
         if (!e->value.empty() || e->charset.size()) fail(peek());
         e->charset = "national";
       }
-      e->value += take().value;
+      e->path.push_back(take().value);
+      e->value += e->path.back();
     }
     return e;
   }

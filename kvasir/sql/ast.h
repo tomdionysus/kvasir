@@ -25,7 +25,8 @@ enum class ExprKind : uint8_t {
   integer,          // `value` as written
   decimal,          // `value` as written
   floating,         // `value` as written
-  string,           // `value` unescaped and joined; `charset` an introducer's name, "national" for N''
+  string,           // `value` unescaped and joined, `path` its parts (MySQL names a column by the first);
+                    // `charset` an introducer's name, "national" for N''
   hex,              // `value` is the bytes (0x.., X'..')
   bits,             // `value` is the bytes (0b.., B'..')
   column,           // `path`: [schema.][table.]column
