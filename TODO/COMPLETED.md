@@ -2,6 +2,42 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-16: rows and transactions on one node
+
+- Observed on MySQL 8.4.13 first (two probe runs): INSERT's refusals
+  (1048, 1062 with MySQL's 'table.key' name, 1110, 1136 with the row,
+  1264, 1265 as an error (01000), 1364, 1366 worded by type, 1406), its
+  notes, the OK packet's "Records: N  Duplicates: 0  Warnings: W", how
+  each type stores and is sent (ZEROFILL padded, FLOAT computing as the
+  float it holds, CHAR without trailing spaces, BINARY padded with
+  zeros), AUTO_INCREMENT (a statement reserves a value per row at its
+  first need; a failed statement's are lost), key collisions under the
+  key's collation, order without a primary key, NULLs in ORDER BY.
+- Landed: `kvasir/txn/store.h`, a node's rows as committed versions, each
+  transaction's writes buffered and locked by key and unique value,
+  snapshots at the first read (REPEATABLE READ) or each statement (READ
+  COMMITTED), a commit made visible at once, a failed statement undone
+  alone, duplicates judged against the latest commit; `exec/rows.h`,
+  stored values back as values and keys as bytes that sort and collide as
+  MySQL's (PAD SPACE keys padded to the key's length); INSERT (VALUES,
+  VALUE, SET, DEFAULT, column lists, multi-row) and SELECT over a
+  table's rows (WHERE, ORDER BY by expression, alias or position, LIMIT,
+  OFFSET); sessions hold transactions (BEGIN, COMMIT, ROLLBACK,
+  autocommit = 0, DDL committing first, a session's end rolling back);
+  LAST_INSERT_ID(). Interim, in the plan: a locked row answers 1205 at
+  once instead of waiting; SERIALIZABLE is refused (1235); INSERT
+  IGNORE, REPLACE, ON DUPLICATE KEY UPDATE, INSERT ... SELECT and columns
+  in VALUES are refused (1235).
+- Found by the gate: INSERT into a missing database is 1049, not 1146;
+  arithmetic on an integer column counts the type's digits, not its
+  display width. Both fixed, with unit tests.
+- Test-first: the 11 new tests were run on node-d against an empty store
+  and HEAD's parser and all failed, the 298 before them passing; then the
+  code, which passed them at its first build.
+- Gate: release on node-d (-j1) **309 passed, 0 failed**, the
+  differential gate **382 of 382** (78 new statements, recorded on node-b;
+  the 304 before unchanged). Hosted CI's sanitizers run on the push.
+
 ## 2026-11-16: tables in the catalog
 
 - Observed on MySQL 8.4.13 first (six probe runs on node-b): column types,

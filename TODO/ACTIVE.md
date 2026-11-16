@@ -22,7 +22,7 @@ it.
 
 Step 2a, one node speaking the MySQL protocol, is in hand.
 
-**Done and pushed** (298 tests; sanitizers run on the Pis and in hosted
+**Done and pushed** (309 tests; sanitizers run on the Pis and in hosted
 CI's x86-64 jobs):
 
 - `kvasir/protocol/`: the value codec, packet framing, the connection
@@ -65,8 +65,11 @@ CI's x86-64 jobs):
   credential.
 - The differential gate, recorded: `tools/record_mysql.sh` runs
   `kvasir/test/differential/session.sql` on the reference server, and
-  `differential_test.cpp` replays it through a session: 304 of 304
+  `differential_test.cpp` replays it through a session: 382 of 382
   statements answer as MySQL 8.4 does. Re-record when the list grows.
+- Tables and rows on one node: CREATE / DROP TABLE, SHOW TABLES, INSERT,
+  SELECT over a table's rows, and transactions in `kvasir/txn/store.h`
+  (see COMPLETED, 2026-11-16).
 - Collations (ruling 32): `tools/kvasir_ducet.cpp` compiles
   `kvasir/data/unicode/allkeys-9.0.0.txt` into the library at build time;
   `kvasir/exec/collation.h` weighs strings by hand under
@@ -104,17 +107,24 @@ CI's x86-64 jobs):
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 and the reference server first, and watched to fail:
 
-1. Rows: INSERT (with `exec/store.h`'s outcomes as row errors: 1264,
-   1366, 1406, 1265; AUTO_INCREMENT; DEFAULT), then SELECT over in-memory
-   rows, with transactions that keep ACID on one node (ROLLBACK undoes,
-   another session never sees uncommitted rows). Then SHOW STATUS and the
-   other statements a client's `status` command and connectors send.
-   Tables themselves are done: CREATE TABLE, DROP TABLE and SHOW TABLES
-   (see COMPLETED). Known differences there: an engine other than InnoDB
-   is refused as unknown (MySQL makes MyISAM and MEMORY tables); column
-   names compare case-insensitively in ASCII only; utf8mb3 columns cannot
-   yet be compared (no session collation for utf8mb3_bin).
-2. utf8mb4_unicode_ci, and character sets besides
+1. Lock waits: a writer that meets another transaction's row lock waits,
+   as the design says (1205 at innodb_lock_wait_timeout, 1213 on a
+   cycle), which makes a statement asynchronous: the session hands back a
+   pending statement and the command phase resumes it. Until then a
+   locked row answers 1205 at once (ACID holds; clients see a timeout
+   that did not wait).
+2. UPDATE and DELETE over the store (versions marked deleted), then the
+   functions clients use most (COUNT and the other aggregates, GROUP BY,
+   string and number functions), then SHOW STATUS and the other
+   statements a client's `status` command and connectors send.
+3. SERIALIZABLE (range read marks), INSERT IGNORE, REPLACE, ON DUPLICATE
+   KEY UPDATE, INSERT ... SELECT.
+   Known differences now: an engine other than InnoDB is refused as
+   unknown (MySQL makes MyISAM and MEMORY tables); column names compare
+   case-insensitively in ASCII only; utf8mb3_bin columns cannot yet be
+   compared in expressions; rows without ORDER BY come in primary-key (or
+   insertion) order, where MySQL may read a covering index instead.
+4. utf8mb4_unicode_ci, and character sets besides
    utf8mb4, utf8mb3 and binary (N'...' and _latin1'...' are refused); an
    alias holding a character past the BMP (MySQL refuses it with 3854,
    Kvasir accepts it).
