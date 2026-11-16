@@ -10,6 +10,11 @@
 add_executable(kvasir-ducet kvasir_ducet.cpp)
 target_link_libraries(kvasir-ducet PRIVATE kvasir_warnings)
 
+# kvasir-general-ci: derives the general_ci weights from Unicode 3.0.0's
+# character database at build time (ruling 33).
+add_executable(kvasir-general-ci kvasir_general_ci.cpp)
+target_link_libraries(kvasir-general-ci PRIVATE kvasir_warnings)
+
 # kvasir-node: a node that serves the MySQL protocol.
 add_executable(kvasir-node kvasir_node.cpp)
 target_link_libraries(kvasir-node PRIVATE kvasir kvasir_warnings)

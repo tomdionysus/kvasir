@@ -17,8 +17,18 @@ add_custom_command(
   COMMENT "Compiling Unicode's collation table"
 )
 
+# The general_ci weights (ruling 33), derived by kvasir-general-ci.
+set(kvasir_general_ci_table ${PROJECT_BINARY_DIR}/generated/kvasir/general_ci_table.cpp)
+add_custom_command(
+  OUTPUT ${kvasir_general_ci_table}
+  COMMAND kvasir-general-ci ${CMAKE_CURRENT_SOURCE_DIR}/data/unicode/UnicodeData-3.0.0.txt ${kvasir_general_ci_table}
+  DEPENDS kvasir-general-ci ${CMAKE_CURRENT_SOURCE_DIR}/data/unicode/UnicodeData-3.0.0.txt
+  COMMENT "Deriving the general_ci weights from Unicode's character database"
+)
+
 add_library(kvasir SHARED
   ${kvasir_ducet_table}
+  ${kvasir_general_ci_table}
   exec/collation.cpp
   exec/decimal.cpp
   exec/expression.cpp

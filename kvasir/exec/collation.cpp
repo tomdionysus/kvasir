@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "kvasir/exec/ducet.h"
+#include "kvasir/exec/general_ci_table.h"
 
 namespace kvasir::exec {
 
@@ -184,19 +185,63 @@ class Uca : public Collation {
   int _levels;
 };
 
-class Binary : public Collation {
+// Bytes, NO PAD: utf8mb4_0900_bin (UTF-8's byte order is its code points'
+// order) and the binary character set.
+class Bytes : public Collation {
  public:
-  explicit Binary(bool pad) : _pad(pad) {}
-  int compare(std::string_view a, std::string_view b) const override { return compare_keys(sort_key(a), sort_key(b)); }
-  // UTF-8's byte order is its code points' order.
+  int compare(std::string_view a, std::string_view b) const override { return sign(a.compare(b)); }
+  std::string sort_key(std::string_view s) const override { return std::string(s); }
+};
+
+// One weight per code point, PAD SPACE: the shorter string compares as if
+// padded with spaces, so a character weighing less than a space sorts before
+// the end of a string (observed).
+class Padded : public Collation {
+ public:
+  int compare(std::string_view a, std::string_view b) const override {
+    const auto wa = weights(a);
+    const auto wb = weights(b);
+    const uint32_t space = weight(' ');
+    for (size_t i = 0; i < std::max(wa.size(), wb.size()); ++i) {
+      const uint32_t x = i < wa.size() ? wa[i] : space;
+      const uint32_t y = i < wb.size() ? wb[i] : space;
+      if (x != y) return x < y ? -1 : 1;
+    }
+    return 0;
+  }
+  // Each weight in `width` bytes, high byte first, trailing spaces kept.
   std::string sort_key(std::string_view s) const override {
-    if (_pad)
-      while (!s.empty() && s.back() == ' ') s.remove_suffix(1);
-    return std::string(s);
+    std::string key;
+    for (const uint32_t w : weights(s))
+      for (int byte = width() - 1; byte >= 0; --byte) key.push_back(static_cast<char>((w >> (8 * byte)) & 0xff));
+    return key;
   }
 
+ protected:
+  virtual uint32_t weight(char32_t cp) const = 0;
+  virtual int width() const = 0;
+
  private:
-  bool _pad;
+  std::vector<uint32_t> weights(std::string_view s) const {
+    std::vector<uint32_t> out;
+    for (size_t i = 0; i < s.size();) out.push_back(weight(decode(s, i)));
+    return out;
+  }
+};
+
+// utf8mb4_bin: the code point, in three bytes.
+class CodePoints : public Padded {
+ protected:
+  uint32_t weight(char32_t cp) const override { return cp; }
+  int width() const override { return 3; }
+};
+
+// utf8mb3_general_ci and utf8mb4_general_ci (ruling 33): past the BMP, a
+// character weighs as U+FFFD (observed).
+class General : public Padded {
+ protected:
+  uint32_t weight(char32_t cp) const override { return cp < 0x10000 ? general_ci::weights[cp] : 0xFFFD; }
+  int width() const override { return 2; }
 };
 
 }  // namespace
@@ -204,18 +249,22 @@ class Binary : public Collation {
 const Collation* collation_by_id(uint16_t id) {
   static const Uca accent_and_case_insensitive(1);
   static const Uca accent_and_case_sensitive(3);
-  static const Binary padded(true);
-  static const Binary unpadded(false);
+  static const CodePoints by_code_point;
+  static const Bytes by_byte;
+  static const General general_weights;
   switch (id) {
     case 255:  // utf8mb4_0900_ai_ci
       return &accent_and_case_insensitive;
     case 278:  // utf8mb4_0900_as_cs
       return &accent_and_case_sensitive;
     case 46:  // utf8mb4_bin
-      return &padded;
+      return &by_code_point;
     case 309:  // utf8mb4_0900_bin
     case 63:   // binary
-      return &unpadded;
+      return &by_byte;
+    case 45:  // utf8mb4_general_ci
+    case 33:  // utf8mb3_general_ci
+      return &general_weights;
     default:
       return nullptr;
   }

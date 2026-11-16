@@ -568,3 +568,41 @@ row 0	0	1
 end
 statement SET NAMES DEFAULT
 end
+statement SELECT @@character_set_client = 'UTF8MB4', @@character_set_client = 'utf8mb4 ', @@sql_mode = 'x', USER() = 'x', DATABASE() = 'x'
+column @@character_set_client = 'UTF8MB4'|LONGLONG|63|1|0|BINARY NUM
+column @@character_set_client = 'utf8mb4 '|LONGLONG|63|1|0|BINARY NUM
+column @@sql_mode = 'x'|LONGLONG|63|1|0|BINARY NUM
+column USER() = 'x'|LONGLONG|63|1|0|BINARY NUM
+column DATABASE() = 'x'|LONGLONG|63|1|0|BINARY NUM
+row 1	1	0	0	\N
+end
+statement SELECT @@character_set_client = 'ütf8mb4', @@character_set_client < 'v', @cmp = @@character_set_client
+column @@character_set_client = 'ütf8mb4'|LONGLONG|63|1|0|BINARY NUM
+column @@character_set_client < 'v'|LONGLONG|63|1|0|BINARY NUM
+column @cmp = @@character_set_client|LONGLONG|63|1|0|BINARY NUM
+row 1	1	0
+end
+statement SET NAMES utf8mb4 COLLATE utf8mb4_bin
+end
+statement SELECT 'a\t' < 'a', 'a' < 'a\t', 'a' = 'a  ', 'é' > 'f'
+column 'a\t' < 'a'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a' < 'a\t'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a' = 'a  '|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'é' > 'f'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 1	0	1	1
+end
+statement SET NAMES utf8mb4 COLLATE utf8mb4_general_ci
+end
+statement SELECT 'a' = 'A', 'ß' = 's', 'ß' = 'ss', 'a' = 'a  ', 'a\t' < 'a', 'é' = 'E', 'й' = 'и', 'ё' = 'Е'
+column 'a' = 'A'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'ß' = 's'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'ß' = 'ss'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a' = 'a  '|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a\t' < 'a'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'é' = 'E'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'й' = 'и'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'ё' = 'Е'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 1	1	0	1	1	1	0	1
+end
+statement SET NAMES DEFAULT
+end

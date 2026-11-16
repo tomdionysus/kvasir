@@ -143,3 +143,10 @@ SELECT 'a' = 'A', 'a' < 'B', 'A' < 'a', 'á' > 'a', @cmp = 'X'
 SET NAMES binary
 SELECT 'a' = 'A', 'a' = 'a ', 'b' > 'a'
 SET NAMES DEFAULT
+SELECT @@character_set_client = 'UTF8MB4', @@character_set_client = 'utf8mb4 ', @@sql_mode = 'x', USER() = 'x', DATABASE() = 'x'
+SELECT @@character_set_client = 'ütf8mb4', @@character_set_client < 'v', @cmp = @@character_set_client
+SET NAMES utf8mb4 COLLATE utf8mb4_bin
+SELECT 'a\t' < 'a', 'a' < 'a\t', 'a' = 'a  ', 'é' > 'f'
+SET NAMES utf8mb4 COLLATE utf8mb4_general_ci
+SELECT 'a' = 'A', 'ß' = 's', 'ß' = 'ss', 'a' = 'a  ', 'a\t' < 'a', 'é' = 'E', 'й' = 'и', 'ё' = 'Е'
+SET NAMES DEFAULT

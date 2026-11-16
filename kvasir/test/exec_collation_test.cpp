@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "kvasir/exec/collation.h"
@@ -135,8 +136,63 @@ TEST(ExecCollation, BinaryCollations) {
   EXPECT_LT(bytes_only->compare("A", "a"), 0);
 }
 
+// PAD SPACE pads the shorter string with spaces rather than trimming, so a
+// character below a space sorts before the end of a string (observed).
+TEST(ExecCollation, PadSpacePadsRatherThanTrims) {
+  for (const uint16_t id : {uint16_t{46}, uint16_t{45}, uint16_t{33}}) {
+    SCOPED_TRACE(id);
+    const auto* c = collation_by_id(id);
+    ASSERT_TRUE(c);
+    EXPECT_LT(c->compare("a\t", "a"), 0);
+    EXPECT_GT(c->compare("a", "a\t"), 0);
+    EXPECT_EQ(c->compare("a", "a  "), 0);
+  }
+}
+
+TEST(ExecCollation, BinarySortKeys) {
+  EXPECT_EQ(hex(collation_by_id(bin)->sort_key("a ")), "000061000020");
+  EXPECT_EQ(hex(collation_by_id(bin)->sort_key(bytes("C3A9"))), "0000E9");
+  EXPECT_EQ(hex(collation_by_id(bin_0900)->sort_key("a ")), "6120");
+  EXPECT_EQ(hex(collation_by_id(bin_0900)->sort_key(bytes("C3A9"))), "C3A9");
+  EXPECT_EQ(hex(collation_by_id(63)->sort_key("a ")), "6120");
+}
+
+// Observed WEIGHT_STRING() under utf8mb4_general_ci and utf8mb3_general_ci,
+// which agree on every BMP code point (ruling 33).
+TEST(ExecCollation, GeneralCiSortKeys) {
+  const std::vector<std::pair<const char*, const char*>> keys = {
+      {"61", "0041"},              // a
+      {"41", "0041"},              // A
+      {"C3A0", "0041"},            // à
+      {"C3A9", "0045"},            // é
+      {"C39F", "0053"},            // ß, one S
+      {"D0B9", "0419"},            // й keeps its breve
+      {"D191", "0415"},            // ё
+      {"C680", "0180"},            // ƀ, no case pair in Unicode 3.0
+      {"D8A3", "0623"},            // Arabic alef with hamza, not stripped
+      {"E3818C", "304C"},          // hiragana ga, not stripped
+      {"E289A0", "2260"},          // not equal to, not stripped
+      {"F09F9880", "FFFD"},        // past the BMP
+      {"616220", "004100420020"},  // "ab "
+      {"00", "0000"},
+  };
+  for (const uint16_t id : {uint16_t{45}, uint16_t{33}}) {
+    const auto* c = collation_by_id(id);
+    ASSERT_TRUE(c);
+    for (const auto& [utf8, key] : keys) {
+      SCOPED_TRACE(utf8);
+      EXPECT_EQ(hex(c->sort_key(bytes(utf8))), key);
+    }
+  }
+  const auto* c = collation_by_id(45);
+  EXPECT_EQ(c->compare("a", "A"), 0);
+  EXPECT_EQ(c->compare(bytes("C39F"), "s"), 0);
+  EXPECT_NE(c->compare(bytes("C39F"), "ss"), 0);
+  EXPECT_NE(c->compare(bytes("D0B9"), bytes("D0B8")), 0);  // й and и
+  EXPECT_LT(c->compare("a", "B"), 0);
+}
+
 TEST(ExecCollation, CollationsNotYetBuiltAreNone) {
-  EXPECT_FALSE(collation_by_id(45));   // utf8mb4_general_ci
   EXPECT_FALSE(collation_by_id(224));  // utf8mb4_unicode_ci
   EXPECT_FALSE(collation_by_id(9999));
 }

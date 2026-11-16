@@ -23,10 +23,12 @@
 // collations are NO PAD, so trailing spaces count.
 //
 // utf8mb4_0900_ai_ci compares primary weights only; utf8mb4_0900_as_cs
-// primaries, then secondaries, then tertiaries. utf8mb4_bin and
-// utf8mb4_0900_bin compare code points, the first ignoring trailing spaces
-// (PAD SPACE); binary, the binary character set's, compares bytes, NO PAD.
-// Bytes that are not UTF-8 count as U+FFFD under the UCA collations.
+// primaries, then secondaries, then tertiaries. utf8mb4_bin compares code
+// points and utf8mb4_0900_bin and binary bytes. utf8mb3_general_ci and
+// utf8mb4_general_ci weigh each character once, by a table derived from
+// Unicode 3.0.0's character database (ruling 33). utf8mb4_bin and the
+// general_ci collations are PAD SPACE: the shorter string compares as if
+// padded with spaces. Bytes that are not UTF-8 count as U+FFFD.
 namespace kvasir::exec {
 
 class Collation {
@@ -40,7 +42,8 @@ class Collation {
 };
 
 // The collation with this id, or nothing for one Kvasir cannot yet compare
-// under (utf8mb4_general_ci and utf8mb4_unicode_ci need tables of their own).
+// under (utf8mb4_unicode_ci, and character sets besides utf8mb4, utf8mb3
+// and binary).
 const Collation* collation_by_id(uint16_t id);
 
 }  // namespace kvasir::exec
