@@ -1,0 +1,272 @@
+//
+// Kvasir - The Distributed Relational Database
+//
+// Copyright (C) 2026 Tom Cully <mail@tomcully.com>
+// Licensed under the GNU GPLv3 - see <https://www.gnu.org/licenses/gpl-3.0.html>
+//
+
+// MySQL 8.4 manual, client/server protocol, "Command Phase": COM_QUIT,
+// COM_INIT_DB, COM_QUERY, COM_PING, COM_RESET_CONNECTION; a command's packets
+// start at sequence 0 and the reply at 1; a text result set is the column
+// count, a ColumnDefinition41 per column, EOF unless CLIENT_DEPRECATE_EOF,
+// the rows (each value length-encoded, 0xfb for NULL), then EOF, or OK with
+// the 0xfe header under CLIENT_DEPRECATE_EOF; ER_UNKNOWN_COM_ERROR 1047
+// (08S01) "Unknown command"; ER_PARSE_ERROR 1064 and ER_EMPTY_QUERY 1065
+// (42000).
+
+#include <gtest/gtest.h>
+
+#include <string>
+#include <vector>
+
+#include "kvasir/protocol/messages.h"
+#include "kvasir/server/commands.h"
+
+namespace kvasir::server {
+namespace {
+
+using protocol::Bytes;
+using protocol::Packet;
+using protocol::Reader;
+namespace capability = protocol::capability;
+
+const exec::VariableRegistry& registry() {
+  static const exec::VariableRegistry r("replicated", "8.4.13-kvasir", "Kvasir - The Distributed Relational Database (in memory, not durable)");
+  return r;
+}
+
+std::vector<Packet> packets(const Bytes& bytes) {
+  protocol::PacketReader reader;
+  reader.feed(bytes);
+  std::vector<Packet> out;
+  while (auto p = reader.next()) out.push_back(std::move(*p));
+  EXPECT_EQ(reader.buffered(), 0u);
+  return out;
+}
+
+Packet command(uint8_t code, std::string_view body = {}, uint8_t sequence = 0) {
+  Packet p{sequence, sequence, {}};
+  p.payload.push_back(code);
+  p.payload.insert(p.payload.end(), body.begin(), body.end());
+  return p;
+}
+
+struct Fixture {
+  exec::Session session{registry(), exec::SessionInfo{"root", "10.0.0.1", 7}};
+  CommandPhase phase;
+  explicit Fixture(uint32_t capabilities = capability::protocol_41 | capability::deprecate_eof) : phase(session, capabilities) {}
+  std::vector<Packet> query(std::string_view sql) { return packets(phase.received(command(command::query, sql)).out); }
+};
+
+struct ColumnFields {
+  std::string catalog, name;
+  uint16_t charset = 0;
+  uint32_t length = 0;
+  uint8_t type = 0;
+  uint16_t flags = 0;
+  uint8_t decimals = 0;
+};
+
+ColumnFields column(const Packet& p) {
+  Reader r(p.payload);
+  ColumnFields c;
+  c.catalog = r.lenenc_string(64);
+  r.lenenc_string(64);
+  r.lenenc_string(64);
+  r.lenenc_string(64);
+  c.name = r.lenenc_string(256);
+  r.lenenc_string(256);
+  EXPECT_EQ(r.lenenc(), 0x0cu);
+  c.charset = r.u16();
+  c.length = r.u32();
+  c.type = r.u8();
+  c.flags = r.u16();
+  c.decimals = r.u8();
+  return c;
+}
+
+struct OkFields {
+  uint8_t header = 0;
+  uint64_t affected = 0;
+  uint16_t status = 0;
+  uint16_t warnings = 0;
+};
+
+OkFields ok(const Packet& p) {
+  Reader r(p.payload);
+  OkFields o;
+  o.header = r.u8();
+  o.affected = r.lenenc();
+  r.lenenc();
+  o.status = r.u16();
+  o.warnings = r.u16();
+  return o;
+}
+
+struct ErrFields {
+  uint16_t code = 0;
+  std::string sqlstate, message;
+};
+
+ErrFields err(const Packet& p) {
+  Reader r(p.payload);
+  EXPECT_EQ(r.u8(), 0xff);
+  ErrFields e;
+  e.code = r.u16();
+  EXPECT_EQ(r.u8(), '#');
+  const auto state = r.view(5);
+  e.sqlstate.assign(state.begin(), state.end());
+  e.message = r.rest_string(4096);
+  return e;
+}
+
+TEST(ServerCommands, TheVersionCommentQueryWithDeprecateEof) {
+  Fixture f;
+  const auto sent = f.query("select @@version_comment limit 1");
+  ASSERT_EQ(sent.size(), 4u);
+  for (size_t i = 0; i < sent.size(); ++i) EXPECT_EQ(sent[i].first_sequence, i + 1);
+  EXPECT_EQ(sent[0].payload, (Bytes{0x01}));
+  const auto c = column(sent[1]);
+  EXPECT_EQ(c.catalog, "def");
+  EXPECT_EQ(c.name, "@@version_comment");
+  EXPECT_EQ(c.charset, 255);
+  EXPECT_EQ(c.length, 87380u);
+  EXPECT_EQ(c.type, 253);
+  EXPECT_EQ(c.flags, 0);
+  EXPECT_EQ(c.decimals, 31);
+  Reader row(sent[2].payload);
+  EXPECT_EQ(row.lenenc_string(256), "Kvasir - The Distributed Relational Database (in memory, not durable)");
+  const auto end = ok(sent[3]);
+  EXPECT_EQ(end.header, 0xfe);
+  EXPECT_EQ(end.status, protocol::status::autocommit);
+  EXPECT_EQ(end.warnings, 0);
+}
+
+TEST(ServerCommands, AResultSetWithEofPackets) {
+  Fixture f(capability::protocol_41);
+  const auto sent = f.query("SELECT 1, NULL");
+  ASSERT_EQ(sent.size(), 6u);
+  EXPECT_EQ(sent[0].payload, (Bytes{0x02}));
+  EXPECT_EQ(column(sent[1]).name, "1");
+  EXPECT_EQ(column(sent[2]).name, "NULL");
+  // EOF after the definitions: 0xfe, warnings, status.
+  EXPECT_EQ(sent[3].payload, (Bytes{0xfe, 0x00, 0x00, 0x02, 0x00}));
+  EXPECT_EQ(sent[4].payload, (Bytes{0x01, '1', 0xfb}));
+  EXPECT_EQ(sent[5].payload, (Bytes{0xfe, 0x00, 0x00, 0x02, 0x00}));
+  EXPECT_EQ(sent[5].first_sequence, 6);
+}
+
+TEST(ServerCommands, NoRowsStillEndsTheResultSet) {
+  Fixture f;
+  const auto sent = f.query("SELECT 1 LIMIT 0");
+  ASSERT_EQ(sent.size(), 3u);
+  EXPECT_EQ(ok(sent[2]).header, 0xfe);
+}
+
+TEST(ServerCommands, AStatementWithoutRowsIsOk) {
+  Fixture f;
+  auto sent = f.query("SET autocommit = 0");
+  ASSERT_EQ(sent.size(), 1u);
+  EXPECT_EQ(sent[0].first_sequence, 1);
+  const auto o = ok(sent[0]);
+  EXPECT_EQ(o.header, 0x00);
+  EXPECT_EQ(o.affected, 0u);
+  EXPECT_EQ(o.status, 0);
+  sent = f.query("BEGIN");
+  EXPECT_EQ(ok(sent[0]).status, protocol::status::in_transaction);
+}
+
+TEST(ServerCommands, WarningsAreCounted) {
+  Fixture f;
+  auto sent = f.query("SELECT 1/0");
+  EXPECT_EQ(ok(sent.back()).warnings, 1);
+  sent = f.query("SET wait_timeout = 0");
+  EXPECT_EQ(ok(sent[0]).warnings, 1);
+}
+
+TEST(ServerCommands, StatementErrorsAreErr) {
+  Fixture f;
+  auto sent = f.query("SELEC 1");
+  ASSERT_EQ(sent.size(), 1u);
+  EXPECT_EQ(sent[0].first_sequence, 1);
+  auto e = err(sent[0]);
+  EXPECT_EQ(e.code, 1064);
+  EXPECT_EQ(e.sqlstate, "42000");
+  EXPECT_EQ(
+      e.message,
+      "You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'SELEC 1' at "
+      "line 1");
+  e = err(f.query("  ")[0]);
+  EXPECT_EQ(e.code, 1065);
+  EXPECT_EQ(e.sqlstate, "42000");
+  EXPECT_EQ(e.message, "Query was empty");
+  e = err(f.query("SELECT 9223372036854775807 + 1")[0]);
+  EXPECT_EQ(e.code, 1690);
+  EXPECT_EQ(e.sqlstate, "22003");
+  e = err(f.query("SET nope = 1")[0]);
+  EXPECT_EQ(e.code, 1193);
+}
+
+TEST(ServerCommands, OneStatementAtATime) {
+  Fixture f;
+  const auto e = err(f.query("SELECT 1; SELECT 2")[0]);
+  EXPECT_EQ(e.code, 1064);
+  EXPECT_NE(e.message.find("near 'SELECT 2'"), std::string::npos) << e.message;
+  // A trailing semicolon is one statement.
+  EXPECT_EQ(f.query("SELECT 1;").size(), 4u);
+}
+
+TEST(ServerCommands, PingAndQuit) {
+  Fixture f;
+  auto step = f.phase.received(command(command::ping));
+  auto sent = packets(step.out);
+  ASSERT_EQ(sent.size(), 1u);
+  EXPECT_EQ(sent[0].first_sequence, 1);
+  EXPECT_EQ(ok(sent[0]).header, 0x00);
+  EXPECT_FALSE(step.close);
+  step = f.phase.received(command(command::quit));
+  EXPECT_TRUE(step.out.empty());
+  EXPECT_TRUE(step.close);
+}
+
+TEST(ServerCommands, InitDbKnowsNoDatabaseYet) {
+  Fixture f;
+  const auto e = err(packets(f.phase.received(command(command::init_db, "shop")).out)[0]);
+  EXPECT_EQ(e.code, 1049);
+  EXPECT_EQ(e.message, "Unknown database 'shop'");
+}
+
+TEST(ServerCommands, ResetConnectionForgetsTheSession) {
+  Fixture f;
+  f.query("SET @a = 1, autocommit = 0");
+  const auto sent = packets(f.phase.received(command(command::reset_connection)).out);
+  ASSERT_EQ(sent.size(), 1u);
+  EXPECT_EQ(ok(sent[0]).status, protocol::status::autocommit);
+  const auto rows = f.query("SELECT @a, @@autocommit");
+  Reader row(rows[3].payload);
+  EXPECT_EQ(row.u8(), 0xfb);
+  EXPECT_EQ(row.lenenc_string(8), "1");
+}
+
+TEST(ServerCommands, UnknownCommandsAreRefused) {
+  Fixture f;
+  auto sent = packets(f.phase.received(command(0x99)).out);
+  ASSERT_EQ(sent.size(), 1u);
+  const auto e = err(sent[0]);
+  EXPECT_EQ(e.code, 1047);
+  EXPECT_EQ(e.sqlstate, "08S01");
+  EXPECT_EQ(e.message, "Unknown command");
+  EXPECT_EQ(err(packets(f.phase.received(Packet{0, 0, {}}).out)[0]).code, 1047);
+}
+
+TEST(ServerCommands, ACommandOutOfSequenceIsRefusedAndCloses) {
+  Fixture f;
+  const auto step = f.phase.received(command(command::ping, {}, 3));
+  EXPECT_TRUE(step.close);
+  const auto e = err(packets(step.out)[0]);
+  EXPECT_EQ(e.code, 1156);
+  EXPECT_EQ(e.sqlstate, "08S01");
+}
+
+}  // namespace
+}  // namespace kvasir::server
