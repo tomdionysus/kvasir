@@ -9,6 +9,7 @@
 
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "kvasir/exec/value.h"
@@ -23,9 +24,11 @@
 // manual's "Collation Coercibility in Expressions", as observed): a literal
 // has collation_connection's at coercibility 4, a user variable the one it
 // was set with at 2, a system variable or session function
-// utf8mb3_general_ci at 3; the lower coercibility wins, and a binary string
-// on either side makes it a comparison of bytes. A collation Kvasir cannot
-// yet compare under (collation.h) is refused.
+// utf8mb3_general_ci at 3, a COLLATE clause its own at 0. The lower
+// coercibility wins; on a tie a binary string wins, then a _bin collation
+// beside another (never between two COLLATE clauses), and anything else is
+// error 1267 (1270 for IN and BETWEEN). A collation Kvasir cannot yet
+// compare under (collation.h) is refused.
 //
 // LIKE matches under the same collation (Collation::like).
 //
@@ -82,10 +85,22 @@ class Evaluator {
   void clear_warnings() { _warnings.clear(); }
 
  private:
-  // The collation two operands compare under, or nothing when either is not
-  // a string (they compare as numbers). Throws SqlError (1235) for one Kvasir
-  // cannot yet compare under.
-  std::optional<uint16_t> string_collation(const sql::Expr& a, const ResultType& ta, const sql::Expr& b, const ResultType& tb) const;
+  struct Operand {
+    const sql::Expr* expr;
+    ResultType type;
+  };
+  // The collation operands compare under, aggregated as MySQL does, or
+  // nothing when they compare as numbers. Throws SqlError: 1267 or 1270 for
+  // collations that cannot be reconciled, 1235 for one Kvasir cannot yet
+  // compare under. `operation` names the operation in 1267 and 1270.
+  std::optional<uint16_t> string_collation(const std::vector<Operand>& operands, const std::string& operation) const;
+  // A string operand's collation and coercibility.
+  std::pair<uint16_t, int> derivation(const sql::Expr& e, const ResultType& t) const;
+  // The character set an operand's value is in.
+  std::string charset_of(const sql::Expr& e, const ResultType& t) const;
+  // A COLLATE clause's collation, checked against its operand's character
+  // set (1253, 1273).
+  uint16_t explicit_collation(const sql::Expr& collate) const;
 
   EvalSettings _settings;
   std::vector<Warning> _warnings;

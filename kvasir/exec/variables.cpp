@@ -164,6 +164,18 @@ const CollationInfo* default_collation(std::string_view charset) {
   return nullptr;
 }
 
+const CollationInfo* find_collation(uint16_t id) {
+  static const CollationInfo utf8mb3_general_ci{"utf8mb3_general_ci", 33, "utf8mb3", true};
+  if (id == utf8mb3_general_ci.id) return &utf8mb3_general_ci;
+  for (const auto& c : collations)
+    if (c.id == id) return &c;
+  return nullptr;
+}
+
+bool charset_not_converted(std::string_view charset) {
+  return std::find_if(other_charsets.begin(), other_charsets.end(), [&](std::string_view c) { return sql::same_word(c, charset); }) != other_charsets.end();
+}
+
 VariableRegistry::VariableRegistry(std::string ack_level, std::string version, std::string version_comment) {
   constexpr uint64_t year = 31536000;
   _specs.push_back(boolean("autocommit", true));

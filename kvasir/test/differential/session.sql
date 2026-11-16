@@ -162,3 +162,26 @@ SELECT 'a' LIKE 'A', 'a ' LIKE 'a', 'a' LIKE 'a ', 'é' LIKE '_'
 SET NAMES binary
 SELECT 'a' LIKE 'A', 'é' LIKE '_', 'é' LIKE '__'
 SET NAMES DEFAULT
+SELECT 'a' COLLATE utf8mb4_bin, 'a' = 'A' COLLATE utf8mb4_bin, 'a' COLLATE utf8mb4_bin = 'A', 'a' COLLATE utf8mb4_0900_as_cs < 'B', 'ß' = 'ss' COLLATE utf8mb4_general_ci
+SELECT 'a' COLLATE utf8mb4_general_ci, 'a' COLLATE 'utf8mb4_bin', 'a' COLLATE utf8mb4_BIN = 'A', 1 COLLATE utf8mb4_bin
+SELECT X'61' = 'a' COLLATE utf8mb4_bin, X'41' = 'a' COLLATE utf8mb4_general_ci, 'a' COLLATE utf8mb4_bin LIKE 'A'
+SELECT 'a' COLLATE utf8mb4_bin = 'A' COLLATE utf8mb4_general_ci
+SELECT 'a' COLLATE utf8mb4_bin IN ('A', 'a' COLLATE utf8mb4_general_ci)
+SELECT 'a' COLLATE latin1_swedish_ci
+SELECT 'a' COLLATE nope
+SELECT 'a' COLLATE binary
+SELECT NULL COLLATE utf8mb4_bin
+SELECT @@character_set_client COLLATE utf8mb4_bin
+SELECT @@character_set_client = 'UTF8MB4' COLLATE utf8mb4_bin, @cmp COLLATE utf8mb4_bin = 'X'
+SET NAMES utf8mb4 COLLATE utf8mb4_bin
+SELECT _utf8mb4'a' = 'A'
+SET @tie = 'x'
+SET NAMES utf8mb4 COLLATE utf8mb4_0900_as_cs
+SELECT _utf8mb4'a' = 'A'
+SET NAMES DEFAULT
+SELECT @tie = @cmp
+SET @tie2 = 'x'
+SET NAMES utf8mb4 COLLATE utf8mb4_0900_as_cs
+SET @tie3 = 'x'
+SET NAMES DEFAULT
+SELECT @tie2 = @tie3

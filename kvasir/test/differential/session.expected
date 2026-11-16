@@ -691,3 +691,80 @@ row 0	0	1
 end
 statement SET NAMES DEFAULT
 end
+statement SELECT 'a' COLLATE utf8mb4_bin, 'a' = 'A' COLLATE utf8mb4_bin, 'a' COLLATE utf8mb4_bin = 'A', 'a' COLLATE utf8mb4_0900_as_cs < 'B', 'ß' = 'ss' COLLATE utf8mb4_general_ci
+column 'a' COLLATE utf8mb4_bin|VAR_STRING|255|4|31|BINARY
+column 'a' = 'A' COLLATE utf8mb4_bin|LONGLONG|63|1|0|BINARY NUM
+column 'a' COLLATE utf8mb4_bin = 'A'|LONGLONG|63|1|0|BINARY NUM
+column 'a' COLLATE utf8mb4_0900_as_cs < 'B'|LONGLONG|63|1|0|BINARY NUM
+column 'ß' = 'ss' COLLATE utf8mb4_general_ci|LONGLONG|63|1|0|BINARY NUM
+row a	0	0	1	0
+end
+statement SELECT 'a' COLLATE utf8mb4_general_ci, 'a' COLLATE 'utf8mb4_bin', 'a' COLLATE utf8mb4_BIN = 'A', 1 COLLATE utf8mb4_bin
+column 'a' COLLATE utf8mb4_general_ci|VAR_STRING|255|4|31|
+column 'a' COLLATE 'utf8mb4_bin'|VAR_STRING|255|4|31|BINARY
+column 'a' COLLATE utf8mb4_BIN = 'A'|LONGLONG|63|1|0|BINARY NUM
+column 1 COLLATE utf8mb4_bin|VAR_STRING|255|8|31|BINARY
+row a	a	0	1
+end
+statement SELECT X'61' = 'a' COLLATE utf8mb4_bin, X'41' = 'a' COLLATE utf8mb4_general_ci, 'a' COLLATE utf8mb4_bin LIKE 'A'
+column X'61' = 'a' COLLATE utf8mb4_bin|LONGLONG|63|1|0|BINARY NUM
+column X'41' = 'a' COLLATE utf8mb4_general_ci|LONGLONG|63|1|0|BINARY NUM
+column 'a' COLLATE utf8mb4_bin LIKE 'A'|LONGLONG|63|1|0|BINARY NUM
+row 1	1	0
+end
+statement SELECT 'a' COLLATE utf8mb4_bin = 'A' COLLATE utf8mb4_general_ci
+error 1267|HY000|Illegal mix of collations (utf8mb4_bin,EXPLICIT) and (utf8mb4_general_ci,EXPLICIT) for operation '='
+end
+statement SELECT 'a' COLLATE utf8mb4_bin IN ('A', 'a' COLLATE utf8mb4_general_ci)
+error 1270|HY000|Illegal mix of collations (utf8mb4_bin,EXPLICIT), (utf8mb4_0900_ai_ci,COERCIBLE), (utf8mb4_general_ci,EXPLICIT) for operation ' IN '
+end
+statement SELECT 'a' COLLATE latin1_swedish_ci
+error 1253|42000|COLLATION 'latin1_swedish_ci' is not valid for CHARACTER SET 'utf8mb4'
+end
+statement SELECT 'a' COLLATE nope
+error 1273|HY000|Unknown collation: 'nope'
+end
+statement SELECT 'a' COLLATE binary
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'binary' at line 1
+end
+statement SELECT NULL COLLATE utf8mb4_bin
+error 1253|42000|COLLATION 'utf8mb4_bin' is not valid for CHARACTER SET 'binary'
+end
+statement SELECT @@character_set_client COLLATE utf8mb4_bin
+error 1253|42000|COLLATION 'utf8mb4_bin' is not valid for CHARACTER SET 'utf8mb3'
+end
+statement SELECT @@character_set_client = 'UTF8MB4' COLLATE utf8mb4_bin, @cmp COLLATE utf8mb4_bin = 'X'
+column @@character_set_client = 'UTF8MB4' COLLATE utf8mb4_bin|LONGLONG|63|1|0|BINARY NUM
+column @cmp COLLATE utf8mb4_bin = 'X'|LONGLONG|63|1|0|BINARY NUM
+row 0	0
+end
+statement SET NAMES utf8mb4 COLLATE utf8mb4_bin
+end
+statement SELECT _utf8mb4'a' = 'A'
+column _utf8mb4'a' = 'A'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 0
+end
+statement SET @tie = 'x'
+end
+statement SET NAMES utf8mb4 COLLATE utf8mb4_0900_as_cs
+end
+statement SELECT _utf8mb4'a' = 'A'
+error 1267|HY000|Illegal mix of collations (utf8mb4_0900_ai_ci,COERCIBLE) and (utf8mb4_0900_as_cs,COERCIBLE) for operation '='
+end
+statement SET NAMES DEFAULT
+end
+statement SELECT @tie = @cmp
+column @tie = @cmp|LONGLONG|63|1|0|BINARY NUM
+row 1
+end
+statement SET @tie2 = 'x'
+end
+statement SET NAMES utf8mb4 COLLATE utf8mb4_0900_as_cs
+end
+statement SET @tie3 = 'x'
+end
+statement SET NAMES DEFAULT
+end
+statement SELECT @tie2 = @tie3
+error 1267|HY000|Illegal mix of collations (utf8mb4_0900_ai_ci,IMPLICIT) and (utf8mb4_0900_as_cs,IMPLICIT) for operation '='
+end

@@ -342,6 +342,37 @@ TEST(ExecExpression, Like) {
   expect_error("'a' LIKE 'b' ESCAPE 'xy'", 1210, "HY000", "Incorrect arguments to ESCAPE");
 }
 
+// COLLATE, observed on MySQL 8.4.13, 2026-11-16: the explicit collation
+// wins (coercibility 0); the result is reported in the results character set,
+// flagged BINARY for a _bin collation, and never NOT NULL.
+TEST(ExecExpression, Collate) {
+  check({
+      {"'a' COLLATE utf8mb4_bin", "VAR_STRING", 255, 4, 31, "BINARY", "a"},
+      {"'a' COLLATE utf8mb4_general_ci", "VAR_STRING", 255, 4, 31, "", "a"},
+      {"1 COLLATE utf8mb4_bin", "VAR_STRING", 255, 8, 31, "BINARY", "1"},
+      {"'a' = 'A' COLLATE utf8mb4_bin", "LONGLONG", 63, 1, 0, "BINARY NUM", "0"},
+      {"'a' COLLATE utf8mb4_bin = 'A'", "LONGLONG", 63, 1, 0, "BINARY NUM", "0"},
+      {"'a' COLLATE utf8mb4_0900_as_cs < 'B'", "LONGLONG", 63, 1, 0, "BINARY NUM", "1"},
+      {"'ß' = 'ss' COLLATE utf8mb4_general_ci", "LONGLONG", 63, 1, 0, "BINARY NUM", "0"},
+      {"'a' COLLATE utf8mb4_BIN = 'A'", "LONGLONG", 63, 1, 0, "BINARY NUM", "0"},
+      // An explicit collation outranks a binary string's.
+      {"X'41' = 'a' COLLATE utf8mb4_general_ci", "LONGLONG", 63, 1, 0, "BINARY NUM", "1"},
+      {"X'61' = 'a' COLLATE utf8mb4_bin", "LONGLONG", 63, 1, 0, "BINARY NUM", "1"},
+      {"'a' COLLATE utf8mb4_bin LIKE 'A'", "LONGLONG", 63, 1, 0, "BINARY NUM", "0"},
+  });
+  const std::string mix = "Illegal mix of collations (utf8mb4_bin,EXPLICIT) and (utf8mb4_general_ci,EXPLICIT) for operation ";
+  expect_error("'a' COLLATE utf8mb4_bin = 'A' COLLATE utf8mb4_general_ci", 1267, "HY000", mix + "'='");
+  expect_error("'a' COLLATE utf8mb4_bin <> 'A' COLLATE utf8mb4_general_ci", 1267, "HY000", mix + "'<>'");
+  expect_error("'a' COLLATE utf8mb4_bin LIKE 'A' COLLATE utf8mb4_general_ci", 1267, "HY000", mix + "'like'");
+  const std::string three = "Illegal mix of collations (utf8mb4_bin,EXPLICIT), (utf8mb4_0900_ai_ci,COERCIBLE), (utf8mb4_general_ci,EXPLICIT) for operation ";
+  expect_error("'a' COLLATE utf8mb4_bin IN ('A', 'a' COLLATE utf8mb4_general_ci)", 1270, "HY000", three + "' IN '");
+  expect_error("'a' COLLATE utf8mb4_bin BETWEEN 'A' AND 'B' COLLATE utf8mb4_general_ci", 1270, "HY000", three + "'between'");
+  expect_error("'a' COLLATE latin1_swedish_ci", 1253, "42000", "COLLATION 'latin1_swedish_ci' is not valid for CHARACTER SET 'utf8mb4'");
+  expect_error("'a' COLLATE nope", 1273, "HY000", "Unknown collation: 'nope'");
+  expect_error("NULL COLLATE utf8mb4_bin", 1253, "42000", "COLLATION 'utf8mb4_bin' is not valid for CHARACTER SET 'binary'");
+  expect_error("X'61' COLLATE utf8mb4_bin", 1253, "42000", "COLLATION 'utf8mb4_bin' is not valid for CHARACTER SET 'binary'");
+}
+
 TEST(ExecExpression, StringsCompareUnderOtherConnectionCollations) {
   const auto answer = [](const std::string& sql, uint16_t collation) {
     EvalSettings settings;

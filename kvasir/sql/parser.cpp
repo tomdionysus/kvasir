@@ -628,6 +628,8 @@ class Parser {
     auto e = primary();
     while (word("COLLATE")) {
       take();
+      // A collation is named, never BINARY (observed: a syntax error).
+      if (word("BINARY")) fail(peek());
       auto c = node(ExprKind::collate, e->offset, charset_name());
       c->args.push_back(std::move(e));
       e = std::move(c);

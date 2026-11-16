@@ -95,6 +95,8 @@ bool is_string(const ResultType& t) {
   return t.field_type == f::var_string || t.field_type == f::blob || t.field_type == f::medium_blob || t.field_type == f::long_blob;
 }
 bool is_text(const ResultType& t) { return is_string(t) && t.collation != binary_collation; }
+// utf8mb4_bin and utf8mb4_0900_bin.
+bool is_bin(uint16_t collation) { return collation == 46 || collation == 309; }
 
 size_t characters(const std::string& s) {
   size_t n = 0;
@@ -229,7 +231,7 @@ ResultType Evaluator::type(const Expr& e) const {
       const auto& op = e.value;
       const bool both = not_null(a) && not_null(b);
       if (comparison(op)) {
-        string_collation(*e.args[0], a, *e.args[1], b);
+        string_collation({{e.args[0].get(), a}, {e.args[1].get(), b}}, op);
         return boolean_type(op == "<=>" || both);
       }
       if (logical(op)) return boolean_type(both);
@@ -272,20 +274,33 @@ ResultType Evaluator::type(const Expr& e) const {
     case ExprKind::in:
     case ExprKind::between: {
       bool all = true;
-      const auto first = type(*e.args[0]);
-      for (size_t i = 0; i < e.args.size(); ++i) {
-        const auto t = i ? type(*e.args[i]) : first;
-        if (i) string_collation(*e.args[0], first, *e.args[i], t);
-        all = all && not_null(t);
+      std::vector<Operand> operands;
+      for (const auto& arg : e.args) {
+        operands.push_back({arg.get(), type(*arg)});
+        all = all && not_null(operands.back().type);
       }
+      string_collation(operands, e.kind == ExprKind::in ? " IN " : "between");
       return boolean_type(all);
     }
     case ExprKind::like: {
       const auto a = type(*e.args[0]);
       const auto b = type(*e.args[1]);
-      string_collation(*e.args[0], a, *e.args[1], b);
+      string_collation({{e.args[0].get(), a}, {e.args[1].get(), b}}, "like");
       if (e.args.size() > 2) type(*e.args[2]);
       return boolean_type(not_null(a) && not_null(b));
+    }
+    case ExprKind::collate: {
+      // Reported in the results character set, flagged BINARY for a _bin
+      // collation, and never NOT NULL (observed).
+      const auto operand = type(*e.args[0]);
+      const uint16_t collation = explicit_collation(e);
+      ResultType t;
+      t.field_type = f::var_string;
+      t.collation = _settings.result_collation;
+      t.length = is_string(operand) ? operand.length : operand.length * _settings.result_max_bytes;
+      t.decimals = any_decimals;
+      t.flags = static_cast<uint16_t>(is_bin(collation) ? c::binary : 0);
+      return t;
     }
     case ExprKind::regexp:
       not_yet("REGEXP");
@@ -316,59 +331,114 @@ namespace {
 
 // How strongly an operand holds its collation: the lower wins (the manual's
 // "Collation Coercibility in Expressions").
-constexpr int implicit_coercibility = 2, sysconst_coercibility = 3, coercible_coercibility = 4;
+constexpr int explicit_coercibility = 0, implicit_coercibility = 2, sysconst_coercibility = 3, coercible_coercibility = 4;
 // What system variables and session functions compare under (observed).
 constexpr uint16_t utf8mb3_general_ci = 33;
 
-struct Derivation {
-  uint16_t collation;
-  int coercibility;
-};
+std::string collation_text(uint16_t id) {
+  const auto* info = find_collation(id);
+  return info ? info->name : std::to_string(id);
+}
 
-bool is_bin(uint16_t collation) { return collation == 46 || collation == 309; }
+std::string coercibility_text(int coercibility) {
+  static const char* const names[] = {"EXPLICIT", "NONE", "IMPLICIT", "SYSCONST", "COERCIBLE", "NUMERIC", "IGNORABLE"};
+  return names[coercibility];
+}
+
+// The operation as MySQL names it in error 1267.
+std::string operation_text(const std::string& op) { return op == "!=" ? "<>" : op; }
 
 }  // namespace
 
-std::optional<uint16_t> Evaluator::string_collation(const Expr& x, const ResultType& tx, const Expr& y, const ResultType& ty) const {
-  if (!is_string(tx) || !is_string(ty)) return std::nullopt;
-  const auto derive = [&](const Expr& e, const ResultType& t) -> Derivation {
-    switch (e.kind) {
-      case ExprKind::string:
-        if (e.charset.empty()) return {t.collation, coercible_coercibility};
-        if (sql::same_word(e.charset, "binary")) return {binary_collation, coercible_coercibility};
-        if (sql::same_word(e.charset, "utf8mb4")) return {protocol::collation::utf8mb4_0900_ai_ci, coercible_coercibility};
-        not_yet("comparing strings in character set " + (e.charset == "national" ? std::string("utf8mb3") : e.charset));
-      case ExprKind::hex:
-      case ExprKind::bits:
-        return {binary_collation, coercible_coercibility};
-      case ExprKind::user_variable:
-        return {t.collation, implicit_coercibility};
-      case ExprKind::system_variable:
-      case ExprKind::call:
-        return {utf8mb3_general_ci, sysconst_coercibility};
-      default:
-        not_yet("comparing these strings");
+std::pair<uint16_t, int> Evaluator::derivation(const Expr& e, const ResultType& t) const {
+  switch (e.kind) {
+    case ExprKind::string:
+      if (e.charset.empty()) return {t.collation, coercible_coercibility};
+      if (sql::same_word(e.charset, "binary")) return {binary_collation, coercible_coercibility};
+      if (sql::same_word(e.charset, "utf8mb4")) return {protocol::collation::utf8mb4_0900_ai_ci, coercible_coercibility};
+      not_yet("comparing strings in character set " + (e.charset == "national" ? std::string("utf8mb3") : e.charset));
+    case ExprKind::hex:
+    case ExprKind::bits:
+      return {binary_collation, coercible_coercibility};
+    case ExprKind::user_variable:
+      return {t.collation, implicit_coercibility};
+    case ExprKind::system_variable:
+    case ExprKind::call:
+      return {utf8mb3_general_ci, sysconst_coercibility};
+    case ExprKind::collate:
+      return {explicit_collation(e), explicit_coercibility};
+    default:
+      not_yet("comparing these strings");
+  }
+}
+
+std::string Evaluator::charset_of(const Expr& e, const ResultType& t) const {
+  if (!is_string(t)) {
+    // NULL is a binary string; a number becomes one in the connection's
+    // character set (observed).
+    if (t.field_type == f::null) return "binary";
+    const auto* connection = find_collation(_settings.result_collation);
+    return connection ? connection->charset : "utf8mb4";
+  }
+  const auto* info = find_collation(derivation(e, t).first);
+  return info ? info->charset : "binary";
+}
+
+uint16_t Evaluator::explicit_collation(const Expr& e) const {
+  const auto& operand = *e.args[0];
+  const auto charset = charset_of(operand, type(operand));
+  const auto not_valid = [&]() { return SqlError(1253, "42000", "COLLATION '" + e.value + "' is not valid for CHARACTER SET '" + charset + "'"); };
+  const auto* info = find_collation(std::string_view(e.value));
+  if (!info) {
+    // A collation of a character set Kvasir does not convert is MySQL's, and
+    // not valid for any operand Kvasir holds.
+    if (charset_not_converted(std::string_view(e.value).substr(0, e.value.find('_')))) throw not_valid();
+    throw SqlError(1273, "HY000", "Unknown collation: '" + e.value + "'");
+  }
+  if (!sql::same_word(info->charset, charset)) throw not_valid();
+  return info->id;
+}
+
+std::optional<uint16_t> Evaluator::string_collation(const std::vector<Operand>& operands, const std::string& operation) const {
+  // Only strings take part; the first operand must be one, and with two
+  // operands both must, or they compare as numbers.
+  std::vector<std::pair<uint16_t, int>> strings;
+  for (size_t i = 0; i < operands.size(); ++i) {
+    if (!is_string(operands[i].type)) {
+      if (i == 0 || operands.size() == 2) return std::nullopt;
+      continue;
     }
+    strings.push_back(derivation(*operands[i].expr, operands[i].type));
+  }
+  if (strings.size() < 2) return std::nullopt;
+  const auto illegal_mix = [&]() {
+    std::string message = "Illegal mix of collations ";
+    for (size_t i = 0; i < strings.size(); ++i) {
+      if (i) message += strings.size() == 2 ? " and " : ", ";
+      message += "(" + collation_text(strings[i].first) + "," + coercibility_text(strings[i].second) + ")";
+    }
+    message += " for operation '" + operation_text(operation) + "'";
+    return SqlError(strings.size() == 2 ? 1267 : 1270, "HY000", message);
   };
-  const auto a = derive(x, tx);
-  const auto b = derive(y, ty);
-  uint16_t chosen = a.collation;
-  if (a.collation == binary_collation || b.collation == binary_collation) {
-    chosen = binary_collation;
-  } else if (a.coercibility != b.coercibility) {
-    chosen = a.coercibility < b.coercibility ? a.collation : b.collation;
-  } else if (a.collation != b.collation) {
-    // One character set, a _bin collation beside another: the _bin one.
-    if (is_bin(a.collation) == is_bin(b.collation)) not_yet("comparing strings of two collations");
-    chosen = is_bin(a.collation) ? a.collation : b.collation;
+  auto chosen = strings[0];
+  for (size_t i = 1; i < strings.size(); ++i) {
+    const auto next = strings[i];
+    if (next.second < chosen.second) {
+      chosen = next;
+    } else if (next.second == chosen.second && next.first != chosen.first) {
+      // A tie: a binary string wins, then a _bin collation beside another
+      // (but never between two explicit ones); anything else is refused.
+      if (chosen.first == binary_collation || next.first == binary_collation) {
+        chosen.first = binary_collation;
+      } else if (chosen.second != explicit_coercibility && is_bin(chosen.first) != is_bin(next.first)) {
+        if (is_bin(next.first)) chosen = next;
+      } else {
+        throw illegal_mix();
+      }
+    }
   }
-  if (!collation_by_id(chosen)) {
-    std::string name = chosen == utf8mb3_general_ci ? "utf8mb3_general_ci" : std::to_string(chosen);
-    for (const auto* c : {"utf8mb4_general_ci", "utf8mb4_unicode_ci"})
-      if (const auto* info = find_collation(c); info && info->id == chosen) name = c;
-    not_yet("comparing strings under " + name);
-  }
-  return chosen;
+  if (!collation_by_id(chosen.first)) not_yet("comparing strings under " + collation_text(chosen.first));
+  return chosen.first;
 }
 
 namespace {
@@ -445,11 +515,10 @@ Value Evaluator::value(const Expr& e) {
     _warnings.push_back({"Warning", er_division_by_zero, "Division by 0"});
     return {};
   };
-  // -1, 0 or 1; nothing when either is NULL. Two strings compare under the
-  // collation derived for the pair.
-  const auto compare_values = [&](const Expr& ex, const Value& x, const ResultType& tx, const Expr& ey, const Value& y,
-                                  const ResultType& ty) -> std::optional<int> {
-    const auto collation = string_collation(ex, tx, ey, ty);
+  // -1, 0 or 1; nothing when either is NULL. Two strings compare under
+  // `collation`, the one derived for the operation.
+  const auto compare_values = [&](const Value& x, const ResultType& tx, const Value& y, const ResultType& ty,
+                                  std::optional<uint16_t> collation) -> std::optional<int> {
     if (is_null(x) || is_null(y)) return std::nullopt;
     if (collation) {
       const auto* sx = std::get_if<std::string>(&x);
@@ -538,7 +607,7 @@ Value Evaluator::value(const Expr& e) {
         if (op == "<=>") {
           if (is_null(a) || is_null(b)) return int64_t{is_null(a) && is_null(b) ? 1 : 0};
         }
-        const auto c3 = compare_values(*e.args[0], a, ta, *e.args[1], b, tb);
+        const auto c3 = compare_values(a, ta, b, tb, string_collation({{e.args[0].get(), ta}, {e.args[1].get(), tb}}, op));
         if (!c3) return {};
         const int r = *c3;
         bool result = false;
@@ -660,11 +729,14 @@ Value Evaluator::value(const Expr& e) {
     }
     case ExprKind::in: {
       const auto ta = type(*e.args[0]);
+      std::vector<Operand> operands;
+      for (const auto& arg : e.args) operands.push_back({arg.get(), type(*arg)});
+      const auto collation = string_collation(operands, " IN ");
       const auto a = value(*e.args[0]);
       if (is_null(a)) return {};
       bool saw_null = false;
       for (size_t i = 1; i < e.args.size(); ++i) {
-        const auto r = compare_values(*e.args[0], a, ta, *e.args[i], value(*e.args[i]), type(*e.args[i]));
+        const auto r = compare_values(a, ta, value(*e.args[i]), type(*e.args[i]), collation);
         if (!r) {
           saw_null = true;
         } else if (*r == 0) {
@@ -677,8 +749,9 @@ Value Evaluator::value(const Expr& e) {
     case ExprKind::between: {
       const auto ta = type(*e.args[0]);
       const auto a = value(*e.args[0]);
-      const auto low = compare_values(*e.args[0], a, ta, *e.args[1], value(*e.args[1]), type(*e.args[1]));
-      const auto high = compare_values(*e.args[0], a, ta, *e.args[2], value(*e.args[2]), type(*e.args[2]));
+      const auto collation = string_collation({{e.args[0].get(), ta}, {e.args[1].get(), type(*e.args[1])}, {e.args[2].get(), type(*e.args[2])}}, "between");
+      const auto low = compare_values(a, ta, value(*e.args[1]), type(*e.args[1]), collation);
+      const auto high = compare_values(a, ta, value(*e.args[2]), type(*e.args[2]), collation);
       // a >= low AND a <= high, with NULL as unknown.
       const std::optional<bool> x = low ? std::optional<bool>(*low >= 0) : std::nullopt;
       const std::optional<bool> y = high ? std::optional<bool>(*high <= 0) : std::nullopt;
@@ -705,12 +778,19 @@ Value Evaluator::value(const Expr& e) {
       if (is_null(a) || is_null(b)) return {};
       // Two strings match under the pair's collation; a number by its text,
       // under the other side's.
-      auto collation = string_collation(*e.args[0], ta, *e.args[1], tb);
+      auto collation = string_collation({{e.args[0].get(), ta}, {e.args[1].get(), tb}}, "like");
       if (!collation) collation = is_string(ta) ? ta.collation : is_string(tb) ? tb.collation : _settings.result_collation;
       const auto* c = collation_by_id(*collation);
       if (!c) not_yet("LIKE under this collation");
       const bool matches = c->like(*to_text(a, ta), *to_text(b, tb), escape);
       return int64_t{matches != e.negated ? 1 : 0};
+    }
+    case ExprKind::collate: {
+      type(e);
+      const auto t = type(*e.args[0]);
+      const auto v = value(*e.args[0]);
+      if (is_null(v) || std::holds_alternative<std::string>(v)) return v;
+      return *to_text(v, t);
     }
     case ExprKind::call: {
       type(e);
