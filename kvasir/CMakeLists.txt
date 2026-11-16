@@ -44,7 +44,9 @@ add_library(kvasir SHARED
   server/commands.cpp
   server/connection.cpp
   server/node_settings.cpp
+  server/pool_checker.cpp
   server/sign_in.cpp
+  server/stream_transport.cpp
   sql/keywords.cpp
   sql/lexer.cpp
   sql/parser.cpp
