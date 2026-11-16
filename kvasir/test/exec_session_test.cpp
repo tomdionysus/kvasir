@@ -81,9 +81,10 @@ TEST(ExecSession, ConnectorQueries) {
                      "@@system_time_zone AS system_time_zone, @@time_zone AS time_zone, @@transaction_isolation AS transaction_isolation, "
                      "@@wait_timeout AS wait_timeout");
   EXPECT_EQ(o.result->columns[0].name, "auto_increment_increment");
-  EXPECT_EQ(row(o), (std::vector<std::string>{"1", "utf8mb4", "utf8mb4", "utf8mb4", "utf8mb4_0900_ai_ci", "67108864",
-                                              "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION",
-                                              "UTC", "SYSTEM", "REPEATABLE-READ", "28800"}));
+  EXPECT_EQ(row(o),
+            (std::vector<std::string>{"1", "utf8mb4", "utf8mb4", "utf8mb4", "utf8mb4_0900_ai_ci", "67108864",
+                                      "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION",
+                                      "UTC", "SYSTEM", "REPEATABLE-READ", "28800"}));
 }
 
 TEST(ExecSession, WhereAndLimitOnTheOneRow) {

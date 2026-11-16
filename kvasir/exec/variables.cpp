@@ -228,8 +228,12 @@ const VariableSpec* VariableRegistry::find(std::string_view name) const {
   return nullptr;
 }
 
-SessionVariables::SessionVariables(const VariableRegistry& registry) : _registry(registry) {
-  for (const auto& s : registry.all()) {
+SessionVariables::SessionVariables(const VariableRegistry& registry) : _registry(registry) { reset(); }
+
+void SessionVariables::reset() {
+  _global.clear();
+  _session.clear();
+  for (const auto& s : _registry.all()) {
     _global[s.name] = s.initial;
     if (s.has_session) _session[s.name] = s.initial;
   }

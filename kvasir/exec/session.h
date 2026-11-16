@@ -59,6 +59,11 @@ class Session : private VariableSource {
   // then in warnings().
   Outcome execute(const sql::Statement& statement);
 
+  // COM_RESET_CONNECTION: variables back to their defaults, user variables
+  // gone, any transaction rolled back, no current database. Who is signed in
+  // is kept.
+  void reset();
+
   const std::vector<Warning>& warnings() const noexcept { return _warnings; }
   // SERVER_STATUS_IN_TRANS and SERVER_STATUS_AUTOCOMMIT as they stand.
   uint16_t status_flags() const;
@@ -86,6 +91,7 @@ class Session : private VariableSource {
     ResultType type;
   };
 
+  const VariableRegistry& _registry;
   SessionInfo _info;
   SessionVariables _variables;
   std::map<std::string, UserVariable> _user;

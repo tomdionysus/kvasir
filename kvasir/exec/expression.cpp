@@ -250,7 +250,9 @@ ResultType Evaluator::type(const Expr& e) const {
       }
       if (decimal) {
         // A product's precision stops at 65; a sum's does not (observed).
-        if (op == "*") return decimal_type(std::min(pa + pb, static_cast<int>(decimal_max_precision)), std::min(sa + sb, static_cast<int>(decimal_max_scale)), result_not_null);
+        if (op == "*")
+          return decimal_type(std::min(pa + pb, static_cast<int>(decimal_max_precision)), std::min(sa + sb, static_cast<int>(decimal_max_scale)),
+                              result_not_null);
         const int scale = std::max(sa, sb);
         const int whole = std::max(pa - sa, pb - sb);
         if (op == "%") return decimal_type(whole + scale, scale, false);

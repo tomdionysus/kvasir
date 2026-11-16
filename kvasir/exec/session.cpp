@@ -99,7 +99,16 @@ uint64_t limit_of(const sql::Expr& e) {
 
 }  // namespace
 
-Session::Session(const VariableRegistry& registry, SessionInfo info) : _info(std::move(info)), _variables(registry) {}
+Session::Session(const VariableRegistry& registry, SessionInfo info) : _registry(registry), _info(std::move(info)), _variables(registry) {}
+
+void Session::reset() {
+  _variables.reset();
+  _user.clear();
+  _database.reset();
+  _in_transaction = false;
+  _read_only_transaction = false;
+  _warnings.clear();
+}
 
 EvalSettings Session::eval_settings() const {
   EvalSettings e;
@@ -272,10 +281,12 @@ void Session::set(const std::vector<sql::Assignment>& assignments) {
       case Target::system_variable: {
         _variables.set(a.scope, a.name, p.value, p.use_default, _warnings);
         if (sql::same_word(a.name, "character_set_connection") && !p.use_default) {
-          if (const auto* d = default_collation(_variables.text("character_set_connection"))) _variables.set("", "collation_connection", d->name, false, _warnings);
+          if (const auto* d = default_collation(_variables.text("character_set_connection")))
+            _variables.set("", "collation_connection", d->name, false, _warnings);
         }
         if (sql::same_word(a.name, "collation_connection")) {
-          if (const auto* col = find_collation(_variables.text("collation_connection"))) _variables.set("", "character_set_connection", col->charset, false, _warnings);
+          if (const auto* col = find_collation(_variables.text("collation_connection")))
+            _variables.set("", "character_set_connection", col->charset, false, _warnings);
         }
         if (sql::same_word(a.name, "autocommit") && _variables.number("autocommit") && _in_transaction) commit();
         break;

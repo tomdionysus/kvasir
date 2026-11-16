@@ -71,6 +71,8 @@ class VariableRegistry {
 class SessionVariables {
  public:
   explicit SessionVariables(const VariableRegistry& registry);
+  // Every value back to its default.
+  void reset();
 
   // @@[scope.]name as an expression reads it: scope is "", GLOBAL, SESSION
   // or LOCAL. Throws SqlError: 1193 for an unknown name, 1238 for a scope
