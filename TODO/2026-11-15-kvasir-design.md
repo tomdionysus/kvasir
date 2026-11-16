@@ -94,6 +94,12 @@ against Dannan's agreement design, not run.
     one build Pi, started by hand on a private port, after a note on the
     claim board.
 31. Step 2a starts.
+32. Collations (2026-11-16, chosen from the options put): "Unicode's data".
+    Unicode's allkeys.txt for UCA 9.0.0 is checked into Kvasir as data, with
+    Unicode's license; a generator written here compiles it into a weight
+    table at build time; the algorithm is written by hand; nothing of MySQL
+    is copied; the differential gate checks the results.
+    utf8mb4_0900_ai_ci first, then _as_cs, _bin and general_ci.
 
 ## Relayed
 
