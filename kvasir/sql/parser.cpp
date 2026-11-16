@@ -144,9 +144,14 @@ class Parser {
     if (peek().kind != TokenKind::word && peek().kind != TokenKind::quoted_identifier) fail(peek());
     return take().value;
   }
-  // A character set or collation: a name or a string.
+  // A character set or collation: a name or a string, or BINARY, a reserved
+  // word, for the binary character set.
   std::string charset_name() {
     if (peek().kind == TokenKind::string || name_token()) return take().value;
+    if (word("BINARY")) {
+      take();
+      return "binary";
+    }
     fail(peek());
   }
 

@@ -298,6 +298,10 @@ TEST(SqlParser, SetNamesAndCharacterSet) {
   EXPECT_EQ(s.assignments[0].target, Target::character_set);
   EXPECT_EQ(s.assignments[0].charset, "utf8mb4");
   EXPECT_EQ(one("SET CHARSET latin1").assignments[0].charset, "latin1");
+  // BINARY, a reserved word, names the binary character set (the manual's
+  // SET NAMES, and observed).
+  EXPECT_EQ(one("SET NAMES binary").assignments[0].charset, "binary");
+  EXPECT_EQ(one("SET CHARACTER SET BINARY").assignments[0].charset, "binary");
   EXPECT_TRUE(one("SET CHARSET DEFAULT").assignments[0].use_default);
   s = one("SET NAMES utf8mb4, autocommit = 0");
   ASSERT_EQ(s.assignments.size(), 2u);
