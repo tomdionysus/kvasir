@@ -94,9 +94,11 @@ ran again once it was public. Its x86-64 sanitizers are part of the gate:
 they found a use-after-free the Pi's arm64 ASan run passed. Dependabot's two
 pull requests (actions bumps) are untouched, the maintainer's to merge.
 
-On the Pis: ASan/UBSan by hand (`tools/ci.sh asan`); since 2026-11-16 every
-build Pi runs a 4K-page kernel and TSan works on all of them; clang 19
-(thread-safety analysis, libFuzzer) is on node-a, node-b and node-c.
+On the Pis: since 2026-11-16 every build Pi runs a 4K-page kernel with a
+39-bit address space, where TSan works and ASan does not start (g++ or
+clang); until a 48-bit 4K kernel comes, hosted CI's x86-64 ASan is the ASan
+gate. clang 19 (thread-safety analysis, libFuzzer) is on node-a, node-b
+and node-c.
 The maintainer's rules: TSan on the Mac only when hunting a specific bug; no sanitizer
 builds on node-d (4 GB).
 
