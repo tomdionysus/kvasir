@@ -2,6 +2,23 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-16: COLLATE, and collations aggregated as MySQL does
+
+- Landed: COLLATE (checked against the operand's character set: 1253 for
+  a mismatch or a character set Kvasir does not convert, 1273 for an
+  unknown name; the result in the results character set, BINARY for a _bin
+  collation, never NOT NULL); collation aggregation over every operand of
+  a comparison, IN, BETWEEN and LIKE, with 1267 and 1270 naming the
+  operation. COLLATE BINARY is a syntax error, as in MySQL.
+- Found on the reference server and corrected: the earlier rule let a
+  binary string outrank everything, but an explicit collation outranks it
+  (X'41' = 'a' COLLATE utf8mb4_general_ci is 1); the _bin tie-break holds
+  below EXPLICIT only.
+- Test-first: 2 failed first (the COLLATE suite and the gate, 150 of 163).
+- Gate: release on node-b **268 passed, 0 failed**, the
+  differential gate **163 of 163**. Hosted CI passed every job on 2f13512
+  and 5f26132 (string comparison and general_ci).
+
 ## 2026-11-16: LIKE under a collation
 
 - Landed: `Collation::like`, one character at a time, each pair compared
