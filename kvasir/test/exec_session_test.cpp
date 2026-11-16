@@ -12,6 +12,7 @@
 
 #include <gtest/gtest.h>
 
+#include <ostream>
 #include <string>
 #include <vector>
 
@@ -420,6 +421,443 @@ TEST(ExecSession, Databases) {
   run(s, "DROP SCHEMA kv_Probe");
   EXPECT_EQ(node.database_names(), (std::vector<std::string>{"kv.probe", "kv_probe2"}));
   EXPECT_EQ(node.database("kv_probe2")->collation, "utf8mb4_bin");
+}
+
+// A result column's definition, as the probe printed it: type, collation,
+// length, decimals and flags.
+struct Shape {
+  uint8_t field_type;
+  uint16_t collation;
+  uint32_t length;
+  uint8_t decimals;
+  uint16_t flags;
+  friend bool operator==(const Shape&, const Shape&) = default;
+};
+
+std::ostream& operator<<(std::ostream& out, const Shape& s) {
+  return out << "{" << int(s.field_type) << ", " << s.collation << ", " << s.length << ", " << int(s.decimals) << ", " << s.flags << "}";
+}
+
+std::vector<Shape> shapes(const Outcome& o) {
+  std::vector<Shape> out;
+  for (const auto& col : o.result.value().columns) out.push_back({col.type.field_type, col.type.collation, col.type.length, col.type.decimals, col.type.flags});
+  return out;
+}
+
+// A session on a node of its own, with database pt current.
+struct TableBed {
+  catalog::Catalog node;
+  Session s = make(node);
+  TableBed() { run(s, "CREATE DATABASE pt; USE pt"); }
+
+  void expect_refused(const std::string& sql, uint16_t code, const std::string& state, const std::string& message) {
+    SCOPED_TRACE(sql);
+    const auto r = refusal(s, sql);
+    EXPECT_EQ(r.code, code);
+    EXPECT_EQ(r.sqlstate, state);
+    EXPECT_EQ(r.message, message);
+  }
+  void expect_warnings(const std::vector<Warning>& expected) {
+    ASSERT_EQ(s.warnings().size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+      EXPECT_EQ(s.warnings()[i].level, expected[i].level) << i;
+      EXPECT_EQ(s.warnings()[i].code, expected[i].code) << i;
+      EXPECT_EQ(s.warnings()[i].message, expected[i].message) << i;
+    }
+  }
+};
+
+constexpr uint16_t bin = 63, ai = 255;
+constexpr uint16_t num = c::num, nn = c::not_null, pri = c::primary_key, uni = c::unique_key, mul = c::multiple_key, part = c::part_key,
+                   nodef = c::no_default_value, autoinc = c::auto_increment, uns = c::unsigned_, zf = c::zerofill, blob = c::blob, binflag = c::binary;
+
+// The numeric types' columns: MySQL 8.4.13, 2026-11-16.
+TEST(ExecSessionTables, NumericColumns) {
+  TableBed b;
+  auto o = run(b.s,
+               "CREATE TABLE t2 (a TINYINT, b SMALLINT, c MEDIUMINT, d INT, e BIGINT, f TINYINT UNSIGNED, g INT UNSIGNED ZEROFILL, "
+               "h BIGINT UNSIGNED, i INT(5), j BOOL, k BOOLEAN, l INTEGER)");
+  EXPECT_FALSE(o.result);
+  EXPECT_EQ(o.affected_rows, 0u);
+  o = run(b.s, "SELECT * FROM t2");
+  EXPECT_TRUE(o.result->rows.empty());
+  EXPECT_EQ(shapes(o), (std::vector<Shape>{{f::tiny, bin, 4, 0, num},
+                                           {f::short_, bin, 6, 0, num},
+                                           {f::int24, bin, 9, 0, num},
+                                           {f::long_, bin, 11, 0, num},
+                                           {f::longlong, bin, 20, 0, num},
+                                           {f::tiny, bin, 3, 0, uns | num},
+                                           {f::long_, bin, 10, 0, uns | zf | num},
+                                           {f::longlong, bin, 20, 0, uns | num},
+                                           {f::long_, bin, 5, 0, num},
+                                           {f::tiny, bin, 1, 0, num},
+                                           {f::tiny, bin, 1, 0, num},
+                                           {f::long_, bin, 11, 0, num}}));
+  const auto& first = o.result->columns[0];
+  EXPECT_EQ(first.name, "a");
+  EXPECT_EQ(first.schema, "pt");
+  EXPECT_EQ(first.table, "t2");
+  EXPECT_EQ(first.original_table, "t2");
+  EXPECT_EQ(first.original_name, "a");
+
+  run(b.s,
+      "CREATE TABLE t3 (a DECIMAL, b DECIMAL(10,2), c DECIMAL(65,30), d NUMERIC(5), e FLOAT, f DOUBLE, g FLOAT(7,3), h DOUBLE(10,4), i REAL, "
+      "j DECIMAL(5,2) UNSIGNED, k FLOAT(30), l DOUBLE PRECISION, m DEC(4,1), n FIXED(3), o DECIMAL(0), p FLOAT(255,30), q FLOAT(24), r FLOAT(0))");
+  o = run(b.s, "SELECT * FROM t3");
+  EXPECT_EQ(shapes(o), (std::vector<Shape>{{f::newdecimal, bin, 11, 0, num},
+                                           {f::newdecimal, bin, 12, 2, num},
+                                           {f::newdecimal, bin, 67, 30, num},
+                                           {f::newdecimal, bin, 6, 0, num},
+                                           {f::float_, bin, 12, 31, num},
+                                           {f::double_, bin, 22, 31, num},
+                                           {f::float_, bin, 7, 3, num},
+                                           {f::double_, bin, 10, 4, num},
+                                           {f::double_, bin, 22, 31, num},
+                                           {f::newdecimal, bin, 6, 2, uns | num},
+                                           {f::double_, bin, 22, 31, num},
+                                           {f::double_, bin, 22, 31, num},
+                                           {f::newdecimal, bin, 6, 1, num},
+                                           {f::newdecimal, bin, 4, 0, num},
+                                           {f::newdecimal, bin, 11, 0, num},
+                                           {f::float_, bin, 255, 30, num},
+                                           {f::float_, bin, 12, 31, num},
+                                           {f::float_, bin, 12, 31, num}}));
+}
+
+TEST(ExecSessionTables, StringColumns) {
+  TableBed b;
+  run(b.s,
+      "CREATE TABLE t4 (a CHAR, b CHAR(10), c VARCHAR(20), d BINARY(4), e VARBINARY(8), f TEXT, g TINYTEXT, h MEDIUMTEXT, i LONGTEXT, j BLOB, "
+      "k TINYBLOB, l MEDIUMBLOB, m LONGBLOB, n VARCHAR(5) CHARACTER SET utf8mb3, o VARCHAR(5) COLLATE utf8mb4_bin, p CHAR(3) BINARY, q TEXT(100), "
+      "r BLOB(300), s VARCHAR(10) CHARACTER SET binary, t NATIONAL CHAR(2), u NCHAR(2), v NVARCHAR(3), w CHAR(0))");
+  const auto o = run(b.s, "SELECT * FROM t4");
+  EXPECT_EQ(shapes(o), (std::vector<Shape>{{f::string, ai, 4, 0, 0},
+                                           {f::string, ai, 40, 0, 0},
+                                           {f::var_string, ai, 80, 0, 0},
+                                           {f::string, bin, 4, 0, binflag},
+                                           {f::var_string, bin, 8, 0, binflag},
+                                           {f::blob, ai, 262140, 0, blob},
+                                           {f::blob, ai, 1020, 0, blob},
+                                           {f::blob, ai, 67108860, 0, blob},
+                                           {f::blob, ai, 4294967295u, 0, blob},
+                                           {f::blob, bin, 65535, 0, blob | binflag},
+                                           {f::blob, bin, 255, 0, blob | binflag},
+                                           {f::blob, bin, 16777215, 0, blob | binflag},
+                                           {f::blob, bin, 4294967295u, 0, blob | binflag},
+                                           {f::var_string, ai, 20, 0, 0},
+                                           {f::var_string, ai, 20, 0, binflag},
+                                           {f::string, ai, 12, 0, binflag},
+                                           {f::blob, ai, 262140, 0, blob},
+                                           {f::blob, bin, 65535, 0, blob | binflag},
+                                           {f::var_string, bin, 10, 0, binflag},
+                                           {f::string, ai, 8, 0, 0},
+                                           {f::string, ai, 8, 0, 0},
+                                           {f::var_string, ai, 12, 0, 0},
+                                           {f::string, ai, 0, 0, 0}}));
+}
+
+// NOT NULL, DEFAULT, AUTO_INCREMENT and keys, in the flags.
+TEST(ExecSessionTables, KeysAndDefaultsInTheFlags) {
+  TableBed b;
+  run(b.s,
+      "CREATE TABLE t5 (a INT NOT NULL, b INT NULL, c INT DEFAULT 5, d INT NOT NULL DEFAULT 7, e INT AUTO_INCREMENT PRIMARY KEY, "
+      "f VARCHAR(3) DEFAULT 'x', g INT UNIQUE, h INT COMMENT 'hi', i INT DEFAULT NULL)");
+  EXPECT_EQ(shapes(run(b.s, "SELECT * FROM t5")), (std::vector<Shape>{{f::long_, bin, 11, 0, nn | nodef | num},
+                                                                      {f::long_, bin, 11, 0, num},
+                                                                      {f::long_, bin, 11, 0, num},
+                                                                      {f::long_, bin, 11, 0, nn | num},
+                                                                      {f::long_, bin, 11, 0, nn | pri | autoinc | num | part},
+                                                                      {f::var_string, ai, 12, 0, 0},
+                                                                      {f::long_, bin, 11, 0, uni | num | part},
+                                                                      {f::long_, bin, 11, 0, num},
+                                                                      {f::long_, bin, 11, 0, num}}));
+  run(b.s, "CREATE TABLE t6 (a INT, b INT, PRIMARY KEY (a, b), UNIQUE KEY u (b), KEY k (a), INDEX (b))");
+  EXPECT_EQ(shapes(run(b.s, "SELECT * FROM t6")), (std::vector<Shape>{{f::long_, bin, 11, 0, nn | pri | mul | nodef | num | part},
+                                                                      {f::long_, bin, 11, 0, nn | pri | uni | mul | nodef | num | part}}));
+  // The first UNIQUE key over NOT NULL columns serves as the primary key.
+  run(b.s, "CREATE TABLE u2 (a INT NOT NULL UNIQUE, b INT)");
+  EXPECT_EQ(shapes(run(b.s, "SELECT * FROM u2")), (std::vector<Shape>{{f::long_, bin, 11, 0, nn | pri | nodef | num | part}, {f::long_, bin, 11, 0, num}}));
+  run(b.s, "CREATE TABLE u3 (a INT NOT NULL, b INT NOT NULL, UNIQUE (a, b))");
+  EXPECT_EQ(shapes(run(b.s, "SELECT * FROM u3")),
+            (std::vector<Shape>{{f::long_, bin, 11, 0, nn | pri | nodef | num | part}, {f::long_, bin, 11, 0, nn | pri | nodef | num | part}}));
+  run(b.s, "CREATE TABLE u4 (a INT, b INT, UNIQUE (a, b), KEY (b, a))");
+  EXPECT_EQ(shapes(run(b.s, "SELECT * FROM u4")), (std::vector<Shape>{{f::long_, bin, 11, 0, mul | num | part}, {f::long_, bin, 11, 0, mul | num | part}}));
+  run(b.s, "CREATE TABLE u5 (a INT UNIQUE KEY, b INT NOT NULL UNIQUE, c INT NOT NULL PRIMARY KEY)");
+  EXPECT_EQ(shapes(run(b.s, "SELECT * FROM u5")), (std::vector<Shape>{{f::long_, bin, 11, 0, uni | num | part},
+                                                                      {f::long_, bin, 11, 0, nn | uni | nodef | num | part},
+                                                                      {f::long_, bin, 11, 0, nn | pri | nodef | num | part}}));
+  run(b.s, "CREATE TABLE u26 (a VARCHAR(10), KEY (a(3)))");
+  EXPECT_EQ(shapes(run(b.s, "SELECT * FROM u26")), (std::vector<Shape>{{f::var_string, ai, 40, 0, mul | part}}));
+  run(b.s, "CREATE TABLE u31 (a SERIAL)");
+  EXPECT_EQ(shapes(run(b.s, "SELECT * FROM u31")), (std::vector<Shape>{{f::longlong, bin, 20, 0, nn | pri | uns | autoinc | num | part}}));
+  run(b.s, "CREATE TABLE u32 (a INT SERIAL DEFAULT VALUE)");
+  EXPECT_EQ(shapes(run(b.s, "SELECT * FROM u32")), (std::vector<Shape>{{f::long_, bin, 11, 0, nn | pri | autoinc | num | part}}));
+  // AUTO_INCREMENT makes a column NOT NULL; it need only begin a key.
+  run(b.s, "CREATE TABLE w29 (a INT AUTO_INCREMENT, KEY (a))");
+  EXPECT_EQ(shapes(run(b.s, "SELECT * FROM w29")), (std::vector<Shape>{{f::long_, bin, 11, 0, nn | mul | autoinc | num | part}}));
+  run(b.s, "CREATE TABLE w31 (a INT, b INT AUTO_INCREMENT, KEY (b, a))");
+  EXPECT_EQ(shapes(run(b.s, "SELECT * FROM w31")),
+            (std::vector<Shape>{{f::long_, bin, 11, 0, num | part}, {f::long_, bin, 11, 0, nn | mul | autoinc | num | part}}));
+  // NOT NULL then NULL: the last one written.
+  run(b.s, "CREATE TABLE w26 (a INT NOT NULL NULL)");
+  EXPECT_EQ(shapes(run(b.s, "SELECT * FROM w26")), (std::vector<Shape>{{f::long_, bin, 11, 0, num}}));
+}
+
+// Defaults that fit, and the notes some give.
+TEST(ExecSessionTables, Defaults) {
+  TableBed b;
+  for (const char* sql :
+       {"CREATE TABLE w14 (a VARCHAR(5) DEFAULT 'ab   ')", "CREATE TABLE w17 (a INT DEFAULT ' 12 ')",
+        "CREATE TABLE w18 (a INT DEFAULT 2.5, b INT DEFAULT -2.5, c INT DEFAULT 2.5e0, d INT DEFAULT 3.5e0, e INT DEFAULT '2.5')",
+        "CREATE TABLE w22 (a TINYINT UNSIGNED DEFAULT 255, b TINYINT DEFAULT -128, c BIGINT UNSIGNED DEFAULT 18446744073709551615, "
+        "d BIGINT DEFAULT -9223372036854775808)",
+        "CREATE TABLE w24 (a BINARY(3) DEFAULT 'ab')", "CREATE TABLE w27 (a CHAR(2) DEFAULT X'6162')", "CREATE TABLE w28 (a INT DEFAULT X'01')",
+        "CREATE TABLE u8 (a CHAR(2) DEFAULT 'ab ')", "CREATE TABLE u10 (a INT DEFAULT 1.5)", "CREATE TABLE w35 (a VARCHAR(3) DEFAULT 'é')",
+        "CREATE TABLE w36 (a INT UNSIGNED ZEROFILL DEFAULT 5)",
+        "CREATE TABLE u6 (b INT DEFAULT -3, c DECIMAL(5,2) DEFAULT 1.23, d VARCHAR(5) DEFAULT 12, e DOUBLE DEFAULT '1e3', f INT DEFAULT TRUE)"}) {
+    SCOPED_TRACE(sql);
+    run(b.s, sql);
+    if (std::string(sql).find("ZEROFILL") == std::string::npos) {
+      EXPECT_TRUE(b.s.warnings().empty());
+    }
+  }
+  run(b.s, "CREATE TABLE u7 (a DECIMAL(5,2) DEFAULT 1.234)");
+  b.expect_warnings({{"Note", 1265, "Data truncated for column 'a' at row 1"}});
+  run(b.s, "CREATE TABLE w20 (a DECIMAL(3,1) DEFAULT 99.94)");
+  b.expect_warnings({{"Note", 1265, "Data truncated for column 'a' at row 1"}});
+  run(b.s, "CREATE TABLE w15 (a VARCHAR(2) DEFAULT 'ab ')");
+  b.expect_warnings({{"Note", 1265, "Data truncated for column 'a' at row 1"}});
+
+  const std::string invalid = "Invalid default value for ";
+  b.expect_refused("CREATE TABLE t20 (a INT DEFAULT 'x')", 1067, "42000", invalid + "'a'");
+  b.expect_refused("CREATE TABLE t21 (a INT NOT NULL DEFAULT NULL)", 1067, "42000", invalid + "'a'");
+  b.expect_refused("CREATE TABLE w25 (a INT DEFAULT NULL NOT NULL)", 1067, "42000", invalid + "'a'");
+  b.expect_refused("CREATE TABLE t24 (a TINYINT DEFAULT 300)", 1067, "42000", invalid + "'a'");
+  b.expect_refused("CREATE TABLE t25 (a VARCHAR(2) DEFAULT 'abc')", 1067, "42000", invalid + "'a'");
+  b.expect_refused("CREATE TABLE u9 (a INT UNSIGNED DEFAULT -1)", 1067, "42000", invalid + "'a'");
+  b.expect_refused("CREATE TABLE w16 (a INT DEFAULT '12abc')", 1067, "42000", invalid + "'a'");
+  b.expect_refused("CREATE TABLE w19 (a DECIMAL(3,1) DEFAULT 99.95)", 1067, "42000", invalid + "'a'");
+  b.expect_refused("CREATE TABLE w21 (a FLOAT DEFAULT 1e40)", 1067, "42000", invalid + "'a'");
+  b.expect_refused("CREATE TABLE w23 (a BINARY(3) DEFAULT 'ab', b VARBINARY(2) DEFAULT 'abc')", 1067, "42000", invalid + "'b'");
+  b.expect_refused("CREATE TABLE u35 (a INT AUTO_INCREMENT DEFAULT 3 KEY)", 1067, "42000", invalid + "'a'");
+  b.expect_refused("CREATE TABLE u6b (a INT DEFAULT 1, g INT DEFAULT CURRENT_TIMESTAMP)", 1067, "42000", invalid + "'g'");
+  b.expect_refused("CREATE TABLE t22 (a TEXT DEFAULT 'x')", 1101, "42000", "BLOB, TEXT, GEOMETRY or JSON column 'a' can't have a default value");
+}
+
+// MySQL's deprecation warnings, one per column in the order written
+// (TINYINT(1) warns too).
+TEST(ExecSessionTables, DeprecationWarnings) {
+  TableBed b;
+  run(b.s,
+      "CREATE TABLE w1 (a INT(5), b INT ZEROFILL, c FLOAT(7,3), d DOUBLE(10,2), e DECIMAL(5,2) UNSIGNED, f FLOAT UNSIGNED, g TINYINT(1), "
+      "h BIGINT(20), i INT(11))");
+  const Warning width{"Warning", 1681, "Integer display width is deprecated and will be removed in a future release."};
+  const Warning zerofill{"Warning", 1681,
+                         "The ZEROFILL attribute is deprecated and will be removed in a future release. Use the LPAD function to zero-pad numbers, or "
+                         "store the formatted numbers in a CHAR column."};
+  const Warning digits{"Warning", 1681, "Specifying number of digits for floating point data types is deprecated and will be removed in a future release."};
+  const Warning unsigned_{"Warning", 1681,
+                          "UNSIGNED for decimal and floating point data types is deprecated and support for it will be removed in a future release."};
+  b.expect_warnings({width, zerofill, digits, digits, unsigned_, unsigned_, width, width, width});
+}
+
+TEST(ExecSessionTables, DefinitionsMySqlRefuses) {
+  TableBed b;
+  run(b.s, "CREATE TABLE t1 (a INT)");
+  b.expect_refused("CREATE TABLE t1 (a INT)", 1050, "42S01", "Table 't1' already exists");
+  // IF NOT EXISTS: a note, before the definition is looked at.
+  run(b.s, "CREATE TABLE IF NOT EXISTS t1 (a INT, a INT)");
+  b.expect_warnings({{"Note", 1050, "Table 't1' already exists"}});
+  b.expect_refused("CREATE TABLE t11 (a INT, a INT)", 1060, "42S21", "Duplicate column name 'a'");
+  b.expect_refused("CREATE TABLE t11 (a INT, A INT)", 1060, "42S21", "Duplicate column name 'A'");
+  b.expect_refused("CREATE TABLE t13 (a INT PRIMARY KEY, b INT PRIMARY KEY)", 1068, "42000", "Multiple primary key defined");
+  b.expect_refused("CREATE TABLE t29 (a INT, PRIMARY KEY (a), PRIMARY KEY (a))", 1068, "42000", "Multiple primary key defined");
+  b.expect_refused("CREATE TABLE t5 (e INT PRIMARY KEY, i INT KEY)", 1068, "42000", "Multiple primary key defined");
+  const std::string auto_column = "Incorrect table definition; there can be only one auto column and it must be defined as a key";
+  b.expect_refused("CREATE TABLE t14 (a INT AUTO_INCREMENT)", 1075, "42000", auto_column);
+  b.expect_refused("CREATE TABLE t15 (a INT AUTO_INCREMENT KEY, b INT AUTO_INCREMENT UNIQUE)", 1075, "42000", auto_column);
+  b.expect_refused("CREATE TABLE w30 (a INT, b INT AUTO_INCREMENT, PRIMARY KEY (a, b))", 1075, "42000", auto_column);
+  b.expect_refused("CREATE TABLE u33 (a FLOAT AUTO_INCREMENT KEY)", 1063, "42000", "Incorrect column specifier for column 'a'");
+  b.expect_refused("CREATE TABLE u34 (a VARCHAR(5) AUTO_INCREMENT KEY)", 1063, "42000", "Incorrect column specifier for column 'a'");
+  b.expect_refused("CREATE TABLE t30 (a FLOAT(54))", 1063, "42000", "Incorrect column specifier for column 'a'");
+  b.expect_refused("CREATE TABLE t16 (a VARCHAR(70000))", 1074, "42000", "Column length too big for column 'a' (max = 16383); use BLOB or TEXT instead");
+  b.expect_refused("CREATE TABLE t32 (a VARCHAR(16384))", 1074, "42000", "Column length too big for column 'a' (max = 16383); use BLOB or TEXT instead");
+  b.expect_refused("CREATE TABLE t17 (a CHAR(256))", 1074, "42000", "Column length too big for column 'a' (max = 255); use BLOB or TEXT instead");
+  b.expect_refused("CREATE TABLE w42 (a VARCHAR(70000) CHARACTER SET binary)", 1074, "42000",
+                   "Column length too big for column 'a' (max = 65535); use BLOB or TEXT instead");
+  b.expect_refused("CREATE TABLE t18 (a DECIMAL(66))", 1426, "42000", "Too-big precision 66 specified for 'a'. Maximum is 65.");
+  b.expect_refused("CREATE TABLE t19 (a DECIMAL(5,6))", 1427, "42000", "For float(M,D), double(M,D) or decimal(M,D), M must be >= D (column 'a').");
+  b.expect_refused("CREATE TABLE w3 (a DECIMAL(5,31))", 1425, "42000", "Too big scale 31 specified for column 'a'. Maximum is 30.");
+  b.expect_refused("CREATE TABLE w6 (a FLOAT(255,31))", 1425, "42000", "Too big scale 31 specified for column 'a'. Maximum is 30.");
+  b.expect_refused("CREATE TABLE w5 (a FLOAT(256,2))", 1439, "42000", "Display width out of range for column 'a' (max = 255)");
+  b.expect_refused("CREATE TABLE t31 (a INT(300))", 1439, "42000", "Display width out of range for column 'a' (max = 255)");
+  b.expect_refused("CREATE TABLE nodb.t (a INT)", 1049, "42000", "Unknown database 'nodb'");
+  b.expect_refused("CREATE TABLE t26 (a INT PRIMARY KEY, KEY (zz))", 1072, "42000", "Key column 'zz' doesn't exist in table");
+  b.expect_refused("CREATE TABLE `t27 ` (a INT)", 1103, "42000", "Incorrect table name 't27 '");
+  b.expect_refused("CREATE TABLE `` (a INT)", 1103, "42000", "Incorrect table name ''");
+  b.expect_refused("CREATE TABLE t28 (`a ` INT)", 1166, "42000", "Incorrect column name 'a '");
+  b.expect_refused("CREATE TABLE w37 (`` INT)", 1166, "42000", "Incorrect column name ''");
+  const std::string long_name(65, 'a');
+  b.expect_refused("CREATE TABLE " + long_name + " (a INT)", 1059, "42000", "Identifier name '" + long_name + "' is too long");
+  b.expect_refused("CREATE TABLE u23 (" + long_name + " INT)", 1059, "42000", "Identifier name '" + long_name + "' is too long");
+  b.expect_refused("CREATE TABLE u27 (a TEXT, PRIMARY KEY (a))", 1170, "42000", "BLOB/TEXT column 'a' used in key specification without a key length");
+  b.expect_refused("CREATE TABLE u29 (a INT NULL PRIMARY KEY)", 1171, "42000",
+                   "All parts of a PRIMARY KEY must be NOT NULL; if you need NULL in a key, use UNIQUE instead");
+  b.expect_refused("CREATE TABLE w9 (a INT, KEY k (a), KEY k (a))", 1061, "42000", "Duplicate key name 'k'");
+  b.expect_refused("CREATE TABLE w34 (a INT UNIQUE, b INT, KEY a (b))", 1061, "42000", "Duplicate key name 'a'");
+  b.expect_refused("CREATE TABLE x12 (a INT, KEY (a), b INT, KEY a (b))", 1061, "42000", "Duplicate key name 'a'");
+  b.expect_refused("CREATE TABLE w32 (a INT, `PRIMARY` INT, KEY `PRIMARY` (a))", 1280, "42000", "Incorrect index name 'PRIMARY'");
+  const std::string prefix =
+      "Incorrect prefix key; the used key part isn't a string, the used length is longer than the key part, or the storage engine doesn't support unique "
+      "prefix keys";
+  b.expect_refused("CREATE TABLE w10 (a INT, KEY (a(2)))", 1089, "HY000", prefix);
+  b.expect_refused("CREATE TABLE w11 (a VARCHAR(5), KEY (a(6)))", 1089, "HY000", prefix);
+  b.expect_refused("CREATE TABLE w12 (a VARCHAR(1000), KEY (a))", 1071, "42000", "Specified key was too long; max key length is 3072 bytes");
+  const std::string row_size =
+      "Row size too large. The maximum row size for the used table type, not counting BLOBs, is 65535. This includes storage overhead, check the manual. "
+      "You have to change some columns to TEXT or BLOBs";
+  b.expect_refused("CREATE TABLE w44 (a VARBINARY(65533))", 1118, "42000", row_size);
+  b.expect_refused("CREATE TABLE w45 (a VARCHAR(16383), b INT)", 1118, "42000", row_size);
+  b.expect_refused("CREATE TABLE y2 (a VARBINARY(65471), b TEXT, c LONGBLOB, d DECIMAL(20,5), e CHAR(10) CHARACTER SET binary, f TINYBLOB, g MEDIUMTEXT)", 1118,
+                   "42000", row_size);
+  b.expect_refused("CREATE TABLE y4 (a VARBINARY(65532) NOT NULL, b TINYINT)", 1118, "42000", row_size);
+  b.expect_refused("CREATE TABLE u11 (a VARCHAR(5) CHARACTER SET utf8mb3 COLLATE utf8mb4_bin)", 1253, "42000",
+                   "COLLATION 'utf8mb4_bin' is not valid for CHARACTER SET 'utf8mb3'");
+  b.expect_refused("CREATE TABLE w41 (a INT) CHARSET utf8mb4 COLLATE utf8mb3_bin", 1253, "42000",
+                   "COLLATION 'utf8mb3_bin' is not valid for CHARACTER SET 'utf8mb4'");
+  b.expect_refused("CREATE TABLE u12 (a VARCHAR(5) CHARACTER SET nope)", 1115, "42000", "Unknown character set: 'nope'");
+  b.expect_refused("CREATE TABLE u13 (a VARCHAR(5) COLLATE nope)", 1273, "HY000", "Unknown collation: 'nope'");
+  b.expect_refused("CREATE TABLE t9 (a INT) ENGINE=Nope", 1286, "42000", "Unknown storage engine 'Nope'");
+  b.expect_refused("CREATE TABLE information_schema.x (a INT)", 1044, "42000", "Access denied for user 'root'@'10.0.0.1' to database 'information_schema'");
+  // What fits, just.
+  for (const char* sql :
+       {"CREATE TABLE w7 (a FLOAT(255,30))", "CREATE TABLE w13 (a VARCHAR(768), KEY (a))", "CREATE TABLE w43 (a VARBINARY(65532))",
+        "CREATE TABLE y5 (a VARBINARY(65533) NOT NULL)",
+        "CREATE TABLE x4 (a VARBINARY(65525), b TINYINT, c TINYINT, d TINYINT, e TINYINT, "
+        "f TINYINT, g TINYINT, h TINYINT)",
+        "CREATE TABLE y1 (a VARBINARY(65470), b TEXT, c LONGBLOB, d DECIMAL(20,5), e CHAR(10) CHARACTER SET binary, f TINYBLOB, g MEDIUMTEXT)",
+        "CREATE TABLE w46 (a VARCHAR(16000), b VARCHAR(10))", "CREATE TABLE t7 (a INT) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci",
+        "CREATE TABLE u14 (a INT) ENGINE=innodb", "CREATE TABLE u17 (a INT) ENGINE = InnoDB, AUTO_INCREMENT = 5, COMMENT 'c'",
+        "CREATE TABLE t33 (a VARCHAR(16383))", "CREATE TABLE T1 (a INT)"}) {
+    SCOPED_TRACE(sql);
+    EXPECT_EQ(refusal(b.s, sql).code, 0);
+  }
+  // Kvasir's own refusals: what it does not yet carry out.
+  b.expect_refused("CREATE TABLE u18 LIKE t1", 1235, "42000", "This version of Kvasir doesn't yet support 'CREATE TABLE ... LIKE'");
+  b.expect_refused("CREATE TABLE u24 (f DATE)", 1235, "42000", "This version of Kvasir doesn't yet support 'the DATE type'");
+  b.expect_refused("CREATE TABLE u36 (a INT) CHARSET latin1", 1235, "42000", "This version of Kvasir doesn't yet support 'character set latin1'");
+  b.expect_refused("CREATE TABLE u37 (a VARCHAR(3) CHARACTER SET latin1)", 1235, "42000", "This version of Kvasir doesn't yet support 'character set latin1'");
+}
+
+// An engine other than InnoDB: with NO_ENGINE_SUBSTITUTION (the default) it
+// is refused as unknown; without, InnoDB is used with two warnings.
+TEST(ExecSessionTables, EngineSubstitution) {
+  TableBed b;
+  run(b.s, "SET sql_mode = ''");
+  run(b.s, "CREATE TABLE u16 (a INT) ENGINE=Nope");
+  b.expect_warnings({{"Warning", 1286, "Unknown storage engine 'Nope'"}, {"Warning", 1266, "Using storage engine InnoDB for table 'u16'"}});
+  EXPECT_EQ(b.node.table({"pt", "u16"})->engine, "InnoDB");
+}
+
+TEST(ExecSessionTables, DuplicateIndexesWarn) {
+  TableBed b;
+  run(b.s, "CREATE TABLE u28 (a INT, KEY (a), KEY (a))");
+  b.expect_warnings({{"Warning", 1831, "Duplicate index 'a_2' defined on the table 'pt.u28'. This is deprecated and will be disallowed in a future release."}});
+  run(b.s, "CREATE TABLE w33 (a INT, b INT, KEY (a), KEY (a, b), UNIQUE (a), UNIQUE (a))");
+  b.expect_warnings({{"Warning", 1831, "Duplicate index 'a_4' defined on the table 'pt.w33'. This is deprecated and will be disallowed in a future release."}});
+  run(b.s, "CREATE TABLE x13 (a INT, KEY a (a), b INT UNIQUE, c INT, KEY (a))");
+  b.expect_warnings({{"Warning", 1831, "Duplicate index 'a_2' defined on the table 'pt.x13'. This is deprecated and will be disallowed in a future release."}});
+  std::vector<std::string> names;
+  const auto w33 = b.node.table({"pt", "w33"});
+  ASSERT_TRUE(w33);
+  for (const auto& k : w33->keys) names.push_back(k.name);
+  EXPECT_EQ(names, (std::vector<std::string>{"a", "a_2", "a_3", "a_4"}));
+}
+
+std::vector<std::string> column_of(const Outcome& o, size_t column = 0) {
+  std::vector<std::string> out;
+  for (const auto& r : o.result.value().rows) out.push_back(r.at(column).value_or("NULL"));
+  return out;
+}
+
+TEST(ExecSessionTables, ShowAndDropTables) {
+  TableBed b;
+  for (const char* name : {"t1", "T1", "t10", "t2", "t3", "t4"}) run(b.s, std::string("CREATE TABLE ") + name + " (a INT)");
+  auto o = run(b.s, "SHOW TABLES");
+  ASSERT_EQ(o.result->columns.size(), 1u);
+  EXPECT_EQ(o.result->columns[0].name, "Tables_in_pt");
+  EXPECT_EQ(shapes(o), (std::vector<Shape>{{f::var_string, ai, 256, 0, nn | binflag | nodef}}));
+  EXPECT_EQ(column_of(o), (std::vector<std::string>{"T1", "t1", "t10", "t2", "t3", "t4"}));
+  o = run(b.s, "SHOW TABLES LIKE 't1%'");
+  EXPECT_EQ(o.result->columns[0].name, "Tables_in_pt (t1%)");
+  EXPECT_EQ(column_of(o), (std::vector<std::string>{"t1", "t10"}));
+  o = run(b.s, "SHOW FULL TABLES");
+  EXPECT_EQ(shapes(o), (std::vector<Shape>{{f::var_string, ai, 256, 0, nn | binflag | nodef}, {f::string, ai, 44, 0, nn | binflag | c::enum_ | nodef}}));
+  EXPECT_EQ(o.result->columns[1].name, "Table_type");
+  EXPECT_EQ(column_of(o, 1), std::vector<std::string>(6, "BASE TABLE"));
+
+  o = run(b.s, "DROP TABLE t1");
+  EXPECT_EQ(o.affected_rows, 0u);
+  b.expect_refused("DROP TABLE t1", 1051, "42S02", "Unknown table 'pt.t1'");
+  run(b.s, "DROP TABLE IF EXISTS t1");
+  b.expect_warnings({{"Note", 1051, "Unknown table 'pt.t1'"}});
+  // All or none.
+  b.expect_refused("DROP TABLE t2, nothere, t3", 1051, "42S02", "Unknown table 'pt.nothere'");
+  EXPECT_EQ(column_of(run(b.s, "SHOW TABLES")), (std::vector<std::string>{"T1", "t10", "t2", "t3", "t4"}));
+  run(b.s, "DROP TABLE IF EXISTS t4, nothere2");
+  b.expect_warnings({{"Note", 1051, "Unknown table 'pt.nothere2'"}});
+  b.expect_refused("DROP TABLES t5", 1051, "42S02", "Unknown table 'pt.t5'");
+  b.expect_refused("DROP TABLE t2, t2", 1066, "42000", "Not unique table/alias: 't2'");
+  // Several missing: each named.
+  b.expect_refused("DROP TABLE n1, t2, n2", 1051, "42S02", "Unknown table 'pt.n1,pt.n2'");
+
+  // Another database's tables, by name or with FROM.
+  run(b.s, "CREATE DATABASE other; CREATE TABLE other.t40 (a INT)");
+  o = run(b.s, "SHOW TABLES FROM other");
+  EXPECT_EQ(o.result->columns[0].name, "Tables_in_other");
+  EXPECT_EQ(column_of(o), (std::vector<std::string>{"t40"}));
+  EXPECT_EQ(column_of(run(b.s, "SHOW TABLES IN other LIKE 't4%'")), (std::vector<std::string>{"t40"}));
+  b.expect_refused("SHOW TABLES FROM nodb", 1049, "42000", "Unknown database 'nodb'");
+  // A missing database's table is an unknown table.
+  b.expect_refused("DROP TABLE nodb.t", 1051, "42S02", "Unknown table 'nodb.t'");
+  b.expect_refused("DROP TABLE other.t40, other.zz, nodb.q", 1051, "42S02", "Unknown table 'other.zz,nodb.q'");
+  // DROP DATABASE counts the tables it drops.
+  run(b.s, "CREATE TABLE other.t41 (a INT)");
+  EXPECT_EQ(run(b.s, "DROP DATABASE other").affected_rows, 2u);
+  run(b.s, "DROP DATABASE pt");
+  b.expect_refused("CREATE TABLE t41 (a INT)", 1046, "3D000", "No database selected");
+  b.expect_refused("SHOW TABLES", 1046, "3D000", "No database selected");
+  b.expect_refused("DROP TABLE t", 1046, "3D000", "No database selected");
+  b.expect_refused("DROP TABLE IF EXISTS t", 1046, "3D000", "No database selected");
+}
+
+// SELECT over a table: its columns by name, qualified or not, or *; no rows
+// until INSERT.
+TEST(ExecSessionTables, SelectNamesColumns) {
+  TableBed b;
+  run(b.s, "CREATE TABLE t6 (a INT, b INT, PRIMARY KEY (a, b), UNIQUE KEY u (b), KEY k (a), INDEX (b))");
+  b.expect_refused("SELECT * FROM nothere", 1146, "42S02", "Table 'pt.nothere' doesn't exist");
+  auto o = run(b.s, "SELECT a FROM t6");
+  EXPECT_EQ(shapes(o), (std::vector<Shape>{{f::long_, bin, 11, 0, nn | pri | mul | nodef | num | part}}));
+  EXPECT_TRUE(o.result->rows.empty());
+  b.expect_refused("SELECT zz FROM t6", 1054, "42S22", "Unknown column 'zz' in 'field list'");
+  o = run(b.s, "SELECT t6.a, pt.t6.b, A FROM t6");
+  EXPECT_EQ(o.result->columns.size(), 3u);
+  EXPECT_EQ(o.result->columns[2].name, "A");
+  EXPECT_EQ(o.result->columns[2].original_name, "a");
+  o = run(b.s, "SELECT x.a AS y, b FROM t6 AS x");
+  EXPECT_EQ(o.result->columns[0].name, "y");
+  EXPECT_EQ(o.result->columns[0].original_name, "a");
+  EXPECT_EQ(o.result->columns[0].table, "x");
+  EXPECT_EQ(o.result->columns[0].original_table, "t6");
+  b.expect_refused("SELECT t6.a FROM t6 AS x", 1054, "42S22", "Unknown column 't6.a' in 'field list'");
+  o = run(b.s, "SELECT x.*, 1 FROM t6 x");
+  EXPECT_EQ(o.result->columns.size(), 3u);
+  EXPECT_EQ(o.result->columns[2].schema, "");
+  o = run(b.s, "SELECT a, b FROM t6 WHERE a = 1 ORDER BY b LIMIT 3");
+  EXPECT_TRUE(o.result->rows.empty());
+  b.expect_refused("SELECT a FROM t6 WHERE zz = 1", 1054, "42S22", "Unknown column 'zz' in 'where clause'");
+  b.expect_refused("SELECT a FROM t6 ORDER BY zz", 1054, "42S22", "Unknown column 'zz' in 'order clause'");
 }
 
 }  // namespace

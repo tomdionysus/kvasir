@@ -84,7 +84,9 @@ bool not_null(const ResultType& t) { return (t.flags & c::not_null) != 0; }
 enum class Domain { integer, decimal, real };
 
 Domain domain_of(const ResultType& t) {
-  if (t.field_type == f::longlong) return Domain::integer;
+  // A table's column may be any of the integer types.
+  if (t.field_type == f::longlong || t.field_type == f::long_ || t.field_type == f::int24 || t.field_type == f::short_ || t.field_type == f::tiny)
+    return Domain::integer;
   if (t.field_type == f::newdecimal) return Domain::decimal;
   // A hex or bit literal is an unsigned integer in a numeric context.
   if (t.number_string) return Domain::integer;
@@ -92,7 +94,8 @@ Domain domain_of(const ResultType& t) {
 }
 
 bool is_string(const ResultType& t) {
-  return t.field_type == f::var_string || t.field_type == f::blob || t.field_type == f::medium_blob || t.field_type == f::long_blob;
+  return t.field_type == f::var_string || t.field_type == f::string || t.field_type == f::blob || t.field_type == f::tiny_blob ||
+         t.field_type == f::medium_blob || t.field_type == f::long_blob;
 }
 bool is_text(const ResultType& t) { return is_string(t) && t.collation != binary_collation; }
 // utf8mb4_bin and utf8mb4_0900_bin.
@@ -305,6 +308,8 @@ ResultType Evaluator::type(const Expr& e) const {
     case ExprKind::regexp:
       not_yet("REGEXP");
     case ExprKind::column: {
+      if (_settings.columns)
+        if (const auto found = _settings.columns->find_column(e.path)) return found->type;
       std::string name;
       for (size_t i = 0; i < e.path.size(); ++i) name += (i ? "." : "") + e.path[i];
       throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + name + "' in 'field list'");
@@ -367,6 +372,10 @@ std::pair<uint16_t, int> Evaluator::derivation(const Expr& e, const ResultType& 
       return {utf8mb3_general_ci, sysconst_coercibility};
     case ExprKind::collate:
       return {explicit_collation(e), explicit_coercibility};
+    case ExprKind::column:
+      if (_settings.columns)
+        if (const auto found = _settings.columns->find_column(e.path)) return {found->collation, implicit_coercibility};
+      not_yet("comparing these strings");
     default:
       not_yet("comparing these strings");
   }
@@ -805,6 +814,9 @@ Value Evaluator::value(const Expr& e) {
     case ExprKind::system_variable:
       if (!_settings.variables) not_yet("variables");
       return _settings.variables->system_value(e.scope, e.value);
+    case ExprKind::column:
+      type(e);
+      return _settings.columns->column_value(e.path);
     default:
       type(e);
       not_yet("this expression");

@@ -8,8 +8,12 @@
 #include "kvasir/sql/parser.h"
 
 #include <array>
+#include <charconv>
+#include <cstdint>
 #include <deque>
+#include <optional>
 #include <string>
+#include <system_error>
 #include <utility>
 
 #include "kvasir/sql/keywords.h"
@@ -183,6 +187,15 @@ class Parser {
       take();
       if (peek().kind == TokenKind::hint) s.hint = take().value;
       accept_word("WORK");
+    } else if (word("CREATE") && (word("TABLE", 1) || word("TEMPORARY", 1))) {
+      take();
+      s.kind = Statement::Kind::create_table;
+      if (accept_word("TEMPORARY")) {
+        unsupported(s, "CREATE TEMPORARY TABLE");
+      } else {
+        take();  // TABLE
+        parse_create_table(s);
+      }
     } else if (word("CREATE")) {
       take();
       if (!accept_word("DATABASE")) expect_word("SCHEMA");
@@ -194,6 +207,21 @@ class Parser {
       }
       s.database = name();
       parse_database_options(s);
+    } else if (word("DROP") && (word("TABLE", 1) || word("TABLES", 1) || word("TEMPORARY", 1))) {
+      take();
+      s.kind = Statement::Kind::drop_table;
+      if (accept_word("TEMPORARY")) {
+        unsupported(s, "DROP TEMPORARY TABLE");
+      } else {
+        take();  // TABLE or TABLES
+        if (accept_word("IF")) {
+          expect_word("EXISTS");
+          s.if_exists = true;
+        }
+        do s.tables.push_back(table_name());
+        while (symbol(",") && (take(), true));
+        if (!accept_word("RESTRICT")) accept_word("CASCADE");
+      }
     } else if (word("DROP")) {
       take();
       if (!accept_word("DATABASE")) expect_word("SCHEMA");
@@ -203,6 +231,18 @@ class Parser {
         s.if_exists = true;
       }
       s.database = name();
+    } else if (word("SHOW") && (word("TABLES", 1) || word("FULL", 1))) {
+      take();
+      s.kind = Statement::Kind::show_tables;
+      s.full = accept_word("FULL");
+      expect_word("TABLES");
+      if (accept_word("FROM") || accept_word("IN")) s.database = name();
+      if (accept_word("LIKE")) {
+        if (peek().kind != TokenKind::string) fail(peek());
+        s.like = take().value;
+      } else if (word("WHERE")) {
+        unsupported(s, "SHOW TABLES ... WHERE");
+      }
     } else if (word("SHOW") && (word("DATABASES", 1) || word("SCHEMAS", 1))) {
       take();
       take();
@@ -263,6 +303,475 @@ class Parser {
       }
       if (symbol("=")) take();
       *target = charset_name();
+    }
+  }
+
+  // Marks the statement as valid MySQL Kvasir does not yet carry out, and
+  // passes over the rest of it.
+  void unsupported(Statement& s, std::string what) {
+    s.unsupported = std::move(what);
+    int depth = 0;
+    while (peek().kind != TokenKind::end && !(depth <= 0 && symbol(";"))) {
+      if (symbol("(")) ++depth;
+      if (symbol(")")) --depth;
+      take();
+    }
+  }
+
+  // [schema.]table
+  std::vector<std::string> table_name() {
+    std::vector<std::string> out{name()};
+    if (symbol(".")) {
+      take();
+      out.push_back(name_after_dot());
+    }
+    return out;
+  }
+
+  uint64_t number() {
+    if (peek().kind != TokenKind::integer) fail(peek());
+    const auto text = take().value;
+    uint64_t v = 0;
+    const auto r = std::from_chars(text.data(), text.data() + text.size(), v);
+    return r.ec == std::errc() ? v : UINT64_MAX;
+  }
+
+  std::string quoted_string() {
+    if (peek().kind != TokenKind::string) fail(peek());
+    return take().value;
+  }
+
+  void accept_equals() {
+    if (symbol("=")) take();
+  }
+
+  // CREATE TABLE after TABLE: the manual's create_definition list and
+  // table_options, as far as Kvasir carries them out.
+  void parse_create_table(Statement& s) {
+    auto& t = s.create_table;
+    if (accept_word("IF")) {
+      expect_word("NOT");
+      expect_word("EXISTS");
+      t.if_not_exists = true;
+    }
+    t.name = table_name();
+    if (word("LIKE") || (symbol("(") && word("LIKE", 1))) return unsupported(s, "CREATE TABLE ... LIKE");
+    if (word("AS") || word("SELECT") || word("IGNORE") || word("REPLACE") || (symbol("(") && word("SELECT", 1)))
+      return unsupported(s, "CREATE TABLE ... SELECT");
+    expect_symbol("(");
+    do {
+      table_element(s);
+      if (!s.unsupported.empty()) return;
+    } while (symbol(",") && (take(), true));
+    expect_symbol(")");
+    table_options(s);
+  }
+
+  void table_element(Statement& s) {
+    auto& t = s.create_table;
+    std::string constraint;
+    bool named_constraint = false;
+    if (accept_word("CONSTRAINT")) {
+      named_constraint = true;
+      if (name_token()) constraint = take().value;
+      if (!word("PRIMARY") && !word("UNIQUE") && !word("FOREIGN") && !word("CHECK")) fail(peek());
+    }
+    if (word("CHECK")) return unsupported(s, "CHECK");
+    if (word("FOREIGN")) return unsupported(s, "FOREIGN KEY");
+    if (word("FULLTEXT")) return unsupported(s, "FULLTEXT");
+    if (word("SPATIAL")) return unsupported(s, "SPATIAL");
+    KeySpec key;
+    key.position = t.columns.size();
+    if (accept_word("PRIMARY")) {
+      expect_word("KEY");
+      key.kind = KeySpec::Kind::primary;
+    } else if (accept_word("UNIQUE")) {
+      if (!accept_word("INDEX")) accept_word("KEY");
+      key.kind = KeySpec::Kind::unique;
+      key.name = constraint;
+    } else if (!named_constraint && (accept_word("INDEX") || accept_word("KEY"))) {
+      key.kind = KeySpec::Kind::index;
+    } else {
+      return column_definition(s);
+    }
+    if (name_token()) {
+      const auto n = take().value;
+      if (key.kind != KeySpec::Kind::primary) key.name = n;
+    }
+    index_type();
+    expect_symbol("(");
+    do {
+      if (symbol("(")) return unsupported(s, "functional key parts");
+      KeyPart part;
+      part.column = name();
+      if (symbol("(")) {
+        take();
+        part.prefix = number();
+        expect_symbol(")");
+      }
+      if (accept_word("DESC")) {
+        part.descending = true;
+      } else {
+        accept_word("ASC");
+      }
+      key.parts.push_back(std::move(part));
+    } while (symbol(",") && (take(), true));
+    expect_symbol(")");
+    while (!symbol(",") && !symbol(")")) {
+      if (accept_word("COMMENT")) {
+        key.comment = quoted_string();
+      } else if (word("USING") || word("TYPE")) {
+        index_type();
+      } else if (word("KEY_BLOCK_SIZE") || word("VISIBLE") || word("INVISIBLE") || word("WITH") || word("ENGINE_ATTRIBUTE") ||
+                 word("SECONDARY_ENGINE_ATTRIBUTE")) {
+        return unsupported(s, "index option " + upper(peek().value));
+      } else {
+        fail(peek());
+      }
+    }
+    t.keys.push_back(std::move(key));
+  }
+
+  // USING BTREE or HASH: InnoDB's indexes are B-trees whichever is named.
+  void index_type() {
+    if (!accept_word("USING") && !accept_word("TYPE")) return;
+    if (!accept_word("BTREE")) expect_word("HASH");
+  }
+
+  void column_definition(Statement& s) {
+    ColumnSpec c;
+    c.name = name();
+    data_type(s, c);
+    if (!s.unsupported.empty()) return;
+    while (!symbol(",") && !symbol(")")) {
+      if (accept_word("NOT")) {
+        expect_word("NULL");
+        c.nullable = false;
+      } else if (accept_word("NULL")) {
+        c.nullable = true;
+      } else if (accept_word("DEFAULT")) {
+        if (symbol("(")) return unsupported(s, "DEFAULT (expression)");
+        c.default_value = default_value();
+      } else if (accept_word("AUTO_INCREMENT")) {
+        c.auto_increment = true;
+      } else if (accept_word("UNIQUE")) {
+        accept_word("KEY");
+        c.unique = true;
+      } else if (accept_word("PRIMARY")) {
+        expect_word("KEY");
+        c.primary = true;
+      } else if (accept_word("KEY")) {
+        c.primary = true;
+      } else if (accept_word("COMMENT")) {
+        c.comment = quoted_string();
+      } else if (accept_word("COLLATE")) {
+        c.type.collation = charset_name();
+      } else if (accept_word("SERIAL")) {
+        expect_word("DEFAULT");
+        expect_word("VALUE");
+        c.nullable = false;
+        c.auto_increment = true;
+        c.unique = true;
+      } else if (word("CHECK") || word("CONSTRAINT")) {
+        return unsupported(s, "CHECK");
+      } else if (word("REFERENCES")) {
+        return unsupported(s, "REFERENCES");
+      } else if (word("AS") || word("GENERATED")) {
+        return unsupported(s, "generated columns");
+      } else if (word("ON")) {
+        return unsupported(s, "ON UPDATE");
+      } else if (word("VISIBLE") || word("INVISIBLE") || word("COLUMN_FORMAT") || word("STORAGE") || word("ENGINE_ATTRIBUTE") ||
+                 word("SECONDARY_ENGINE_ATTRIBUTE") || word("SRID")) {
+        return unsupported(s, "column attribute " + upper(peek().value));
+      } else {
+        fail(peek());
+      }
+    }
+    s.create_table.columns.push_back(std::move(c));
+  }
+
+  // DEFAULT's value: a literal, signed or not, NULL, TRUE or FALSE, or one of
+  // the time functions (which only a temporal column takes).
+  ExprPtr default_value() {
+    std::vector<Token> signs;
+    while (symbol("-") || symbol("+")) signs.push_back(take());
+    const auto kind = peek().kind;
+    const bool literal = kind == TokenKind::integer || kind == TokenKind::decimal || kind == TokenKind::floating || kind == TokenKind::string ||
+                         kind == TokenKind::national_string || kind == TokenKind::hex || kind == TokenKind::bits ||
+                         (kind == TokenKind::word && (word("NULL") || word("TRUE") || word("FALSE") || peek().value.starts_with("_")));
+    ExprPtr e;
+    if (literal) {
+      e = primary();
+    } else if (signs.empty() && kind == TokenKind::word && (one_of(peek().value, niladic_functions) || word("NOW"))) {
+      e = node(ExprKind::call, peek().offset, upper(take().value));
+      if (symbol("(")) {
+        take();
+        if (!symbol(")")) e->args.push_back(primary());
+        expect_symbol(")");
+      }
+      return e;
+    } else {
+      fail(peek());
+    }
+    for (auto it = signs.rbegin(); it != signs.rend(); ++it)
+      if (it->value == "-") e = unary("-", it->offset, std::move(e));
+    return e;
+  }
+
+  std::optional<uint64_t> length() {
+    if (!symbol("(")) return std::nullopt;
+    take();
+    const auto n = number();
+    expect_symbol(")");
+    return n;
+  }
+
+  // (M), (M,D) or nothing.
+  void precision(DataType& t, bool scale_required = false) {
+    if (!symbol("(")) return;
+    take();
+    t.length = number();
+    if (scale_required || symbol(",")) {
+      expect_symbol(",");
+      t.scale = number();
+    }
+    expect_symbol(")");
+  }
+
+  void numeric_attributes(DataType& t) {
+    for (;;) {
+      if (accept_word("UNSIGNED")) {
+        t.is_unsigned = true;
+      } else if (accept_word("SIGNED")) {
+      } else if (accept_word("ZEROFILL")) {
+        t.zerofill = true;
+      } else {
+        return;
+      }
+    }
+  }
+
+  void string_attributes(DataType& t) {
+    for (;;) {
+      if (accept_word("CHARACTER")) {
+        expect_word("SET");
+        t.charset = charset_name();
+      } else if (accept_word("CHARSET")) {
+        t.charset = charset_name();
+      } else if (accept_word("BINARY")) {
+        t.binary_attribute = true;
+      } else if (accept_word("ASCII")) {
+        t.charset = "latin1";
+      } else if (accept_word("UNICODE")) {
+        t.charset = "ucs2";
+      } else {
+        return;
+      }
+    }
+  }
+
+  // The manual's data types; the ones Kvasir does not yet hold are marked.
+  void data_type(Statement& s, ColumnSpec& c) {
+    if (peek().kind != TokenKind::word) fail(peek());
+    auto& t = c.type;
+    const std::string w = upper(peek().value);
+    const auto integer = [&](const char* type_name) {
+      take();
+      t.name = type_name;
+      t.length = length();
+      numeric_attributes(t);
+    };
+    if (w == "TINYINT" || w == "INT1") return integer("TINYINT");
+    if (w == "SMALLINT" || w == "INT2") return integer("SMALLINT");
+    if (w == "MEDIUMINT" || w == "INT3" || w == "MIDDLEINT") return integer("MEDIUMINT");
+    if (w == "INT" || w == "INTEGER" || w == "INT4") return integer("INT");
+    if (w == "BIGINT" || w == "INT8") return integer("BIGINT");
+    if (w == "BOOL" || w == "BOOLEAN") {
+      take();
+      t.name = "BOOL";
+      return;
+    }
+    if (w == "SERIAL") {
+      take();
+      t.name = "BIGINT";
+      t.is_unsigned = true;
+      c.nullable = false;
+      c.auto_increment = true;
+      c.unique = true;
+      return;
+    }
+    if (w == "DECIMAL" || w == "DEC" || w == "NUMERIC" || w == "FIXED") {
+      take();
+      t.name = "DECIMAL";
+      precision(t);
+      numeric_attributes(t);
+      return;
+    }
+    if (w == "FLOAT" || w == "FLOAT4") {
+      take();
+      t.name = "FLOAT";
+      precision(t);
+      numeric_attributes(t);
+      return;
+    }
+    if (w == "DOUBLE" || w == "FLOAT8" || w == "REAL") {
+      take();
+      if (w == "DOUBLE") accept_word("PRECISION");
+      t.name = "DOUBLE";
+      precision(t, true);
+      numeric_attributes(t);
+      return;
+    }
+    const auto text = [&](const char* type_name, bool length_required) {
+      t.name = type_name;
+      if (length_required && !symbol("(")) fail(peek());
+      t.length = length();
+      string_attributes(t);
+    };
+    if (w == "NATIONAL" || w == "NCHAR" || w == "NVARCHAR") {
+      take();
+      t.charset = "utf8mb3";
+      if (w == "NVARCHAR") return text("VARCHAR", true);
+      if (w == "NATIONAL") {
+        if (accept_word("VARCHAR")) return text("VARCHAR", true);
+        if (!accept_word("CHAR")) expect_word("CHARACTER");
+      }
+      if (accept_word("VARCHAR") || accept_word("VARYING")) return text("VARCHAR", true);
+      return text("CHAR", false);
+    }
+    if (w == "CHAR" || w == "CHARACTER") {
+      take();
+      if (accept_word("VARYING")) return text("VARCHAR", true);
+      return text("CHAR", false);
+    }
+    if (w == "VARCHAR" || w == "VARCHARACTER") {
+      take();
+      return text("VARCHAR", true);
+    }
+    if (w == "BINARY" || w == "VARBINARY") {
+      take();
+      t.name = w;
+      if (w == "VARBINARY" && !symbol("(")) fail(peek());
+      t.length = length();
+      return;
+    }
+    if (w == "TEXT" || w == "BLOB") {
+      take();
+      t.name = w;
+      t.length = length();
+      if (w == "TEXT") string_attributes(t);
+      return;
+    }
+    if (w == "TINYTEXT" || w == "MEDIUMTEXT" || w == "LONGTEXT") {
+      take();
+      t.name = w;
+      string_attributes(t);
+      return;
+    }
+    if (w == "TINYBLOB" || w == "MEDIUMBLOB" || w == "LONGBLOB") {
+      take();
+      t.name = w;
+      return;
+    }
+    if (w == "LONG") {
+      take();
+      if (accept_word("VARBINARY")) {
+        t.name = "MEDIUMBLOB";
+        return;
+      }
+      accept_word("VARCHAR");
+      t.name = "MEDIUMTEXT";
+      string_attributes(t);
+      return;
+    }
+    static constexpr std::array<std::string_view, 19> later = {"BIT",
+                                                               "DATE",
+                                                               "DATETIME",
+                                                               "TIMESTAMP",
+                                                               "TIME",
+                                                               "YEAR",
+                                                               "ENUM",
+                                                               "SET",
+                                                               "JSON",
+                                                               "GEOMETRY",
+                                                               "POINT",
+                                                               "LINESTRING",
+                                                               "POLYGON",
+                                                               "MULTIPOINT",
+                                                               "MULTILINESTRING",
+                                                               "MULTIPOLYGON",
+                                                               "GEOMETRYCOLLECTION",
+                                                               "GEOMCOLLECTION",
+                                                               "VECTOR"};
+    if (one_of(w, later)) return unsupported(s, "the " + w + " type");
+    fail(peek());
+  }
+
+  // CREATE TABLE's table_options, with or without commas between them.
+  void table_options(Statement& s) {
+    auto& t = s.create_table;
+    static constexpr std::array<std::string_view, 25> later = {"ROW_FORMAT",
+                                                               "AVG_ROW_LENGTH",
+                                                               "CHECKSUM",
+                                                               "COMPRESSION",
+                                                               "CONNECTION",
+                                                               "DATA",
+                                                               "INDEX",
+                                                               "DELAY_KEY_WRITE",
+                                                               "ENCRYPTION",
+                                                               "INSERT_METHOD",
+                                                               "KEY_BLOCK_SIZE",
+                                                               "MAX_ROWS",
+                                                               "MIN_ROWS",
+                                                               "PACK_KEYS",
+                                                               "PASSWORD",
+                                                               "STATS_AUTO_RECALC",
+                                                               "STATS_PERSISTENT",
+                                                               "STATS_SAMPLE_PAGES",
+                                                               "TABLESPACE",
+                                                               "UNION",
+                                                               "ENGINE_ATTRIBUTE",
+                                                               "SECONDARY_ENGINE",
+                                                               "SECONDARY_ENGINE_ATTRIBUTE",
+                                                               "AUTOEXTEND_SIZE",
+                                                               "START"};
+    while (!statement_ends()) {
+      if (symbol(",")) take();
+      if (accept_word("ENGINE") || accept_word("TYPE")) {
+        accept_equals();
+        if (peek().kind != TokenKind::string && !name_token()) fail(peek());
+        t.engine = take().value;
+        continue;
+      }
+      if (word("AS") || word("SELECT") || word("IGNORE") || word("REPLACE") || (symbol("(") && word("SELECT", 1)))
+        return unsupported(s, "CREATE TABLE ... SELECT");
+      if (word("PARTITION")) return unsupported(s, "PARTITION BY");
+      if (accept_word("AUTO_INCREMENT")) {
+        accept_equals();
+        t.auto_increment = number();
+        continue;
+      }
+      if (accept_word("COMMENT")) {
+        accept_equals();
+        t.comment = quoted_string();
+        continue;
+      }
+      const bool given_default = accept_word("DEFAULT");
+      if (accept_word("CHARACTER")) {
+        expect_word("SET");
+        accept_equals();
+        t.charset = charset_name();
+      } else if (accept_word("CHARSET")) {
+        accept_equals();
+        t.charset = charset_name();
+      } else if (accept_word("COLLATE")) {
+        accept_equals();
+        t.collation = charset_name();
+      } else if (!given_default && peek().kind == TokenKind::word && one_of(peek().value, later)) {
+        return unsupported(s, "table option " + upper(peek().value));
+      } else {
+        fail(peek());
+      }
     }
   }
 

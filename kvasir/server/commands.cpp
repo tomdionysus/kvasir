@@ -113,7 +113,11 @@ CommandStep CommandPhase::query(std::string_view text) {
     send(step.out, protocol::encode_column_count(result.columns.size()));
     for (const auto& c : result.columns) {
       protocol::ColumnDefinition d;
+      d.schema = c.schema;
+      d.table = c.table;
+      d.original_table = c.original_table;
       d.name = c.name;
+      d.original_name = c.original_name;
       d.character_set = c.type.collation;
       d.length = c.type.length;
       d.type = c.type.field_type;

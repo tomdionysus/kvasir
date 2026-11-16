@@ -32,8 +32,11 @@
 //
 // LIKE matches under the same collation (Collation::like).
 //
-// Not yet: REGEXP, functions, columns and placeholders, each refused with its
-// MySQL error.
+// A table's column is read through a ColumnSource and holds its own
+// collation at coercibility 2.
+//
+// Not yet: REGEXP, functions and placeholders, each refused with its MySQL
+// error.
 // Known difference: arithmetic on a bare NULL literal is typed DOUBLE with
 // length 23 and 31 decimals, where MySQL reports smaller lengths; its value
 // is NULL either way.
@@ -55,9 +58,27 @@ class VariableSource {
   virtual bool session_function(const std::string& name, ResultType& type, Value& value) const = 0;
 };
 
+// Where columns are read from: the row of the table a statement runs over.
+class ColumnSource {
+ public:
+  virtual ~ColumnSource() = default;
+  struct Found {
+    // As a result column reports it.
+    ResultType type;
+    // The column's own collation, which it compares under at coercibility 2.
+    uint16_t collation = 0;
+  };
+  // The column a [[schema.]table.]column path names, or nothing for none.
+  virtual std::optional<Found> find_column(const std::vector<std::string>& path) const = 0;
+  // Its value in the row at hand.
+  virtual Value column_value(const std::vector<std::string>& path) const = 0;
+};
+
 struct EvalSettings {
   // Variables; without them a variable is not supported.
   const VariableSource* variables = nullptr;
+  // A table's columns; without them a column name is unknown.
+  const ColumnSource* columns = nullptr;
   // div_precision_increment.
   int div_precision_increment = 4;
   // The collation a string result is reported in: character_set_results'.

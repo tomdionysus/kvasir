@@ -11,6 +11,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "kvasir/catalog/catalog.h"
@@ -20,19 +21,28 @@
 #include "kvasir/sql/parser.h"
 
 // A client's session: its variables, user variables, current database and
-// transaction, and the statements run against them. Databases are the node's
-// catalog's, shared with every other session; no tables exist yet, so a
-// statement that names one is refused as MySQL refuses it when there is no
-// such table: SELECT runs over no table (a select list, WHERE, LIMIT), SET
-// sets variables, USE, CREATE DATABASE, DROP DATABASE and SHOW DATABASES
-// work on the catalog, and BEGIN, COMMIT and ROLLBACK mark the transaction a
-// client sees in its status flags. Not thread-safe: one connection's strand
-// owns it (the catalog is safe from any thread).
+// transaction, and the statements run against them. Databases and tables are
+// the node's catalog's, shared with every other session. SELECT runs over no
+// table (a select list, WHERE, LIMIT) or over one table's columns, which hold
+// no rows until INSERT is built; SET sets variables; USE, CREATE and DROP
+// DATABASE, SHOW DATABASES, CREATE and DROP TABLE and SHOW TABLES work on the
+// catalog; BEGIN, COMMIT and ROLLBACK mark the transaction a client sees in
+// its status flags. Not thread-safe: one connection's strand owns it (the
+// catalog is safe from any thread).
 namespace kvasir::exec {
 
 struct Column {
+  Column() = default;
+  Column(std::string column_name, ResultType column_type) : name(std::move(column_name)), type(column_type) {}
+
   std::string name;
   ResultType type;
+  // A table's column: its database, the table as named in the statement
+  // (its alias, if any), the table's own name and the column's.
+  std::string schema;
+  std::string table;
+  std::string original_table;
+  std::string original_name;
 };
 
 struct ResultSet {
@@ -98,6 +108,13 @@ class Session : private VariableSource {
   Outcome create_database(const sql::Statement& statement);
   Outcome drop_database(const sql::Statement& statement);
   Outcome show_databases(const sql::Statement& statement);
+  Outcome create_table(const sql::Statement& statement);
+  Outcome drop_table(const sql::Statement& statement);
+  Outcome show_tables(const sql::Statement& statement);
+  Outcome select_from_table(const sql::Select& select);
+  // The database a [schema.]name refers to: the one named, else the current
+  // one (1046 when there is none).
+  std::string database_of(const std::vector<std::string>& name) const;
   // MySQL's checks on a database name: 1059, 1102, and 1044 for
   // information_schema.
   void check_database_name(const std::string& name) const;

@@ -126,19 +126,103 @@ struct Assignment {
   bool use_default = false;
 };
 
+// A column's data type as written: `name` the type's canonical upper-case
+// name (INT for INTEGER, DECIMAL for NUMERIC, DEC and FIXED, DOUBLE for REAL
+// and DOUBLE PRECISION, CHAR for NCHAR, VARCHAR for NVARCHAR, BOOL for
+// BOOLEAN), with the numbers and attributes given.
+struct DataType {
+  std::string name;
+  std::optional<uint64_t> length;  // (M), or M of (M,D)
+  std::optional<uint64_t> scale;   // D of (M,D)
+  bool is_unsigned = false;
+  bool zerofill = false;
+  // CHARACTER SET, NATIONAL (utf8mb3), the BINARY attribute (the character
+  // set's _bin collation) and COLLATE.
+  std::string charset;
+  bool binary_attribute = false;
+  std::string collation;
+};
+
+struct ColumnSpec {
+  std::string name;
+  DataType type;
+  // NULL or NOT NULL, the last written; nothing when neither is.
+  std::optional<bool> nullable;
+  // DEFAULT: a literal, possibly signed, or NULL.
+  ExprPtr default_value;
+  bool auto_increment = false;
+  bool primary = false;  // PRIMARY KEY, or KEY
+  bool unique = false;   // UNIQUE [KEY]
+  std::string comment;
+};
+
+struct KeyPart {
+  std::string column;
+  std::optional<uint64_t> prefix;
+  bool descending = false;
+};
+
+struct KeySpec {
+  enum class Kind : uint8_t { primary, unique, index };
+  Kind kind = Kind::index;
+  // The index's name, or the CONSTRAINT's, or empty for one MySQL names.
+  std::string name;
+  std::vector<KeyPart> parts;
+  std::string comment;
+  // How many columns were defined before it: a column's own PRIMARY KEY or
+  // UNIQUE comes in that order among the keys, as MySQL names them.
+  size_t position = 0;
+};
+
+struct CreateTable {
+  std::vector<std::string> name;  // [schema.]table
+  bool if_not_exists = false;
+  std::vector<ColumnSpec> columns;
+  std::vector<KeySpec> keys;
+  std::string engine;
+  std::string charset;
+  std::string collation;
+  std::optional<uint64_t> auto_increment;
+  std::string comment;
+};
+
 struct Statement {
-  enum class Kind : uint8_t { select, set, use, begin, commit, rollback, show_warnings, create_database, drop_database, show_databases };
+  enum class Kind : uint8_t {
+    select,
+    set,
+    use,
+    begin,
+    commit,
+    rollback,
+    show_warnings,
+    create_database,
+    drop_database,
+    show_databases,
+    create_table,
+    drop_table,
+    show_tables,
+  };
   Kind kind = Kind::select;
   Select select;
   std::vector<Assignment> assignments;
-  // USE, CREATE DATABASE and DROP DATABASE: the database named.
+  CreateTable create_table;
+  // DROP TABLE's tables, each [schema.]table.
+  std::vector<std::vector<std::string>> tables;
+  // SHOW FULL TABLES.
+  bool full = false;
+  // Valid MySQL that Kvasir does not yet carry out, as its 1235 refusal names
+  // it ("CREATE TABLE ... LIKE"); the rest of the statement is not read.
+  std::string unsupported;
+  // USE, CREATE DATABASE and DROP DATABASE: the database named; SHOW TABLES
+  // FROM or IN: the one given, else empty.
   std::string database;
-  // CREATE DATABASE IF NOT EXISTS, DROP DATABASE IF EXISTS.
+  // CREATE DATABASE IF NOT EXISTS, DROP DATABASE IF EXISTS, DROP TABLE IF
+  // EXISTS.
   bool if_exists = false;
   // CREATE DATABASE's character set and collation, empty for none given.
   std::string charset;
   std::string collation;
-  // SHOW DATABASES LIKE: the pattern.
+  // SHOW DATABASES LIKE and SHOW TABLES LIKE: the pattern.
   std::optional<std::string> like;
   // START TRANSACTION READ ONLY.
   bool read_only = false;

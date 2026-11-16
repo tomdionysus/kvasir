@@ -836,3 +836,423 @@ end
 statement SHOW DATABASES LIKE 'kv_gate%'
 column Database (kv_gate%)|VAR_STRING|255|256|0|NOT_NULL BINARY NO_DEFAULT_VALUE
 end
+statement CREATE DATABASE kv_tables
+end
+statement USE kv_tables
+end
+statement CREATE TABLE t2 (a TINYINT, b SMALLINT, c MEDIUMINT, d INT, e BIGINT, f TINYINT UNSIGNED, g INT UNSIGNED ZEROFILL, h BIGINT UNSIGNED, i INT(5), j BOOL, k BOOLEAN, l INTEGER)
+end
+statement SELECT * FROM t2
+column a|TINY|63|4|0|NUM
+column b|SHORT|63|6|0|NUM
+column c|INT24|63|9|0|NUM
+column d|LONG|63|11|0|NUM
+column e|LONGLONG|63|20|0|NUM
+column f|TINY|63|3|0|UNSIGNED NUM
+column g|LONG|63|10|0|UNSIGNED ZEROFILL NUM
+column h|LONGLONG|63|20|0|UNSIGNED NUM
+column i|LONG|63|5|0|NUM
+column j|TINY|63|1|0|NUM
+column k|TINY|63|1|0|NUM
+column l|LONG|63|11|0|NUM
+end
+statement CREATE TABLE t3 (a DECIMAL, b DECIMAL(10,2), c DECIMAL(65,30), d NUMERIC(5), e FLOAT, f DOUBLE, g FLOAT(7,3), h DOUBLE(10,4), i REAL, j DECIMAL(5,2) UNSIGNED, k FLOAT(30), l DOUBLE PRECISION, m DEC(4,1), n FIXED(3), o DECIMAL(0), p FLOAT(255,30), q FLOAT(24))
+end
+statement SELECT * FROM t3
+column a|NEWDECIMAL|63|11|0|NUM
+column b|NEWDECIMAL|63|12|2|NUM
+column c|NEWDECIMAL|63|67|30|NUM
+column d|NEWDECIMAL|63|6|0|NUM
+column e|FLOAT|63|12|31|NUM
+column f|DOUBLE|63|22|31|NUM
+column g|FLOAT|63|7|3|NUM
+column h|DOUBLE|63|10|4|NUM
+column i|DOUBLE|63|22|31|NUM
+column j|NEWDECIMAL|63|6|2|UNSIGNED NUM
+column k|DOUBLE|63|22|31|NUM
+column l|DOUBLE|63|22|31|NUM
+column m|NEWDECIMAL|63|6|1|NUM
+column n|NEWDECIMAL|63|4|0|NUM
+column o|NEWDECIMAL|63|11|0|NUM
+column p|FLOAT|63|255|30|NUM
+column q|FLOAT|63|12|31|NUM
+end
+statement CREATE TABLE t4 (a CHAR, b CHAR(10), c VARCHAR(20), d BINARY(4), e VARBINARY(8), f TEXT, g TINYTEXT, h MEDIUMTEXT, i LONGTEXT, j BLOB, k TINYBLOB, l MEDIUMBLOB, m LONGBLOB, n VARCHAR(5) CHARACTER SET utf8mb3, o VARCHAR(5) COLLATE utf8mb4_bin, p CHAR(3) BINARY, q TEXT(100), r BLOB(300), s VARCHAR(10) CHARACTER SET binary, t NATIONAL CHAR(2), u NCHAR(2), v NVARCHAR(3), w CHAR(0))
+end
+statement SELECT * FROM t4
+column a|STRING|255|4|0|
+column b|STRING|255|40|0|
+column c|VAR_STRING|255|80|0|
+column d|STRING|63|4|0|BINARY
+column e|VAR_STRING|63|8|0|BINARY
+column f|BLOB|255|262140|0|BLOB
+column g|BLOB|255|1020|0|BLOB
+column h|BLOB|255|67108860|0|BLOB
+column i|BLOB|255|4294967295|0|BLOB
+column j|BLOB|63|65535|0|BLOB BINARY
+column k|BLOB|63|255|0|BLOB BINARY
+column l|BLOB|63|16777215|0|BLOB BINARY
+column m|BLOB|63|4294967295|0|BLOB BINARY
+column n|VAR_STRING|255|20|0|
+column o|VAR_STRING|255|20|0|BINARY
+column p|STRING|255|12|0|BINARY
+column q|BLOB|255|262140|0|BLOB
+column r|BLOB|63|65535|0|BLOB BINARY
+column s|VAR_STRING|63|10|0|BINARY
+column t|STRING|255|8|0|
+column u|STRING|255|8|0|
+column v|VAR_STRING|255|12|0|
+column w|STRING|255|0|0|
+end
+statement CREATE TABLE t5 (a INT NOT NULL, b INT NULL, c INT DEFAULT 5, d INT NOT NULL DEFAULT 7, e INT AUTO_INCREMENT PRIMARY KEY, f VARCHAR(3) DEFAULT 'x', g INT UNIQUE, h INT COMMENT 'hi', i INT DEFAULT NULL)
+end
+statement SELECT * FROM t5
+column a|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+column b|LONG|63|11|0|NUM
+column c|LONG|63|11|0|NUM
+column d|LONG|63|11|0|NOT_NULL NUM
+column e|LONG|63|11|0|NOT_NULL PRI_KEY AUTO_INCREMENT NUM PART_KEY
+column f|VAR_STRING|255|12|0|
+column g|LONG|63|11|0|UNIQUE_KEY NUM PART_KEY
+column h|LONG|63|11|0|NUM
+column i|LONG|63|11|0|NUM
+end
+statement CREATE TABLE t6 (a INT, b INT, PRIMARY KEY (a, b), UNIQUE KEY u (b), KEY k (a), INDEX (b))
+end
+statement SELECT * FROM t6
+column a|LONG|63|11|0|NOT_NULL PRI_KEY MULTIPLE_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column b|LONG|63|11|0|NOT_NULL PRI_KEY UNIQUE_KEY MULTIPLE_KEY NO_DEFAULT_VALUE NUM PART_KEY
+end
+statement SELECT a, t6.b, kv_tables.t6.a AS x, a + 1, b = 2 FROM t6
+column a|LONG|63|11|0|NOT_NULL PRI_KEY MULTIPLE_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column b|LONG|63|11|0|NOT_NULL PRI_KEY UNIQUE_KEY MULTIPLE_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column x|LONG|63|11|0|NOT_NULL PRI_KEY MULTIPLE_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column a + 1|LONGLONG|63|12|0|NOT_NULL BINARY NUM
+column b = 2|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+end
+statement SELECT x.* FROM t6 AS x WHERE a = 1 ORDER BY b LIMIT 2
+column a|LONG|63|11|0|NOT_NULL PRI_KEY MULTIPLE_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column b|LONG|63|11|0|NOT_NULL PRI_KEY UNIQUE_KEY MULTIPLE_KEY NO_DEFAULT_VALUE NUM PART_KEY
+end
+statement SELECT zz FROM t6
+error 1054|42S22|Unknown column 'zz' in 'field list'
+end
+statement SELECT a FROM t6 WHERE zz = 1
+error 1054|42S22|Unknown column 'zz' in 'where clause'
+end
+statement SELECT a FROM t6 ORDER BY zz
+error 1054|42S22|Unknown column 'zz' in 'order clause'
+end
+statement SELECT t6.a FROM t6 AS x
+error 1054|42S22|Unknown column 't6.a' in 'field list'
+end
+statement CREATE TABLE u2 (a INT NOT NULL UNIQUE, b INT)
+end
+statement SELECT * FROM u2
+column a|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column b|LONG|63|11|0|NUM
+end
+statement CREATE TABLE u3 (a INT NOT NULL, b INT NOT NULL, UNIQUE (a, b))
+end
+statement SELECT * FROM u3
+column a|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column b|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+end
+statement CREATE TABLE u4 (a INT, b INT, UNIQUE (a, b), KEY (b, a))
+end
+statement SELECT * FROM u4
+column a|LONG|63|11|0|MULTIPLE_KEY NUM PART_KEY
+column b|LONG|63|11|0|MULTIPLE_KEY NUM PART_KEY
+end
+statement CREATE TABLE u5 (a INT UNIQUE KEY, b INT NOT NULL UNIQUE, c INT NOT NULL PRIMARY KEY)
+end
+statement SELECT * FROM u5
+column a|LONG|63|11|0|UNIQUE_KEY NUM PART_KEY
+column b|LONG|63|11|0|NOT_NULL UNIQUE_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column c|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+end
+statement CREATE TABLE u26 (a VARCHAR(10), KEY (a(3)))
+end
+statement SELECT * FROM u26
+column a|VAR_STRING|255|40|0|MULTIPLE_KEY PART_KEY
+end
+statement CREATE TABLE u31 (a SERIAL)
+end
+statement SELECT * FROM u31
+column a|LONGLONG|63|20|0|NOT_NULL PRI_KEY UNSIGNED AUTO_INCREMENT NUM PART_KEY
+end
+statement CREATE TABLE u32 (a INT SERIAL DEFAULT VALUE)
+end
+statement SELECT * FROM u32
+column a|LONG|63|11|0|NOT_NULL PRI_KEY AUTO_INCREMENT NUM PART_KEY
+end
+statement CREATE TABLE w29 (a INT AUTO_INCREMENT, KEY (a))
+end
+statement SELECT * FROM w29
+column a|LONG|63|11|0|NOT_NULL MULTIPLE_KEY AUTO_INCREMENT NUM PART_KEY
+end
+statement CREATE TABLE w31 (a INT, b INT AUTO_INCREMENT, KEY (b, a))
+end
+statement SELECT * FROM w31
+column a|LONG|63|11|0|NUM PART_KEY
+column b|LONG|63|11|0|NOT_NULL MULTIPLE_KEY AUTO_INCREMENT NUM PART_KEY
+end
+statement CREATE TABLE w26 (a INT NOT NULL NULL)
+end
+statement SELECT * FROM w26
+column a|LONG|63|11|0|NUM
+end
+statement CREATE TABLE w18 (a INT DEFAULT 2.5, b INT DEFAULT -2.5, c INT DEFAULT 2.5e0, d INT DEFAULT 3.5e0, e INT DEFAULT '2.5', f INT DEFAULT ' 12 ', g INT DEFAULT X'01', h CHAR(2) DEFAULT X'6162', i BINARY(3) DEFAULT 'ab', j DOUBLE DEFAULT '1e3', k INT DEFAULT TRUE)
+end
+statement CREATE TABLE w22 (a TINYINT UNSIGNED DEFAULT 255, b TINYINT DEFAULT -128, c BIGINT UNSIGNED DEFAULT 18446744073709551615, d BIGINT DEFAULT -9223372036854775808)
+end
+statement CREATE TABLE u7 (a DECIMAL(5,2) DEFAULT 1.234)
+end
+statement CREATE TABLE w15 (a VARCHAR(2) DEFAULT 'ab ')
+end
+statement CREATE TABLE w33 (a INT, b INT, KEY (a), KEY (a, b), UNIQUE (a), UNIQUE (a))
+end
+statement CREATE TABLE w1 (a INT(5), b INT ZEROFILL, c FLOAT(7,3), d DOUBLE(10,2), e DECIMAL(5,2) UNSIGNED, f FLOAT UNSIGNED, g TINYINT(1), h BIGINT(20), i INT(11))
+end
+statement CREATE TABLE t1 (a INT)
+end
+statement CREATE TABLE t1 (a INT)
+error 1050|42S01|Table 't1' already exists
+end
+statement CREATE TABLE IF NOT EXISTS t1 (a INT, a INT)
+end
+statement CREATE TABLE T1 (a INT)
+end
+statement CREATE TABLE t11 (a INT, A INT)
+error 1060|42S21|Duplicate column name 'A'
+end
+statement CREATE TABLE t13 (a INT PRIMARY KEY, b INT PRIMARY KEY)
+error 1068|42000|Multiple primary key defined
+end
+statement CREATE TABLE t29 (a INT, PRIMARY KEY (a), PRIMARY KEY (a))
+error 1068|42000|Multiple primary key defined
+end
+statement CREATE TABLE t14 (a INT AUTO_INCREMENT)
+error 1075|42000|Incorrect table definition; there can be only one auto column and it must be defined as a key
+end
+statement CREATE TABLE t15 (a INT AUTO_INCREMENT KEY, b INT AUTO_INCREMENT UNIQUE)
+error 1075|42000|Incorrect table definition; there can be only one auto column and it must be defined as a key
+end
+statement CREATE TABLE w30 (a INT, b INT AUTO_INCREMENT, PRIMARY KEY (a, b))
+error 1075|42000|Incorrect table definition; there can be only one auto column and it must be defined as a key
+end
+statement CREATE TABLE u33 (a FLOAT AUTO_INCREMENT KEY)
+error 1063|42000|Incorrect column specifier for column 'a'
+end
+statement CREATE TABLE u34 (a VARCHAR(5) AUTO_INCREMENT KEY)
+error 1063|42000|Incorrect column specifier for column 'a'
+end
+statement CREATE TABLE t30 (a FLOAT(54))
+error 1063|42000|Incorrect column specifier for column 'a'
+end
+statement CREATE TABLE t16 (a VARCHAR(70000))
+error 1074|42000|Column length too big for column 'a' (max = 16383); use BLOB or TEXT instead
+end
+statement CREATE TABLE t17 (a CHAR(256))
+error 1074|42000|Column length too big for column 'a' (max = 255); use BLOB or TEXT instead
+end
+statement CREATE TABLE w42 (a VARCHAR(70000) CHARACTER SET binary)
+error 1074|42000|Column length too big for column 'a' (max = 65535); use BLOB or TEXT instead
+end
+statement CREATE TABLE t18 (a DECIMAL(66))
+error 1426|42000|Too-big precision 66 specified for 'a'. Maximum is 65.
+end
+statement CREATE TABLE t19 (a DECIMAL(5,6))
+error 1427|42000|For float(M,D), double(M,D) or decimal(M,D), M must be >= D (column 'a').
+end
+statement CREATE TABLE w3 (a DECIMAL(5,31))
+error 1425|42000|Too big scale 31 specified for column 'a'. Maximum is 30.
+end
+statement CREATE TABLE w5 (a FLOAT(256,2))
+error 1439|42000|Display width out of range for column 'a' (max = 255)
+end
+statement CREATE TABLE t31 (a INT(300))
+error 1439|42000|Display width out of range for column 'a' (max = 255)
+end
+statement CREATE TABLE kv_none.t (a INT)
+error 1049|42000|Unknown database 'kv_none'
+end
+statement CREATE TABLE t26 (a INT PRIMARY KEY, KEY (zz))
+error 1072|42000|Key column 'zz' doesn't exist in table
+end
+statement CREATE TABLE `t27 ` (a INT)
+error 1103|42000|Incorrect table name 't27 '
+end
+statement CREATE TABLE t28 (`a ` INT)
+error 1166|42000|Incorrect column name 'a '
+end
+statement CREATE TABLE abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde (a INT)
+error 1059|42000|Identifier name 'abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde' is too long
+end
+statement CREATE TABLE u27 (a TEXT, PRIMARY KEY (a))
+error 1170|42000|BLOB/TEXT column 'a' used in key specification without a key length
+end
+statement CREATE TABLE u29 (a INT NULL PRIMARY KEY)
+error 1171|42000|All parts of a PRIMARY KEY must be NOT NULL; if you need NULL in a key, use UNIQUE instead
+end
+statement CREATE TABLE w9 (a INT, KEY k (a), KEY k (a))
+error 1061|42000|Duplicate key name 'k'
+end
+statement CREATE TABLE w34 (a INT UNIQUE, b INT, KEY a (b))
+error 1061|42000|Duplicate key name 'a'
+end
+statement CREATE TABLE w32 (a INT, `PRIMARY` INT, KEY `PRIMARY` (a))
+error 1280|42000|Incorrect index name 'PRIMARY'
+end
+statement CREATE TABLE w10 (a INT, KEY (a(2)))
+error 1089|HY000|Incorrect prefix key; the used key part isn't a string, the used length is longer than the key part, or the storage engine doesn't support unique prefix keys
+end
+statement CREATE TABLE w11 (a VARCHAR(5), KEY (a(6)))
+error 1089|HY000|Incorrect prefix key; the used key part isn't a string, the used length is longer than the key part, or the storage engine doesn't support unique prefix keys
+end
+statement CREATE TABLE w12 (a VARCHAR(1000), KEY (a))
+error 1071|42000|Specified key was too long; max key length is 3072 bytes
+end
+statement CREATE TABLE w44 (a VARBINARY(65533))
+error 1118|42000|Row size too large. The maximum row size for the used table type, not counting BLOBs, is 65535. This includes storage overhead, check the manual. You have to change some columns to TEXT or BLOBs
+end
+statement CREATE TABLE w45 (a VARCHAR(16383), b INT)
+error 1118|42000|Row size too large. The maximum row size for the used table type, not counting BLOBs, is 65535. This includes storage overhead, check the manual. You have to change some columns to TEXT or BLOBs
+end
+statement CREATE TABLE y2 (a VARBINARY(65471), b TEXT, c LONGBLOB, d DECIMAL(20,5), e CHAR(10) CHARACTER SET binary, f TINYBLOB, g MEDIUMTEXT)
+error 1118|42000|Row size too large. The maximum row size for the used table type, not counting BLOBs, is 65535. This includes storage overhead, check the manual. You have to change some columns to TEXT or BLOBs
+end
+statement CREATE TABLE y1 (a VARBINARY(65470), b TEXT, c LONGBLOB, d DECIMAL(20,5), e CHAR(10) CHARACTER SET binary, f TINYBLOB, g MEDIUMTEXT)
+end
+statement CREATE TABLE u11 (a VARCHAR(5) CHARACTER SET utf8mb3 COLLATE utf8mb4_bin)
+error 1253|42000|COLLATION 'utf8mb4_bin' is not valid for CHARACTER SET 'utf8mb3'
+end
+statement CREATE TABLE u12 (a VARCHAR(5) CHARACTER SET nope)
+error 1115|42000|Unknown character set: 'nope'
+end
+statement CREATE TABLE u13 (a VARCHAR(5) COLLATE nope)
+error 1273|HY000|Unknown collation: 'nope'
+end
+statement CREATE TABLE t9 (a INT) ENGINE=Nope
+error 1286|42000|Unknown storage engine 'Nope'
+end
+statement CREATE TABLE t7 (a INT) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+end
+statement CREATE TABLE t20 (a INT DEFAULT 'x')
+error 1067|42000|Invalid default value for 'a'
+end
+statement CREATE TABLE t21 (a INT NOT NULL DEFAULT NULL)
+error 1067|42000|Invalid default value for 'a'
+end
+statement CREATE TABLE t22 (a TEXT DEFAULT 'x')
+error 1101|42000|BLOB, TEXT, GEOMETRY or JSON column 'a' can't have a default value
+end
+statement CREATE TABLE t24 (a TINYINT DEFAULT 300)
+error 1067|42000|Invalid default value for 'a'
+end
+statement CREATE TABLE t25 (a VARCHAR(2) DEFAULT 'abc')
+error 1067|42000|Invalid default value for 'a'
+end
+statement CREATE TABLE u9 (a INT UNSIGNED DEFAULT -1)
+error 1067|42000|Invalid default value for 'a'
+end
+statement CREATE TABLE w16 (a INT DEFAULT '12abc')
+error 1067|42000|Invalid default value for 'a'
+end
+statement CREATE TABLE w19 (a DECIMAL(3,1) DEFAULT 99.95)
+error 1067|42000|Invalid default value for 'a'
+end
+statement CREATE TABLE w21 (a FLOAT DEFAULT 1e40)
+error 1067|42000|Invalid default value for 'a'
+end
+statement CREATE TABLE u35 (a INT AUTO_INCREMENT DEFAULT 3 KEY)
+error 1067|42000|Invalid default value for 'a'
+end
+statement CREATE TABLE u6 (a INT DEFAULT 1, g INT DEFAULT CURRENT_TIMESTAMP)
+error 1067|42000|Invalid default value for 'g'
+end
+statement CREATE TABLE information_schema.x (a INT)
+error 1044|42000|Access denied for user 'root'@'localhost' to database 'information_schema'
+end
+statement CREATE TABLE t (a VARCHAR)
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near ')' at line 1
+end
+statement SHOW TABLES
+column Tables_in_kv_tables|VAR_STRING|255|256|0|NOT_NULL BINARY NO_DEFAULT_VALUE
+row T1
+row t1
+row t2
+row t3
+row t4
+row t5
+row t6
+row t7
+row u2
+row u26
+row u3
+row u31
+row u32
+row u4
+row u5
+row u7
+row w1
+row w15
+row w18
+row w22
+row w26
+row w29
+row w31
+row w33
+row y1
+end
+statement SHOW TABLES LIKE 't1%'
+column Tables_in_kv_tables (t1%)|VAR_STRING|255|256|0|NOT_NULL BINARY NO_DEFAULT_VALUE
+row t1
+end
+statement SHOW FULL TABLES LIKE 'T%'
+column Tables_in_kv_tables (T%)|VAR_STRING|255|256|0|NOT_NULL BINARY NO_DEFAULT_VALUE
+column Table_type|STRING|255|44|0|NOT_NULL BINARY ENUM NO_DEFAULT_VALUE
+row T1	BASE TABLE
+end
+statement DROP TABLE t1
+end
+statement DROP TABLE t1
+error 1051|42S02|Unknown table 'kv_tables.t1'
+end
+statement DROP TABLE IF EXISTS t1
+end
+statement DROP TABLE t2, nothere, t3
+error 1051|42S02|Unknown table 'kv_tables.nothere'
+end
+statement DROP TABLE t2, t2
+error 1066|42000|Not unique table/alias: 't2'
+end
+statement DROP TABLE n1, t2, n2
+error 1051|42S02|Unknown table 'kv_tables.n1,kv_tables.n2'
+end
+statement DROP TABLE kv_none.t
+error 1051|42S02|Unknown table 'kv_none.t'
+end
+statement DROP TABLES t2, t3
+end
+statement SHOW TABLES FROM kv_tables LIKE 't%'
+column Tables_in_kv_tables (t%)|VAR_STRING|255|256|0|NOT_NULL BINARY NO_DEFAULT_VALUE
+row t4
+row t5
+row t6
+row t7
+end
+statement SHOW TABLES FROM kv_none
+error 1049|42000|Unknown database 'kv_none'
+end
+statement DROP DATABASE kv_tables
+end
+statement CREATE TABLE t (a INT)
+error 1046|3D000|No database selected
+end
+statement SHOW TABLES
+error 1046|3D000|No database selected
+end
+statement DROP TABLE t
+error 1046|3D000|No database selected
+end

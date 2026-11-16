@@ -431,5 +431,184 @@ TEST(SqlParser, DatabaseStatements) {
   EXPECT_EQ(error_at("CREATE DATABASE d NOPE"), 18u);
 }
 
+// The manual's CREATE TABLE ("CREATE TABLE Statement", "Data Type Syntax"):
+// column definitions, PRIMARY KEY, UNIQUE and INDEX/KEY, table options.
+TEST(SqlParser, CreateTable) {
+  auto s = one("CREATE TABLE t (a INT)");
+  EXPECT_EQ(s.kind, Kind::create_table);
+  EXPECT_EQ(s.create_table.name, (std::vector<std::string>{"t"}));
+  EXPECT_FALSE(s.create_table.if_not_exists);
+  ASSERT_EQ(s.create_table.columns.size(), 1u);
+  EXPECT_EQ(s.create_table.columns[0].name, "a");
+  EXPECT_EQ(s.create_table.columns[0].type.name, "INT");
+  EXPECT_FALSE(s.create_table.columns[0].nullable);
+  EXPECT_TRUE(s.unsupported.empty());
+
+  s =
+      one("CREATE TABLE IF NOT EXISTS d.`t t` (a INTEGER(5) UNSIGNED ZEROFILL NOT NULL DEFAULT -3 AUTO_INCREMENT UNIQUE KEY COMMENT 'c', "
+          "b DECIMAL(10,2), c NUMERIC, d DEC(4), e FIXED(3,1), f REAL, g DOUBLE PRECISION, h FLOAT(7,3), i BOOLEAN, j BOOL NULL)");
+  const auto& t = s.create_table;
+  EXPECT_EQ(t.name, (std::vector<std::string>{"d", "t t"}));
+  EXPECT_TRUE(t.if_not_exists);
+  ASSERT_EQ(t.columns.size(), 10u);
+  const auto& a = t.columns[0];
+  EXPECT_EQ(a.type.name, "INT");
+  EXPECT_EQ(a.type.length, 5u);
+  EXPECT_TRUE(a.type.is_unsigned);
+  EXPECT_TRUE(a.type.zerofill);
+  EXPECT_EQ(a.nullable, false);
+  ASSERT_TRUE(a.default_value);
+  EXPECT_EQ(to_string(*a.default_value), "(- 3)");
+  EXPECT_TRUE(a.auto_increment);
+  EXPECT_TRUE(a.unique);
+  EXPECT_FALSE(a.primary);
+  EXPECT_EQ(a.comment, "c");
+  EXPECT_EQ(t.columns[1].type.name, "DECIMAL");
+  EXPECT_EQ(t.columns[1].type.length, 10u);
+  EXPECT_EQ(t.columns[1].type.scale, 2u);
+  EXPECT_EQ(t.columns[2].type.name, "DECIMAL");
+  EXPECT_FALSE(t.columns[2].type.length);
+  EXPECT_EQ(t.columns[3].type.name, "DECIMAL");
+  EXPECT_EQ(t.columns[4].type.name, "DECIMAL");
+  EXPECT_EQ(t.columns[5].type.name, "DOUBLE");
+  EXPECT_EQ(t.columns[6].type.name, "DOUBLE");
+  EXPECT_EQ(t.columns[7].type.name, "FLOAT");
+  EXPECT_EQ(t.columns[7].type.scale, 3u);
+  EXPECT_EQ(t.columns[8].type.name, "BOOL");
+  EXPECT_EQ(t.columns[9].nullable, true);
+
+  s =
+      one("CREATE TABLE t (a CHAR, b CHARACTER(3) CHARACTER SET utf8mb3 COLLATE utf8mb3_bin, c VARCHAR(5) CHARSET binary, d NATIONAL CHAR(2), "
+          "e NCHAR VARCHAR(4), f NVARCHAR(3), g CHARACTER VARYING(2), h CHAR(3) BINARY, i VARBINARY(8), j BINARY(2), k TEXT(100), l TINYBLOB, "
+          "m LONGTEXT COLLATE utf8mb4_bin, n SERIAL, o INT SERIAL DEFAULT VALUE, p INT KEY, q INT PRIMARY KEY, r INT DEFAULT NULL, s INT NOT NULL NULL)");
+  const auto& u = s.create_table;
+  ASSERT_EQ(u.columns.size(), 19u);
+  EXPECT_EQ(u.columns[0].type.name, "CHAR");
+  EXPECT_FALSE(u.columns[0].type.length);
+  EXPECT_EQ(u.columns[1].type.name, "CHAR");
+  EXPECT_EQ(u.columns[1].type.charset, "utf8mb3");
+  EXPECT_EQ(u.columns[1].type.collation, "utf8mb3_bin");
+  EXPECT_EQ(u.columns[2].type.charset, "binary");
+  EXPECT_EQ(u.columns[3].type.name, "CHAR");
+  EXPECT_EQ(u.columns[3].type.charset, "utf8mb3");
+  EXPECT_EQ(u.columns[4].type.name, "VARCHAR");
+  EXPECT_EQ(u.columns[4].type.charset, "utf8mb3");
+  EXPECT_EQ(u.columns[5].type.name, "VARCHAR");
+  EXPECT_EQ(u.columns[5].type.charset, "utf8mb3");
+  EXPECT_EQ(u.columns[6].type.name, "VARCHAR");
+  EXPECT_TRUE(u.columns[7].type.binary_attribute);
+  EXPECT_EQ(u.columns[8].type.name, "VARBINARY");
+  EXPECT_EQ(u.columns[9].type.name, "BINARY");
+  EXPECT_EQ(u.columns[10].type.name, "TEXT");
+  EXPECT_EQ(u.columns[10].type.length, 100u);
+  EXPECT_EQ(u.columns[11].type.name, "TINYBLOB");
+  EXPECT_EQ(u.columns[12].type.collation, "utf8mb4_bin");
+  // SERIAL is BIGINT UNSIGNED NOT NULL AUTO_INCREMENT UNIQUE; SERIAL DEFAULT
+  // VALUE is NOT NULL AUTO_INCREMENT UNIQUE.
+  EXPECT_EQ(u.columns[13].type.name, "BIGINT");
+  EXPECT_TRUE(u.columns[13].type.is_unsigned);
+  EXPECT_EQ(u.columns[13].nullable, false);
+  EXPECT_TRUE(u.columns[13].auto_increment);
+  EXPECT_TRUE(u.columns[13].unique);
+  EXPECT_EQ(u.columns[14].type.name, "INT");
+  EXPECT_EQ(u.columns[14].nullable, false);
+  EXPECT_TRUE(u.columns[14].auto_increment);
+  EXPECT_TRUE(u.columns[14].unique);
+  EXPECT_TRUE(u.columns[15].primary);
+  EXPECT_TRUE(u.columns[16].primary);
+  ASSERT_TRUE(u.columns[17].default_value);
+  EXPECT_EQ(u.columns[17].default_value->kind, ExprKind::null);
+  EXPECT_EQ(u.columns[18].nullable, true);
+
+  s =
+      one("CREATE TABLE t (a INT, b INT, PRIMARY KEY (a, b DESC), CONSTRAINT uq UNIQUE KEY (b), UNIQUE INDEX u2 USING BTREE (a(3)) COMMENT 'x', "
+          "KEY k (a), INDEX (b ASC), CONSTRAINT pk2 PRIMARY KEY (b)) ENGINE = InnoDB, DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_bin AUTO_INCREMENT 5 "
+          "COMMENT = 'tc'");
+  const auto& k = s.create_table;
+  ASSERT_EQ(k.keys.size(), 6u);
+  EXPECT_EQ(k.keys[0].kind, KeySpec::Kind::primary);
+  ASSERT_EQ(k.keys[0].parts.size(), 2u);
+  EXPECT_EQ(k.keys[0].parts[1].column, "b");
+  EXPECT_TRUE(k.keys[0].parts[1].descending);
+  EXPECT_EQ(k.keys[1].kind, KeySpec::Kind::unique);
+  EXPECT_EQ(k.keys[1].name, "uq");
+  EXPECT_EQ(k.keys[2].name, "u2");
+  EXPECT_EQ(k.keys[2].parts[0].prefix, 3u);
+  EXPECT_EQ(k.keys[2].comment, "x");
+  EXPECT_EQ(k.keys[3].kind, KeySpec::Kind::index);
+  EXPECT_EQ(k.keys[3].name, "k");
+  EXPECT_TRUE(k.keys[4].name.empty());
+  EXPECT_EQ(k.keys[5].kind, KeySpec::Kind::primary);
+  EXPECT_EQ(k.engine, "InnoDB");
+  EXPECT_EQ(k.charset, "utf8mb4");
+  EXPECT_EQ(k.collation, "utf8mb4_bin");
+  EXPECT_EQ(k.auto_increment, 5u);
+  EXPECT_EQ(k.comment, "tc");
+
+  // A default that is not a literal is MySQL's to refuse by column type: a
+  // niladic function is read.
+  s = one("CREATE TABLE t (a INT DEFAULT CURRENT_TIMESTAMP, b INT DEFAULT TRUE, c CHAR(2) DEFAULT X'6162', d INT DEFAULT +4)");
+  EXPECT_EQ(s.create_table.columns[0].default_value->kind, ExprKind::call);
+  EXPECT_EQ(s.create_table.columns[1].default_value->kind, ExprKind::boolean);
+  EXPECT_EQ(s.create_table.columns[2].default_value->kind, ExprKind::hex);
+  EXPECT_EQ(to_string(*s.create_table.columns[3].default_value), "4");
+
+  // Valid MySQL Kvasir does not yet carry out: marked, the rest unread.
+  EXPECT_EQ(one("CREATE TABLE t2 LIKE t").unsupported, "CREATE TABLE ... LIKE");
+  EXPECT_EQ(one("CREATE TABLE t2 AS SELECT 1").unsupported, "CREATE TABLE ... SELECT");
+  EXPECT_EQ(one("CREATE TABLE t2 (a INT) SELECT 1").unsupported, "CREATE TABLE ... SELECT");
+  EXPECT_EQ(one("CREATE TEMPORARY TABLE t2 (a INT)").unsupported, "CREATE TEMPORARY TABLE");
+  EXPECT_EQ(one("CREATE TABLE t2 (a INT, CHECK (a > 0))").unsupported, "CHECK");
+  EXPECT_EQ(one("CREATE TABLE t2 (a INT CHECK (a > 0))").unsupported, "CHECK");
+  EXPECT_EQ(one("CREATE TABLE t2 (a INT, CONSTRAINT c FOREIGN KEY (a) REFERENCES u (a))").unsupported, "FOREIGN KEY");
+  EXPECT_EQ(one("CREATE TABLE t2 (a INT REFERENCES u (a))").unsupported, "REFERENCES");
+  EXPECT_EQ(one("CREATE TABLE t2 (a INT DEFAULT (1 + 1))").unsupported, "DEFAULT (expression)");
+  EXPECT_EQ(one("CREATE TABLE t2 (a INT AS (1) STORED)").unsupported, "generated columns");
+  EXPECT_EQ(one("CREATE TABLE t2 (a INT GENERATED ALWAYS AS (1))").unsupported, "generated columns");
+  EXPECT_EQ(one("CREATE TABLE t2 (a DATE)").unsupported, "the DATE type");
+  EXPECT_EQ(one("CREATE TABLE t2 (a ENUM('x'))").unsupported, "the ENUM type");
+  EXPECT_EQ(one("CREATE TABLE t2 (a INT, FULLTEXT (a))").unsupported, "FULLTEXT");
+  EXPECT_EQ(one("CREATE TABLE t2 (a INT, KEY ((a + 1)))").unsupported, "functional key parts");
+  EXPECT_EQ(one("CREATE TABLE t2 (a INT) ROW_FORMAT=DYNAMIC").unsupported, "table option ROW_FORMAT");
+  EXPECT_EQ(one("CREATE TABLE t2 (a INT) PARTITION BY HASH (a)").unsupported, "PARTITION BY");
+
+  EXPECT_EQ(error_at("CREATE TABLE t ()"), 16u);
+  EXPECT_EQ(error_at("CREATE TABLE t (a VARCHAR)"), 25u);
+  EXPECT_EQ(error_at("CREATE TABLE t (zz BLAH)"), 19u);
+  EXPECT_EQ(error_at("CREATE TABLE t (a INT DEFAULT 1 + 1)"), 32u);
+  EXPECT_EQ(error_at("CREATE TABLE t (a INT"), 21u);
+  EXPECT_EQ(error_at("CREATE TABLE t (a INT, PRIMARY KEY a)"), 36u);
+}
+
+// DROP TABLE and SHOW TABLES.
+TEST(SqlParser, DropAndShowTables) {
+  auto s = one("DROP TABLE t");
+  EXPECT_EQ(s.kind, Kind::drop_table);
+  EXPECT_EQ(s.tables, (std::vector<std::vector<std::string>>{{"t"}}));
+  EXPECT_FALSE(s.if_exists);
+  s = one("DROP TABLES IF EXISTS t, d.u RESTRICT");
+  EXPECT_TRUE(s.if_exists);
+  EXPECT_EQ(s.tables, (std::vector<std::vector<std::string>>{{"t"}, {"d", "u"}}));
+  s = one("DROP TABLE t CASCADE");
+  EXPECT_EQ(s.tables.size(), 1u);
+  EXPECT_EQ(one("DROP TEMPORARY TABLE t").unsupported, "DROP TEMPORARY TABLE");
+  s = one("SHOW TABLES");
+  EXPECT_EQ(s.kind, Kind::show_tables);
+  EXPECT_FALSE(s.full);
+  EXPECT_TRUE(s.database.empty());
+  EXPECT_FALSE(s.like);
+  s = one("SHOW FULL TABLES FROM d LIKE 't%'");
+  EXPECT_EQ(s.kind, Kind::show_tables);
+  EXPECT_TRUE(s.full);
+  EXPECT_EQ(s.database, "d");
+  EXPECT_EQ(s.like.value_or(""), "t%");
+  s = one("SHOW TABLES IN d");
+  EXPECT_EQ(s.database, "d");
+  EXPECT_EQ(one("SHOW TABLES WHERE 1").unsupported, "SHOW TABLES ... WHERE");
+  EXPECT_EQ(error_at("DROP TABLE"), 10u);
+  EXPECT_EQ(error_at("DROP TABLE t,"), 13u);
+  EXPECT_EQ(error_at("SHOW FULL"), 9u);
+}
+
 }  // namespace
 }  // namespace kvasir::sql

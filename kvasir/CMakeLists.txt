@@ -30,11 +30,14 @@ add_library(kvasir SHARED
   ${kvasir_ducet_table}
   ${kvasir_general_ci_table}
   catalog/catalog.cpp
+  catalog/table.cpp
   exec/collation.cpp
+  exec/ddl.cpp
   exec/like.cpp
   exec/decimal.cpp
   exec/expression.cpp
   exec/session.cpp
+  exec/store.cpp
   exec/variables.cpp
   protocol/caching_sha2.cpp
   protocol/codec.cpp

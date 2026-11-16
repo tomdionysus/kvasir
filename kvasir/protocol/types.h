@@ -58,6 +58,7 @@ inline constexpr uint16_t timestamp = 1024;
 inline constexpr uint16_t set = 2048;
 inline constexpr uint16_t no_default_value = 4096;
 inline constexpr uint16_t on_update_now = 8192;
+inline constexpr uint16_t part_key = 16384;
 inline constexpr uint16_t num = 32768;
 }  // namespace column_flag
 

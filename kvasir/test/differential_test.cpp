@@ -63,6 +63,7 @@ std::string flag_names(uint16_t flags) {
       {c::no_default_value, "NO_DEFAULT_VALUE"},
       {c::on_update_now, "ON_UPDATE_NOW"},
       {c::num, "NUM"},
+      {c::part_key, "PART_KEY"},
   };
   std::string out;
   for (const auto& [bit, name] : names)

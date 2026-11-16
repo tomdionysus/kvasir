@@ -7,12 +7,14 @@
 
 #include "kvasir/exec/session.h"
 
+#include <algorithm>
 #include <cctype>
 #include <charconv>
 #include <cstdlib>
 #include <utility>
 
 #include "kvasir/exec/collation.h"
+#include "kvasir/exec/ddl.h"
 #include "kvasir/protocol/messages.h"
 #include "kvasir/protocol/types.h"
 #include "kvasir/sql/keywords.h"
@@ -316,6 +318,8 @@ Outcome Session::execute(const sql::Statement& statement) {
 
 Outcome Session::run(const sql::Statement& statement) {
   using Kind = sql::Statement::Kind;
+  if (!statement.unsupported.empty())
+    throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support '" + statement.unsupported + "'");
   switch (statement.kind) {
     case Kind::select:
       return select(statement.select);
@@ -345,21 +349,125 @@ Outcome Session::run(const sql::Statement& statement) {
     case Kind::rollback:
       _in_transaction = false;
       return {};
+    case Kind::create_table:
+      return create_table(statement);
+    case Kind::drop_table:
+      return drop_table(statement);
+    case Kind::show_tables:
+      return show_tables(statement);
   }
   return {};
 }
 
-Outcome Session::select(const sql::Select& select) {
-  if (!select.from.empty()) {
-    // No database holds a table yet.
-    const auto& table = select.from.front();
-    if (table.name.size() == 2) {
-      if (!_catalog.database(table.name[0])) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + table.name[0] + "'");
-      throw SqlError(1146, "42S02", "Table '" + table.name[0] + "." + table.name[1] + "' doesn't exist");
-    }
-    if (!_database) throw SqlError(er_no_db_error, "3D000", "No database selected");
-    throw SqlError(1146, "42S02", "Table '" + *_database + "." + table.name[0] + "' doesn't exist");
+namespace {
+
+// A 1054 raised while typing a clause, named for that clause.
+template <typename F>
+void in_clause(const char* clause, F&& f) {
+  try {
+    f();
+  } catch (const SqlError& e) {
+    if (e.code() != er_bad_field_error) throw;
+    std::string message = e.what();
+    const std::string field = "'field list'";
+    if (const auto at = message.rfind(field); at != std::string::npos) message.replace(at, field.size(), std::string("'") + clause + "'");
+    throw SqlError(e.code(), e.sqlstate(), message);
   }
+}
+
+// One table's columns, as a statement over it names them: column,
+// table.column (by its alias when it has one) or schema.table.column. Its
+// rows come with INSERT; until then there are none to read.
+class TableColumns : public ColumnSource {
+ public:
+  TableColumns(const catalog::Table& table, std::string database, std::string alias, const EvalSettings& eval)
+      : _table(table), _database(std::move(database)), _alias(std::move(alias)), _eval(eval) {}
+
+  std::optional<size_t> index(const std::vector<std::string>& path) const {
+    if (path.size() == 2 && path[0] != qualifier()) return std::nullopt;
+    if (path.size() == 3 && (!_alias.empty() || path[0] != _database || path[1] != _table.name)) return std::nullopt;
+    return _table.column(path.back());
+  }
+
+  std::optional<Found> find_column(const std::vector<std::string>& path) const override {
+    const auto i = index(path);
+    if (!i) return std::nullopt;
+    return Found{column_result_type(_table, *i, _eval), column_collation_id(_table.columns[*i])};
+  }
+
+  Value column_value(const std::vector<std::string>&) const override { return {}; }
+
+  // The name the table goes by in the statement.
+  const std::string& qualifier() const { return _alias.empty() ? _table.name : _alias; }
+
+  Column column(size_t i, std::string name) const {
+    Column out(std::move(name), column_result_type(_table, i, _eval));
+    out.schema = _database;
+    out.table = qualifier();
+    out.original_table = _table.name;
+    out.original_name = _table.columns[i].name;
+    return out;
+  }
+
+ private:
+  const catalog::Table& _table;
+  std::string _database;
+  std::string _alias;
+  EvalSettings _eval;
+};
+
+}  // namespace
+
+std::string Session::database_of(const std::vector<std::string>& name) const {
+  if (name.size() == 2) return name[0];
+  if (!_database) throw SqlError(er_no_db_error, "3D000", "No database selected");
+  return *_database;
+}
+
+Outcome Session::select_from_table(const sql::Select& select) {
+  if (select.from.size() > 1) throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'joins'");
+  const auto& from = select.from.front();
+  const auto database = database_of(from.name);
+  const auto table = _catalog.table({database, from.name.back()});
+  if (!table) {
+    if (!_catalog.database(database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
+    throw SqlError(1146, "42S02", "Table '" + database + "." + from.name.back() + "' doesn't exist");
+  }
+  auto settings = eval_settings();
+  TableColumns columns(*table, database, from.alias, settings);
+  settings.columns = &columns;
+  Evaluator evaluator(settings);
+  ResultSet result;
+  for (const auto& item : select.items) {
+    if (item.star) {
+      // *, table.* or schema.table.*
+      const auto& p = item.star_path;
+      const bool ours =
+          p.empty() || (p.size() == 1 && p[0] == columns.qualifier()) || (p.size() == 2 && from.alias.empty() && p[0] == database && p[1] == table->name);
+      if (!ours) throw SqlError(1051, "42S02", "Unknown table '" + p.back() + "'");
+      for (size_t i = 0; i < table->columns.size(); ++i) result.columns.push_back(columns.column(i, table->columns[i].name));
+      continue;
+    }
+    const auto type = evaluator.type(*item.expr);
+    if (item.expr->kind == sql::ExprKind::column) {
+      // A column keeps the name it was written with, without its qualifier.
+      result.columns.push_back(columns.column(*columns.index(item.expr->path), item.has_alias ? item.alias : item.expr->path.back()));
+    } else {
+      result.columns.push_back({column_name(item), type});
+    }
+  }
+  if (select.where) in_clause("where clause", [&] { evaluator.type(*select.where); });
+  for (const auto& order : select.order) in_clause("order clause", [&] { evaluator.type(*order.expr); });
+  if (select.limit) limit_of(*select.limit);
+  if (select.offset) limit_of(*select.offset);
+  _warnings = evaluator.warnings();
+  Outcome out;
+  out.result = std::move(result);
+  return out;
+}
+
+Outcome Session::select(const sql::Select& select) {
+  if (!select.from.empty()) return select_from_table(select);
   Evaluator evaluator(eval_settings());
   ResultSet result;
   for (const auto& item : select.items) {
@@ -530,15 +638,18 @@ Outcome Session::create_database(const sql::Statement& statement) {
 Outcome Session::drop_database(const sql::Statement& statement) {
   const auto& name = statement.database;
   check_database_name(name);
-  // No tables to drop yet: no rows affected.
-  if (!_catalog.drop_database(name)) {
+  // A row affected for each table dropped with it (observed).
+  Outcome outcome;
+  size_t tables = 0;
+  if (!_catalog.drop_database(name, &tables)) {
     const std::string message = "Can't drop database '" + name + "'; database doesn't exist";
     if (!statement.if_exists) throw SqlError(1008, "HY000", message);
     _warnings.push_back({"Note", 1008, message});
   } else if (_database == name) {
     _database.reset();
   }
-  return {};
+  outcome.affected_rows = tables;
+  return outcome;
 }
 
 Outcome Session::show_databases(const sql::Statement& statement) {
@@ -554,6 +665,95 @@ Outcome Session::show_databases(const sql::Statement& statement) {
   const auto* bytes = collation_by_id(46);
   for (const auto& name : _catalog.database_names())
     if (!statement.like || bytes->like(name, *statement.like, "\\")) result.rows.push_back({name});
+  Outcome outcome;
+  outcome.result = std::move(result);
+  return outcome;
+}
+
+Outcome Session::create_table(const sql::Statement& statement) {
+  const auto& spec = statement.create_table;
+  const auto& name = spec.name.back();
+  const auto database = database_of(spec.name);
+  check_table_name(name);
+  if (sql::same_word(database, "information_schema"))
+    throw SqlError(1044, "42000", "Access denied for user '" + _info.user + "'@'" + _info.host + "' to database '" + database + "'");
+  // The deprecations come as the statement is read, whatever follows.
+  type_warnings(spec, _warnings);
+  const auto held = _catalog.database(database);
+  if (!held) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
+  const std::string exists = "Table '" + name + "' already exists";
+  const auto already = [&]() -> Outcome {
+    if (!spec.if_not_exists) throw SqlError(1050, "42S01", exists);
+    _warnings.push_back({"Note", 1050, exists});
+    return {};
+  };
+  // IF NOT EXISTS finds it before the definition is looked at (observed).
+  if (_catalog.table({database, name})) return already();
+  TableContext context;
+  context.database = database;
+  context.charset = held->charset;
+  context.collation = held->collation;
+  context.no_engine_substitution = has_mode(_variables.text("sql_mode"), "NO_ENGINE_SUBSTITUTION");
+  context.eval = eval_settings();
+  auto table = define_table(spec, context, _warnings);
+  switch (_catalog.create_table(database, std::move(table))) {
+    case catalog::Catalog::Created::created:
+      return {};
+    case catalog::Catalog::Created::exists:
+      return already();
+    case catalog::Catalog::Created::no_database:
+      throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
+  }
+  return {};
+}
+
+Outcome Session::drop_table(const sql::Statement& statement) {
+  std::vector<catalog::TableName> names;
+  for (const auto& written : statement.tables) {
+    catalog::TableName name{database_of(written), written.back()};
+    if (std::find(names.begin(), names.end(), name) != names.end()) throw SqlError(1066, "42000", "Not unique table/alias: '" + name.name + "'");
+    names.push_back(std::move(name));
+  }
+  const auto missing = _catalog.drop_tables(names, statement.if_exists);
+  if (!missing.empty()) {
+    if (!statement.if_exists) {
+      std::string list;
+      for (const auto& m : missing) list += (list.empty() ? "" : ",") + m.database + "." + m.name;
+      throw SqlError(1051, "42S02", "Unknown table '" + list + "'");
+    }
+    for (const auto& m : missing) _warnings.push_back({"Note", 1051, "Unknown table '" + m.database + "." + m.name + "'"});
+  }
+  return {};
+}
+
+Outcome Session::show_tables(const sql::Statement& statement) {
+  const std::string database = statement.database.empty() ? database_of({""}) : statement.database;
+  const auto names = _catalog.table_names(database);
+  if (!names) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
+  ResultType type;
+  type.field_type = f::var_string;
+  type.collation = protocol::collation::utf8mb4_0900_ai_ci;
+  type.length = 256;
+  type.flags = c::not_null | c::binary | c::no_default_value;
+  ResultSet result;
+  const std::string column = "Tables_in_" + database;
+  result.columns.push_back({statement.like ? column + " (" + *statement.like + ")" : column, type});
+  if (statement.full) {
+    ResultType kind;
+    kind.field_type = f::string;
+    kind.collation = protocol::collation::utf8mb4_0900_ai_ci;
+    kind.length = 44;
+    kind.flags = c::not_null | c::binary | c::enum_ | c::no_default_value;
+    result.columns.push_back({"Table_type", kind});
+  }
+  // Names are matched as bytes, as they are compared.
+  const auto* bytes = collation_by_id(46);
+  for (const auto& name : *names) {
+    if (statement.like && !bytes->like(name, *statement.like, "\\")) continue;
+    std::vector<std::optional<std::string>> row{name};
+    if (statement.full) row.emplace_back("BASE TABLE");
+    result.rows.push_back(std::move(row));
+  }
   Outcome outcome;
   outcome.result = std::move(result);
   return outcome;
