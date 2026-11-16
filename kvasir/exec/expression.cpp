@@ -285,14 +285,10 @@ ResultType Evaluator::type(const Expr& e) const {
       throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + name + "' in 'field list'");
     }
     case ExprKind::call:
-      if ((e.value == "DATABASE" || e.value == "SCHEMA") && e.args.empty() && _settings.variables) {
-        // A name of up to 64 characters, NULL with none (observed).
+      if (e.args.empty() && !e.star && _settings.variables) {
         ResultType t;
-        t.field_type = f::var_string;
-        t.collation = _settings.result_collation;
-        t.length = 64 * _settings.result_max_bytes;
-        t.decimals = any_decimals;
-        return t;
+        Value unused;
+        if (_settings.variables->session_function(e.value, t, unused)) return t;
       }
       not_yet("function " + e.value);
     case ExprKind::user_variable:
@@ -619,9 +615,10 @@ Value Evaluator::value(const Expr& e) {
     }
     case ExprKind::call: {
       type(e);
-      const auto database = _settings.variables->current_database();
-      if (!database) return {};
-      return *database;
+      ResultType t;
+      Value v;
+      _settings.variables->session_function(e.value, t, v);
+      return v;
     }
     case ExprKind::user_variable:
       if (!_settings.variables) not_yet("variables");

@@ -36,8 +36,10 @@ class VariableSource {
   // @name: NULL with its type when never set.
   virtual ResultType user_type(const std::string& name) const = 0;
   virtual Value user_value(const std::string& name) const = 0;
-  // DATABASE(): the session's current database, if any.
-  virtual std::optional<std::string> current_database() const = 0;
+  // A function of the session with no arguments (DATABASE(), USER(),
+  // CONNECTION_ID(), ...): its type and value, or false for a name it does
+  // not have.
+  virtual bool session_function(const std::string& name, ResultType& type, Value& value) const = 0;
 };
 
 struct EvalSettings {

@@ -121,12 +121,35 @@ EvalSettings Session::eval_settings() const {
   return e;
 }
 
+// @@warning_count and @@error_count count the diagnostics of the statement
+// before; every other variable is the registry's.
+static bool counts_diagnostics(const std::string& scope, const std::string& name) {
+  return (scope.empty() || sql::same_word(scope, "SESSION")) && (sql::same_word(name, "warning_count") || sql::same_word(name, "error_count"));
+}
+
 ResultType Session::system_type(const std::string& scope, const std::string& name) const {
+  if (counts_diagnostics(scope, name)) {
+    ResultType t;
+    t.field_type = f::longlong;
+    t.collation = protocol::collation::binary;
+    t.length = 21;
+    t.precision = 21;
+    t.flags = c::unsigned_ | c::binary | c::num;
+    return t;
+  }
   const auto e = eval_settings();
   return _variables.type_of(scope, name, e.result_collation, e.result_max_bytes);
 }
 
-Value Session::system_value(const std::string& scope, const std::string& name) const { return _variables.get(scope, name); }
+Value Session::system_value(const std::string& scope, const std::string& name) const {
+  if (counts_diagnostics(scope, name)) {
+    uint64_t n = 0;
+    for (const auto& w : _previous)
+      if (sql::same_word(name, "warning_count") || w.level == "Error") ++n;
+    return n;
+  }
+  return _variables.get(scope, name);
+}
 
 ResultType Session::user_type(const std::string& name) const {
   const auto it = _user.find(lower(name));
@@ -164,12 +187,138 @@ sql::ParserOptions Session::parser_options() const {
 
 void Session::commit() { _in_transaction = false; }
 
+void Session::record_error(uint16_t code, const std::string& message) {
+  _previous = std::move(_warnings);
+  _warnings = {{"Error", code, message}};
+}
+
+namespace {
+
+ResultType text_type(const EvalSettings& e, uint32_t characters, bool not_null) {
+  ResultType t;
+  t.field_type = f::var_string;
+  t.collation = e.result_collation;
+  t.length = characters * e.result_max_bytes;
+  t.decimals = protocol::not_fixed_decimals;
+  t.flags = static_cast<uint16_t>((not_null ? c::not_null : 0) | (not_null && e.result_collation_binary ? c::binary : 0));
+  return t;
+}
+
+ResultType bigint_type(bool is_unsigned, bool not_null) {
+  ResultType t;
+  t.field_type = f::longlong;
+  t.collation = protocol::collation::binary;
+  t.length = 21;
+  t.precision = is_unsigned ? 21 : 20;
+  t.flags = static_cast<uint16_t>(c::binary | c::num | (is_unsigned ? c::unsigned_ : 0) | (not_null ? c::not_null : 0));
+  return t;
+}
+
+size_t characters(const std::string& s) {
+  size_t n = 0;
+  for (const char ch : s)
+    if ((static_cast<uint8_t>(ch) & 0xc0) != 0x80) ++n;
+  return n;
+}
+
+}  // namespace
+
+// The functions of the session, with the types MySQL 8.4 gives them (observed).
+// An account has no host part in Kvasir, so CURRENT_USER() is user@%.
+bool Session::session_function(const std::string& name, ResultType& type, Value& value) const {
+  const auto e = eval_settings();
+  if (name == "DATABASE" || name == "SCHEMA") {
+    type = text_type(e, 64, false);
+    value = _database ? Value{*_database} : Value{};
+  } else if (name == "VERSION") {
+    const auto version = _variables.text("version");
+    type = text_type(e, static_cast<uint32_t>(characters(version)), true);
+    value = version;
+  } else if (name == "USER" || name == "SESSION_USER" || name == "SYSTEM_USER") {
+    type = text_type(e, 288, false);
+    value = _info.user + "@" + _info.host;
+  } else if (name == "CURRENT_USER") {
+    type = text_type(e, 288, false);
+    value = _info.user + "@%";
+  } else if (name == "CONNECTION_ID") {
+    type = bigint_type(true, true);
+    value = uint64_t{_info.connection_id};
+  } else if (name == "LAST_INSERT_ID") {
+    type = bigint_type(true, true);
+    value = uint64_t{0};
+  } else if (name == "ROW_COUNT") {
+    type = bigint_type(false, true);
+    value = _row_count;
+  } else if (name == "FOUND_ROWS") {
+    type = bigint_type(false, true);
+    value = static_cast<int64_t>(_found_rows);
+  } else {
+    return false;
+  }
+  return true;
+}
+
+// SHOW WARNINGS and SHOW ERRORS: the diagnostics of the statement before,
+// left in place.
+Outcome Session::show_warnings(const sql::Statement& statement) {
+  const auto e = eval_settings();
+  ResultSet result;
+  std::vector<const Warning*> listed;
+  for (const auto& w : _previous)
+    if (!statement.errors_only || w.level == "Error") listed.push_back(&w);
+  if (statement.count_only) {
+    result.columns.push_back({statement.errors_only ? "@@session.error_count" : "@@session.warning_count", bigint_type(true, false)});
+    result.rows.push_back({std::to_string(listed.size())});
+  } else {
+    ResultType code;
+    code.field_type = f::long_;
+    code.collation = protocol::collation::binary;
+    code.length = 5;
+    code.flags = c::not_null | c::unsigned_ | c::binary | c::num;
+    result.columns.push_back({"Level", text_type(e, 7, true)});
+    result.columns.push_back({"Code", code});
+    result.columns.push_back({"Message", text_type(e, 512, true)});
+    const uint64_t offset = statement.select.offset ? limit_of(*statement.select.offset) : 0;
+    const uint64_t limit = statement.select.limit ? limit_of(*statement.select.limit) : UINT64_MAX;
+    for (size_t i = 0; i < listed.size(); ++i) {
+      if (i < offset || i - offset >= limit) continue;
+      result.rows.push_back({listed[i]->level, std::to_string(listed[i]->code), listed[i]->message});
+    }
+  }
+  _warnings = _previous;
+  Outcome out;
+  out.result = std::move(result);
+  return out;
+}
+
 Outcome Session::execute(const sql::Statement& statement) {
+  // The statement before's diagnostics stay readable (SHOW WARNINGS,
+  // @@warning_count) while this one runs; then this one's replace them, an
+  // error among them.
+  _previous = std::move(_warnings);
   _warnings.clear();
+  try {
+    auto outcome = run(statement);
+    if (outcome.result) {
+      _row_count = -1;
+      _found_rows = outcome.result->rows.size();
+    } else {
+      _row_count = static_cast<int64_t>(outcome.affected_rows);
+    }
+    return outcome;
+  } catch (const SqlError& e) {
+    _warnings.push_back({"Error", e.code(), e.what()});
+    throw;
+  }
+}
+
+Outcome Session::run(const sql::Statement& statement) {
   using Kind = sql::Statement::Kind;
   switch (statement.kind) {
     case Kind::select:
       return select(statement.select);
+    case Kind::show_warnings:
+      return show_warnings(statement);
     case Kind::set:
       set(statement.assignments);
       return {};

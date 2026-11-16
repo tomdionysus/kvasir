@@ -133,8 +133,10 @@ CommandStep CommandPhase::query(std::string_view text) {
       send(step.out, protocol::encode_eof(warning_count(), _session.status_flags()));
     }
   } catch (const sql::SyntaxError& e) {
+    _session.record_error(sql::er_parse_error, e.what());
     refuse(sql::er_parse_error, "42000", e.what());
   } catch (const sql::EmptyQuery& e) {
+    _session.record_error(sql::er_empty_query, e.what());
     refuse(sql::er_empty_query, "42000", e.what());
   } catch (const exec::SqlError& e) {
     refuse(e.code(), e.sqlstate(), e.what());

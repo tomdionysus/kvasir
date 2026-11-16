@@ -64,6 +64,10 @@ class Session : private VariableSource {
   // is kept.
   void reset();
 
+  // A statement that failed before it reached the session (a syntax error,
+  // an empty query): it fills the diagnostics area as an error does.
+  void record_error(uint16_t code, const std::string& message);
+
   const std::vector<Warning>& warnings() const noexcept { return _warnings; }
   // SERVER_STATUS_IN_TRANS and SERVER_STATUS_AUTOCOMMIT as they stand.
   uint16_t status_flags() const;
@@ -79,9 +83,11 @@ class Session : private VariableSource {
   Value system_value(const std::string& scope, const std::string& name) const override;
   ResultType user_type(const std::string& name) const override;
   Value user_value(const std::string& name) const override;
-  std::optional<std::string> current_database() const override { return _database; }
+  bool session_function(const std::string& name, ResultType& type, Value& value) const override;
+  Outcome show_warnings(const sql::Statement& statement);
 
   EvalSettings eval_settings() const;
+  Outcome run(const sql::Statement& statement);
   Outcome select(const sql::Select& select);
   void set(const std::vector<sql::Assignment>& assignments);
   void commit();
@@ -99,6 +105,12 @@ class Session : private VariableSource {
   bool _in_transaction = false;
   bool _read_only_transaction = false;
   std::vector<Warning> _warnings;
+  // The diagnostics of the statement before the one running: what SHOW
+  // WARNINGS lists and @@warning_count counts.
+  std::vector<Warning> _previous;
+  // ROW_COUNT() and FOUND_ROWS(): of the statement before.
+  int64_t _row_count = -1;
+  uint64_t _found_rows = 0;
 };
 
 inline constexpr uint16_t er_no_db_error = 1046;

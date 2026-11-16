@@ -257,6 +257,75 @@ TEST(ExecSession, WarningsBelongToTheLastStatement) {
   EXPECT_EQ(s.warnings()[0].code, 1292);
 }
 
+TEST(ExecSession, ShowWarningsListsTheLastStatementsDiagnostics) {
+  auto s = make();
+  run(s, "SELECT 1/0, '1.5x'+0");
+  auto o = run(s, "SHOW WARNINGS");
+  const auto& cols = o.result->columns;
+  ASSERT_EQ(cols.size(), 3u);
+  EXPECT_EQ(cols[0].name, "Level");
+  EXPECT_EQ(cols[0].type.field_type, f::var_string);
+  EXPECT_EQ(cols[0].type.length, 28u);
+  EXPECT_EQ(cols[0].type.flags, c::not_null);
+  EXPECT_EQ(cols[1].name, "Code");
+  EXPECT_EQ(cols[1].type.field_type, f::long_);
+  EXPECT_EQ(cols[1].type.length, 5u);
+  EXPECT_EQ(cols[1].type.flags, c::not_null | c::unsigned_ | c::binary | c::num);
+  EXPECT_EQ(cols[2].name, "Message");
+  EXPECT_EQ(cols[2].type.length, 2048u);
+  ASSERT_EQ(o.result->rows.size(), 2u);
+  EXPECT_EQ(row(o, 0), (std::vector<std::string>{"Warning", "1365", "Division by 0"}));
+  EXPECT_EQ(row(o, 1), (std::vector<std::string>{"Warning", "1292", "Truncated incorrect DOUBLE value: '1.5x'"}));
+  // SHOW WARNINGS leaves them where they are.
+  EXPECT_EQ(run(s, "SHOW WARNINGS").result->rows.size(), 2u);
+  EXPECT_EQ(run(s, "SHOW WARNINGS LIMIT 1").result->rows.size(), 1u);
+  EXPECT_EQ(run(s, "SHOW WARNINGS LIMIT 1, 5").result->rows.size(), 1u);
+  EXPECT_TRUE(run(s, "SHOW ERRORS").result->rows.empty());
+  o = run(s, "SHOW COUNT(*) WARNINGS");
+  EXPECT_EQ(o.result->columns[0].name, "@@session.warning_count");
+  EXPECT_EQ(o.result->columns[0].type.length, 21u);
+  EXPECT_EQ(row(o), (std::vector<std::string>{"2"}));
+  EXPECT_EQ(row(run(s, "SELECT @@warning_count, @@error_count")), (std::vector<std::string>{"2", "0"}));
+  run(s, "SELECT 1");
+  EXPECT_TRUE(run(s, "SHOW WARNINGS").result->rows.empty());
+}
+
+TEST(ExecSession, AnErrorIsInTheDiagnostics) {
+  auto s = make();
+  EXPECT_EQ(refusal(s, "SELECT nope").code, 1054);
+  auto o = run(s, "SHOW ERRORS");
+  ASSERT_EQ(o.result->rows.size(), 1u);
+  EXPECT_EQ(row(o), (std::vector<std::string>{"Error", "1054", "Unknown column 'nope' in 'field list'"}));
+  EXPECT_EQ(run(s, "SHOW WARNINGS").result->rows.size(), 1u);
+  EXPECT_EQ(row(run(s, "SHOW COUNT(*) ERRORS")), (std::vector<std::string>{"1"}));
+  // A statement that never reached the session: the connection records it.
+  s.record_error(1064, "You have an error");
+  EXPECT_EQ(row(run(s, "SHOW ERRORS")), (std::vector<std::string>{"Error", "1064", "You have an error"}));
+}
+
+TEST(ExecSession, SessionFunctions) {
+  auto s = make();
+  run(s, "SET @x = 1");
+  auto o =
+      run(s, "SELECT CONNECTION_ID(), VERSION(), USER(), CURRENT_USER(), SESSION_USER(), SYSTEM_USER(), LAST_INSERT_ID(), ROW_COUNT(), SCHEMA(), CURRENT_USER");
+  EXPECT_EQ(row(o), (std::vector<std::string>{"7", "8.4.13-kvasir", "root@10.0.0.1", "root@%", "root@10.0.0.1", "root@10.0.0.1", "0", "0", "NULL", "root@%"}));
+  const auto& cols = o.result->columns;
+  EXPECT_EQ(cols[0].type.field_type, f::longlong);
+  EXPECT_EQ(cols[0].type.length, 21u);
+  EXPECT_EQ(cols[0].type.flags, c::not_null | c::unsigned_ | c::binary | c::num);
+  EXPECT_EQ(cols[1].type.field_type, f::var_string);
+  EXPECT_EQ(cols[1].type.length, 52u);
+  EXPECT_EQ(cols[1].type.flags, c::not_null);
+  EXPECT_EQ(cols[2].type.length, 1152u);
+  EXPECT_EQ(cols[2].type.flags, 0);
+  EXPECT_EQ(cols[6].type.flags, c::not_null | c::unsigned_ | c::binary | c::num);
+  EXPECT_EQ(cols[7].type.flags, c::not_null | c::binary | c::num);
+  EXPECT_EQ(cols[7].type.length, 21u);
+  EXPECT_EQ(cols[9].name, "CURRENT_USER");
+  // After a SELECT, ROW_COUNT() is -1 and FOUND_ROWS() its rows.
+  EXPECT_EQ(row(run(s, "SELECT ROW_COUNT(), FOUND_ROWS()")), (std::vector<std::string>{"-1", "1"}));
+}
+
 TEST(ExecSession, ColumnNames) {
   auto s = make();
   const auto o = run(s, "SELECT 1+1, 'abc', 1 AS one, @@version_comment, @a");
