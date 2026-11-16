@@ -56,8 +56,15 @@ class FakeTransport : public Transport {
     unread_at_tls = inbound.size();
     boost::asio::post(_io, [done = std::move(done), this] { done(tls_fails ? "handshake failed" : ""); });
   }
-  void close() override { closed = true; }
-  void abort() override { aborted = true; }
+  // As Dannan's stream does, a read pending when the stream closes ends.
+  void close() override {
+    closed = true;
+    hang_up();
+  }
+  void abort() override {
+    aborted = true;
+    hang_up();
+  }
   std::string peer_host() const override { return "10.0.0.1"; }
   bool tls_available() const override { return true; }
 
@@ -180,6 +187,12 @@ struct Bed {
     settings.connection_id = 7;
     connection = std::make_shared<Connection>(transport, io.get_executor(), settings, registry(), verifiers, checker);
     connection->start();
+    run();
+  }
+  // The client goes, so the read it left pending ends and nothing holds the
+  // connection.
+  ~Bed() {
+    transport->hang_up();
     run();
   }
   void run() {
