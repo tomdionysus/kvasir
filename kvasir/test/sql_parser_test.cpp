@@ -620,6 +620,44 @@ TEST(SqlParser, Insert) {
   EXPECT_EQ(error_at("INSERT INTO t (a VALUES (1)"), 17u);
 }
 
+// The manual's single-table UPDATE and DELETE.
+TEST(SqlParser, UpdateAndDelete) {
+  auto s = one("UPDATE t SET a = a + 10, b = DEFAULT, x.c = 1 WHERE id <= 2 ORDER BY id DESC LIMIT 2");
+  EXPECT_EQ(s.kind, Kind::update);
+  EXPECT_EQ(s.change.table.name, (std::vector<std::string>{"t"}));
+  ASSERT_EQ(s.change.set.size(), 3u);
+  EXPECT_EQ(s.change.set[0].first, (std::vector<std::string>{"a"}));
+  EXPECT_EQ(to_string(*s.change.set[0].second), "(+ a 10)");
+  EXPECT_EQ(s.change.set[1].second->kind, ExprKind::default_value);
+  EXPECT_EQ(s.change.set[2].first, (std::vector<std::string>{"x", "c"}));
+  EXPECT_EQ(to_string(*s.change.where), "(<= id 2)");
+  ASSERT_EQ(s.change.order.size(), 1u);
+  EXPECT_TRUE(s.change.order[0].descending);
+  EXPECT_EQ(to_string(*s.change.limit), "2");
+  s = one("UPDATE LOW_PRIORITY d.t AS x SET x.a = 7");
+  EXPECT_EQ(s.change.table.name, (std::vector<std::string>{"d", "t"}));
+  EXPECT_EQ(s.change.table.alias, "x");
+  EXPECT_FALSE(s.change.where);
+  s = one("DELETE FROM t WHERE id = 2");
+  EXPECT_EQ(s.kind, Kind::delete_);
+  EXPECT_EQ(to_string(*s.change.where), "(= id 2)");
+  s = one("DELETE LOW_PRIORITY QUICK FROM d.t ORDER BY id LIMIT 1");
+  EXPECT_EQ(s.change.table.name, (std::vector<std::string>{"d", "t"}));
+  EXPECT_EQ(s.change.order.size(), 1u);
+  EXPECT_EQ(one("UPDATE IGNORE t SET a = 1").unsupported, "UPDATE IGNORE");
+  EXPECT_EQ(one("UPDATE t, u SET t.a = 1").unsupported, "multiple-table UPDATE");
+  EXPECT_EQ(one("UPDATE t JOIN u ON t.a = u.a SET t.a = 1").unsupported, "multiple-table UPDATE");
+  EXPECT_EQ(one("DELETE IGNORE FROM t").unsupported, "DELETE IGNORE");
+  EXPECT_EQ(one("DELETE t FROM t JOIN u").unsupported, "multiple-table DELETE");
+  EXPECT_EQ(one("DELETE FROM t USING t JOIN u").unsupported, "multiple-table DELETE");
+  EXPECT_EQ(one("DELETE FROM t, u USING t").unsupported, "multiple-table DELETE");
+  EXPECT_EQ(error_at("UPDATE t"), 8u);
+  EXPECT_EQ(error_at("UPDATE t SET"), 12u);
+  EXPECT_EQ(error_at("UPDATE t SET a"), 14u);
+  EXPECT_EQ(error_at("DELETE t"), 7u);
+  EXPECT_EQ(error_at("DELETE FROM"), 11u);
+}
+
 // DROP TABLE and SHOW TABLES.
 TEST(SqlParser, DropAndShowTables) {
   auto s = one("DROP TABLE t");

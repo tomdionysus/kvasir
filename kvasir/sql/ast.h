@@ -198,6 +198,18 @@ struct Insert {
   std::vector<std::vector<ExprPtr>> rows;
 };
 
+// UPDATE table [AS alias] SET column = value, ... and DELETE FROM table [AS
+// alias], each with [WHERE] [ORDER BY] [LIMIT n]. DEFAULT as a value is
+// ExprKind::default_value.
+struct Change {
+  TableRef table;
+  // UPDATE's assignments: [table.]column and its value, in the order written.
+  std::vector<std::pair<std::vector<std::string>, ExprPtr>> set;
+  ExprPtr where;
+  std::vector<OrderItem> order;
+  ExprPtr limit;
+};
+
 struct Statement {
   enum class Kind : uint8_t {
     select,
@@ -214,12 +226,15 @@ struct Statement {
     drop_table,
     show_tables,
     insert,
+    update,
+    delete_,
   };
   Kind kind = Kind::select;
   Select select;
   std::vector<Assignment> assignments;
   CreateTable create_table;
   Insert insert;
+  Change change;
   // DROP TABLE's tables, each [schema.]table.
   std::vector<std::vector<std::string>> tables;
   // SHOW FULL TABLES.

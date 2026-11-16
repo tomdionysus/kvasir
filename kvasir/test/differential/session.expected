@@ -1552,5 +1552,172 @@ statement SELECT * FROM n WHERE a = 50
 column a|LONG|63|11|0|NUM
 column b|VAR_STRING|255|20|0|
 end
+statement CREATE TABLE c (id INT AUTO_INCREMENT PRIMARY KEY, a INT, b VARCHAR(3) DEFAULT 'x', d INT NOT NULL, u INT UNIQUE)
+end
+statement INSERT INTO c (a, d, u) VALUES (1, 10, 1), (2, 20, 2), (3, 30, 3), (4, 40, NULL)
+end
+statement UPDATE c SET a = a + 10 WHERE id <= 2
+end
+statement SELECT ROW_COUNT()
+column ROW_COUNT()|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+row 2
+end
+statement UPDATE c SET a = a WHERE id = 1
+end
+statement SELECT ROW_COUNT()
+column ROW_COUNT()|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+row 0
+end
+statement UPDATE c SET b = 'abcd' WHERE id = 1
+error 1406|22001|Data too long for column 'b' at row 1
+end
+statement UPDATE c SET d = NULL WHERE id = 1
+error 1048|23000|Column 'd' cannot be null
+end
+statement UPDATE c SET u = 2 WHERE id = 1
+error 1062|23000|Duplicate entry '2' for key 'c.u'
+end
+statement UPDATE c SET id = 2 WHERE id = 1
+error 1062|23000|Duplicate entry '2' for key 'c.PRIMARY'
+end
+statement UPDATE c SET zz = 1
+error 1054|42S22|Unknown column 'zz' in 'field list'
+end
+statement UPDATE c SET a = 'x' WHERE id = 1
+error 1366|HY000|Incorrect integer value: 'x' for column 'a' at row 1
+end
+statement UPDATE c SET b = DEFAULT WHERE id = 3
+end
+statement UPDATE c SET a = 5, b = 'yy' WHERE a > 100
+end
+statement UPDATE c SET a = a + 1 ORDER BY id DESC LIMIT 2
+end
+statement UPDATE c SET id = id + 10 WHERE id = 4
+end
+statement UPDATE c SET a = NULL, b = NULL WHERE id = 3
+end
+statement UPDATE kv_none.c SET a = 1
+error 1049|42000|Unknown database 'kv_none'
+end
+statement UPDATE nothere SET a = 1
+error 1146|42S02|Table 'kv_rows.nothere' doesn't exist
+end
+statement UPDATE c AS x SET x.a = 7 WHERE x.id = 2
+end
+statement UPDATE c SET a = 1 WHERE zz = 1
+error 1054|42S22|Unknown column 'zz' in 'where clause'
+end
+statement UPDATE c SET d = DEFAULT WHERE id = 2
+error 1364|HY000|Field 'd' doesn't have a default value
+end
+statement SELECT * FROM c
+column id|LONG|63|11|0|NOT_NULL PRI_KEY AUTO_INCREMENT NUM PART_KEY
+column a|LONG|63|11|0|NUM
+column b|VAR_STRING|255|12|0|
+column d|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+column u|LONG|63|11|0|UNIQUE_KEY NUM PART_KEY
+row 1	11	x	10	1
+row 2	7	x	20	2
+row 3	\N	\N	30	3
+row 14	5	x	40	\N
+end
+statement DELETE FROM c WHERE id = 2
+end
+statement SELECT ROW_COUNT()
+column ROW_COUNT()|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+row 1
+end
+statement DELETE FROM c WHERE a > 1000
+end
+statement DELETE FROM c ORDER BY id DESC LIMIT 1
+end
+statement DELETE FROM nothere
+error 1146|42S02|Table 'kv_rows.nothere' doesn't exist
+end
+statement DELETE FROM c WHERE zz = 1
+error 1054|42S22|Unknown column 'zz' in 'where clause'
+end
+statement SELECT * FROM c
+column id|LONG|63|11|0|NOT_NULL PRI_KEY AUTO_INCREMENT NUM PART_KEY
+column a|LONG|63|11|0|NUM
+column b|VAR_STRING|255|12|0|
+column d|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+column u|LONG|63|11|0|UNIQUE_KEY NUM PART_KEY
+row 1	11	x	10	1
+row 3	\N	\N	30	3
+end
+statement INSERT INTO c (id, a, d, u) VALUES (2, 9, 9, 2)
+end
+statement SELECT * FROM c
+column id|LONG|63|11|0|NOT_NULL PRI_KEY AUTO_INCREMENT NUM PART_KEY
+column a|LONG|63|11|0|NUM
+column b|VAR_STRING|255|12|0|
+column d|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+column u|LONG|63|11|0|UNIQUE_KEY NUM PART_KEY
+row 1	11	x	10	1
+row 2	9	x	9	2
+row 3	\N	\N	30	3
+end
+statement DELETE FROM c
+end
+statement SELECT ROW_COUNT()
+column ROW_COUNT()|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+row 3
+end
+statement INSERT INTO c (a, d) VALUES (1, 1)
+end
+statement SELECT LAST_INSERT_ID()
+column LAST_INSERT_ID()|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+row 15
+end
+statement CREATE TABLE q (a INT, b INT)
+end
+statement INSERT INTO q VALUES (1, 1), (2, 2), (1, 3)
+end
+statement UPDATE q SET b = b * 10 WHERE a = 1
+end
+statement DELETE FROM q WHERE b = 2
+end
+statement SELECT * FROM q
+column a|LONG|63|11|0|NUM
+column b|LONG|63|11|0|NUM
+row 1	10
+row 1	30
+end
+statement UPDATE q SET a = 1, a = 2
+end
+statement SELECT * FROM q
+column a|LONG|63|11|0|NUM
+column b|LONG|63|11|0|NUM
+row 2	10
+row 2	30
+end
+statement UPDATE q SET b = a, a = b
+end
+statement SELECT * FROM q
+column a|LONG|63|11|0|NUM
+column b|LONG|63|11|0|NUM
+row 2	2
+row 2	2
+end
+statement BEGIN
+end
+statement UPDATE q SET b = 99
+end
+statement DELETE FROM q WHERE a = 2 LIMIT 1
+end
+statement SELECT * FROM q
+column a|LONG|63|11|0|NUM
+column b|LONG|63|11|0|NUM
+row 2	99
+end
+statement ROLLBACK
+end
+statement SELECT * FROM q
+column a|LONG|63|11|0|NUM
+column b|LONG|63|11|0|NUM
+row 2	2
+row 2	2
+end
 statement DROP DATABASE kv_rows
 end

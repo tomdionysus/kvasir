@@ -33,7 +33,7 @@ void Store::release(Transaction& t) {
   }
   t._locks.clear();
   t._writes.clear();
-  t._statement_writes.clear();
+  t._statement_undo.clear();
   t._statement_locks.clear();
   t._snapshot.reset();
 }
@@ -91,8 +91,15 @@ void Store::commit_locked(Transaction& t) {
       if (found == _tables.end()) continue;
       auto& rows = found->second;
       for (auto& [key, pending] : writes) {
-        rows.by_key[key].push_back({at, std::move(pending.row)});
+        auto& versions = rows.by_key[key];
+        // The unique values the row held go; those it holds now come.
+        if (!versions.empty())
+          for (const auto& name : versions.back().unique) {
+            const auto held = rows.unique.find(name);
+            if (held != rows.unique.end() && held->second == key) rows.unique.erase(held);
+          }
         for (const auto& name : pending.unique) rows.unique[name] = key;
+        versions.push_back({at, std::move(pending.row), std::move(pending.unique)});
       }
     }
   }
@@ -112,7 +119,7 @@ void Store::rollback(Transaction& t) {
 
 void Store::begin_statement(Transaction& t) {
   dannan::contract::Lock lock(_mutex);
-  t._statement_writes.clear();
+  t._statement_undo.clear();
   t._statement_locks.clear();
 }
 
@@ -120,11 +127,14 @@ void Store::undo_statement(Transaction& t) {
   std::vector<std::function<void()>> wakes;
   {
     dannan::contract::Lock lock(_mutex);
-    for (const auto& [table, key] : t._statement_writes) {
-      const auto found = t._writes.find(table);
-      if (found == t._writes.end()) continue;
-      found->second.erase(key);
-      if (found->second.empty()) t._writes.erase(found);
+    for (auto undo = t._statement_undo.rbegin(); undo != t._statement_undo.rend(); ++undo) {
+      auto& writes = t._writes[undo->table];
+      if (undo->before) {
+        writes[undo->key] = std::move(*undo->before);
+      } else {
+        writes.erase(undo->key);
+      }
+      if (writes.empty()) t._writes.erase(undo->table);
     }
     for (const auto& name : t._statement_locks) {
       const auto it = _locks.find(name);
@@ -133,10 +143,54 @@ void Store::undo_statement(Transaction& t) {
     }
     // Those waiting may find what they wanted free now.
     if (!t._statement_locks.empty()) wakes = waking(t._id);
-    t._statement_writes.clear();
+    t._statement_undo.clear();
     t._statement_locks.clear();
   }
   for (auto& wake : wakes) wake();
+}
+
+bool Store::exists(const Transaction& t, uint64_t table, const Rows& rows, const std::string& key) const {
+  if (const auto own = t._writes.find(table); own != t._writes.end())
+    if (const auto p = own->second.find(key); p != own->second.end()) return p->second.row.has_value();
+  const auto found = rows.by_key.find(key);
+  return found != rows.by_key.end() && found->second.back().row.has_value();
+}
+
+std::optional<std::string> Store::unique_holder(const Transaction& t, uint64_t table, const Rows& rows, const std::string& name, const std::string& except,
+                                                const std::string& except_too) const {
+  const auto own = t._writes.find(table);
+  if (own != t._writes.end())
+    for (const auto& [key, pending] : own->second)
+      if (key != except && key != except_too && pending.row && std::find(pending.unique.begin(), pending.unique.end(), name) != pending.unique.end())
+        return key;
+  const auto held = rows.unique.find(name);
+  if (held == rows.unique.end() || held->second == except || held->second == except_too) return std::nullopt;
+  // A row the transaction has itself changed holds what its change says.
+  if (own != t._writes.end() && own->second.contains(held->second)) return std::nullopt;
+  return held->second;
+}
+
+std::optional<uint64_t> Store::locked_by_other(const Transaction& t, const std::vector<std::string>& names) const {
+  for (const auto& name : names) {
+    const auto held = _locks.find(name);
+    if (held != _locks.end() && held->second != t._id) return held->second;
+  }
+  return std::nullopt;
+}
+
+void Store::take_locks(Transaction& t, const std::vector<std::string>& names) {
+  for (const auto& name : names) {
+    if (_locks.emplace(name, t._id).second) t._statement_locks.push_back(name);
+    t._locks.insert(name);
+  }
+}
+
+void Store::write(Transaction& t, uint64_t table, const std::string& key, Transaction::Pending pending) {
+  auto& writes = t._writes[table];
+  std::optional<Transaction::Pending> before;
+  if (const auto p = writes.find(key); p != writes.end()) before = p->second;
+  t._statement_undo.push_back({table, key, std::move(before)});
+  writes[key] = std::move(pending);
 }
 
 Store::Inserted Store::insert(Transaction& t, uint64_t table, const std::string& key, const std::vector<std::string>& unique, Row row,
@@ -146,12 +200,9 @@ Store::Inserted Store::insert(Transaction& t, uint64_t table, const std::string&
   // The names this row must hold: its key, and each unique value.
   std::vector<std::string> names{lock_name(table, "k" + key)};
   for (const auto& u : unique) names.push_back(lock_name(table, "u" + u));
-  for (const auto& name : names) {
-    const auto held = _locks.find(name);
-    if (held != _locks.end() && held->second != t._id) {
-      if (holder) *holder = held->second;
-      return Inserted::locked;
-    }
+  if (const auto other = locked_by_other(t, names)) {
+    if (holder) *holder = *other;
+    return Inserted::locked;
   }
   // A duplicate is judged against the latest committed rows, whatever the
   // snapshot (as InnoDB judges it), and against the transaction's own.
@@ -159,28 +210,55 @@ Store::Inserted Store::insert(Transaction& t, uint64_t table, const std::string&
     if (duplicate_of) *duplicate_of = what;
     return Inserted::duplicate;
   };
-  if (rows.by_key.contains(key)) return set_duplicate("");
-  if (const auto own = t._writes.find(table); own != t._writes.end()) {
-    if (own->second.contains(key)) return set_duplicate("");
-    for (const auto& [unused, pending] : own->second)
-      for (const auto& u : unique)
-        if (std::find(pending.unique.begin(), pending.unique.end(), u) != pending.unique.end()) return set_duplicate(u);
-  }
+  if (exists(t, table, rows, key)) return set_duplicate("");
   for (const auto& u : unique)
-    if (rows.unique.contains(u)) return set_duplicate(u);
-  for (const auto& name : names) {
-    if (_locks.emplace(name, t._id).second) t._statement_locks.push_back(name);
-    t._locks.insert(name);
-  }
-  t._writes[table][key] = {std::move(row), unique};
-  t._statement_writes.emplace_back(table, key);
+    if (unique_holder(t, table, rows, u, key, key)) return set_duplicate(u);
+  take_locks(t, names);
+  write(t, table, key, {std::move(row), unique});
   return Inserted::inserted;
+}
+
+Store::Inserted Store::update(Transaction& t, uint64_t table, const std::string& key, const std::string& new_key, const std::vector<std::string>& unique,
+                              Row row, std::string* duplicate_of, uint64_t* holder) {
+  dannan::contract::Lock lock(_mutex);
+  auto& rows = _tables[table];
+  std::vector<std::string> names{lock_name(table, "k" + key)};
+  if (new_key != key) names.push_back(lock_name(table, "k" + new_key));
+  for (const auto& u : unique) names.push_back(lock_name(table, "u" + u));
+  if (const auto other = locked_by_other(t, names)) {
+    if (holder) *holder = *other;
+    return Inserted::locked;
+  }
+  const auto set_duplicate = [&](const std::string& what) {
+    if (duplicate_of) *duplicate_of = what;
+    return Inserted::duplicate;
+  };
+  if (new_key != key && exists(t, table, rows, new_key)) return set_duplicate("");
+  for (const auto& u : unique)
+    if (unique_holder(t, table, rows, u, key, new_key)) return set_duplicate(u);
+  take_locks(t, names);
+  if (new_key != key) write(t, table, key, {std::nullopt, {}});
+  write(t, table, new_key, {std::move(row), unique});
+  return Inserted::inserted;
+}
+
+bool Store::remove(Transaction& t, uint64_t table, const std::string& key, uint64_t* holder) {
+  dannan::contract::Lock lock(_mutex);
+  _tables[table];
+  const std::vector<std::string> names{lock_name(table, "k" + key)};
+  if (const auto other = locked_by_other(t, names)) {
+    if (holder) *holder = *other;
+    return false;
+  }
+  take_locks(t, names);
+  write(t, table, key, {std::nullopt, {}});
+  return true;
 }
 
 std::vector<Row> Store::rows(Transaction& t, uint64_t table) {
   dannan::contract::Lock lock(_mutex);
   if (!t._snapshot) t._snapshot = _last_commit;
-  std::map<std::string, const Row*> seen;
+  std::map<std::string, const std::optional<Row>*> seen;
   if (const auto found = _tables.find(table); found != _tables.end()) {
     for (const auto& [key, versions] : found->second.by_key) {
       // The newest version at or before the snapshot.
@@ -196,7 +274,21 @@ std::vector<Row> Store::rows(Transaction& t, uint64_t table) {
     for (const auto& [key, pending] : own->second) seen[key] = &pending.row;
   std::vector<Row> out;
   out.reserve(seen.size());
-  for (const auto& [key, row] : seen) out.push_back(*row);
+  for (const auto& [key, row] : seen)
+    if (*row) out.push_back(**row);
+  return out;
+}
+
+std::vector<Store::Keyed> Store::current(Transaction& t, uint64_t table) {
+  dannan::contract::Lock lock(_mutex);
+  std::map<std::string, const std::optional<Row>*> seen;
+  if (const auto found = _tables.find(table); found != _tables.end())
+    for (const auto& [key, versions] : found->second.by_key) seen[key] = &versions.back().row;
+  if (const auto own = t._writes.find(table); own != t._writes.end())
+    for (const auto& [key, pending] : own->second) seen[key] = &pending.row;
+  std::vector<Keyed> out;
+  for (const auto& [key, row] : seen)
+    if (*row) out.push_back({key, **row});
   return out;
 }
 

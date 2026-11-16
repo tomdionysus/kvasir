@@ -124,6 +124,104 @@ TEST(TxnStore, CountersAndDrops) {
   EXPECT_EQ(s.reserve_auto(1, 1, 1), 1u);
 }
 
+std::vector<std::string> current_values(Store& s, Transaction& t, uint64_t table) {
+  std::vector<std::string> out;
+  for (const auto& k : s.current(t, table)) out.push_back(k.key + "=" + k.row.at(0).value_or("NULL"));
+  return out;
+}
+
+// UPDATE and DELETE: a row changed or gone, under its key or a new one; its
+// unique values move with it; the transaction's own changes are its own until
+// it commits, then everyone's.
+TEST(TxnStore, UpdatesAndDeletes) {
+  Store s;
+  auto t = s.begin();
+  s.insert(t, 1, "k1", {"u:1"}, row("x1"), nullptr);
+  s.insert(t, 1, "k2", {"u:2"}, row("x2"), nullptr);
+  s.commit(t);
+  auto reader = s.begin();
+  EXPECT_EQ(values(s, reader, 1), (std::vector<std::string>{"x1", "x2"}));
+
+  auto w = s.begin();
+  std::string which;
+  EXPECT_EQ(s.update(w, 1, "k1", "k1", {"u:1"}, row("y1"), nullptr), Store::Inserted::inserted);
+  EXPECT_EQ(current_values(s, w, 1), (std::vector<std::string>{"k1=y1", "k2=x2"}));
+  EXPECT_EQ(values(s, w, 1), (std::vector<std::string>{"y1", "x2"}));
+  // A unique value another row holds.
+  EXPECT_EQ(s.update(w, 1, "k1", "k1", {"u:2"}, row("z"), &which), Store::Inserted::duplicate);
+  EXPECT_EQ(which, "u:2");
+  // Once that row goes, its value is free.
+  EXPECT_TRUE(s.remove(w, 1, "k2"));
+  EXPECT_EQ(s.update(w, 1, "k1", "k1", {"u:2"}, row("y1b"), nullptr), Store::Inserted::inserted);
+  // A new primary key: the row moves.
+  EXPECT_EQ(s.update(w, 1, "k1", "k3", {"u:2"}, row("y3"), nullptr), Store::Inserted::inserted);
+  EXPECT_EQ(current_values(s, w, 1), (std::vector<std::string>{"k3=y3"}));
+
+  // Another transaction meets the locks of rows changed, gone or moved.
+  auto o = s.begin();
+  uint64_t holder = 0;
+  EXPECT_FALSE(s.remove(o, 1, "k1", &holder));
+  EXPECT_EQ(holder, w.id());
+  EXPECT_EQ(s.insert(o, 1, "k2", {}, row("o"), nullptr), Store::Inserted::locked);
+  EXPECT_EQ(s.update(o, 1, "k3", "k3", {}, row("o"), nullptr), Store::Inserted::locked);
+  s.rollback(o);
+
+  // The reader keeps its snapshot through the commit.
+  EXPECT_EQ(values(s, reader, 1), (std::vector<std::string>{"x1", "x2"}));
+  s.commit(w);
+  EXPECT_EQ(values(s, reader, 1), (std::vector<std::string>{"x1", "x2"}));
+  auto later = s.begin();
+  EXPECT_EQ(values(s, later, 1), (std::vector<std::string>{"y3"}));
+  // The unique values moved with the row: 1 is free, 2 is taken.
+  EXPECT_EQ(s.insert(later, 1, "k5", {"u:1"}, row("v5"), nullptr), Store::Inserted::inserted);
+  EXPECT_EQ(s.insert(later, 1, "k6", {"u:2"}, row("v6"), &which), Store::Inserted::duplicate);
+  EXPECT_EQ(which, "u:2");
+  // A key whose row went may be used again.
+  EXPECT_EQ(s.insert(later, 1, "k1", {}, row("again"), nullptr), Store::Inserted::inserted);
+}
+
+// An UPDATE builds on the latest commit, not on the transaction's snapshot
+// (InnoDB's current read), so a concurrent change is not lost.
+TEST(TxnStore, CurrentReadsTheLatestCommit) {
+  Store s;
+  auto t = s.begin();
+  s.insert(t, 1, "k", {}, row("1"), nullptr);
+  s.commit(t);
+  auto reader = s.begin();
+  EXPECT_EQ(values(s, reader, 1), (std::vector<std::string>{"1"}));
+  auto other = s.begin();
+  s.update(other, 1, "k", "k", {}, row("2"), nullptr);
+  s.commit(other);
+  EXPECT_EQ(values(s, reader, 1), (std::vector<std::string>{"1"}));
+  EXPECT_EQ(current_values(s, reader, 1), (std::vector<std::string>{"k=2"}));
+  // Rows deleted and committed are not current.
+  auto d = s.begin();
+  EXPECT_TRUE(s.remove(d, 1, "k"));
+  s.commit(d);
+  EXPECT_TRUE(current_values(s, reader, 1).empty());
+  EXPECT_EQ(values(s, reader, 1), (std::vector<std::string>{"1"}));
+}
+
+TEST(TxnStore, AFailedStatementRestoresWhatItChanged) {
+  Store s;
+  auto t = s.begin();
+  s.begin_statement(t);
+  s.insert(t, 1, "k1", {"u:a"}, row("a"), nullptr);
+  s.begin_statement(t);
+  s.update(t, 1, "k1", "k1", {"u:b"}, row("b"), nullptr);
+  s.update(t, 1, "k1", "k2", {"u:c"}, row("c"), nullptr);
+  s.undo_statement(t);
+  EXPECT_EQ(current_values(s, t, 1), (std::vector<std::string>{"k1=a"}));
+  s.begin_statement(t);
+  EXPECT_TRUE(s.remove(t, 1, "k1"));
+  s.undo_statement(t);
+  EXPECT_EQ(current_values(s, t, 1), (std::vector<std::string>{"k1=a"}));
+  // The undone statement's locks are free; the first one's are kept.
+  auto other = s.begin();
+  EXPECT_EQ(s.insert(other, 1, "k2", {"u:c"}, row("o"), nullptr), Store::Inserted::inserted);
+  EXPECT_EQ(s.insert(other, 1, "k9", {"u:a"}, row("o"), nullptr), Store::Inserted::locked);
+}
+
 // InnoDB's lock waits ("InnoDB Locking", "Deadlocks in InnoDB"): a writer
 // meeting another's lock waits until that transaction ends; a wait that
 // would close a cycle is a deadlock.

@@ -1077,6 +1077,94 @@ TEST(ExecSessionRows, Transactions) {
   b.expect_refused("SELECT a FROM t", 1235, "42000", "This version of Kvasir doesn't yet support 'SERIALIZABLE'");
 }
 
+// UPDATE and DELETE, observed on MySQL 8.4.13 (2026-11-16): UPDATE counts
+// the rows it changed, says how many matched, and sets columns in the order
+// written, each seeing those before; a raised AUTO_INCREMENT value carries
+// the counter past it; DELETE removes row by row.
+TEST(ExecSessionRows, UpdateAndDelete) {
+  TableBed b;
+  run(b.s, "CREATE TABLE t (id INT AUTO_INCREMENT PRIMARY KEY, a INT, b VARCHAR(3) DEFAULT 'x', d INT NOT NULL, u INT UNIQUE)");
+  run(b.s, "INSERT INTO t (a, d, u) VALUES (1, 10, 1), (2, 20, 2), (3, 30, 3), (4, 40, NULL)");
+  auto o = run(b.s, "UPDATE t SET a = a + 10 WHERE id <= 2");
+  EXPECT_EQ(o.affected_rows, 2u);
+  EXPECT_EQ(o.info, "Rows matched: 2  Changed: 2  Warnings: 0");
+  EXPECT_EQ(row(run(b.s, "SELECT ROW_COUNT()")), (std::vector<std::string>{"2"}));
+  o = run(b.s, "UPDATE t SET a = a WHERE id = 1");
+  EXPECT_EQ(o.affected_rows, 0u);
+  EXPECT_EQ(o.info, "Rows matched: 1  Changed: 0  Warnings: 0");
+  b.expect_refused("UPDATE t SET b = 'abcd' WHERE id = 1", 1406, "22001", "Data too long for column 'b' at row 1");
+  b.expect_refused("UPDATE t SET d = NULL WHERE id = 1", 1048, "23000", "Column 'd' cannot be null");
+  b.expect_refused("UPDATE t SET u = 2 WHERE id = 1", 1062, "23000", "Duplicate entry '2' for key 't.u'");
+  b.expect_refused("UPDATE t SET id = 2 WHERE id = 1", 1062, "23000", "Duplicate entry '2' for key 't.PRIMARY'");
+  b.expect_refused("UPDATE t SET zz = 1", 1054, "42S22", "Unknown column 'zz' in 'field list'");
+  b.expect_refused("UPDATE t SET a = 'x' WHERE id = 1", 1366, "HY000", "Incorrect integer value: 'x' for column 'a' at row 1");
+  run(b.s, "UPDATE t SET b = DEFAULT WHERE id = 3");
+  o = run(b.s, "UPDATE t SET a = 5, b = 'yy' WHERE a > 100");
+  EXPECT_EQ(o.info, "Rows matched: 0  Changed: 0  Warnings: 0");
+  run(b.s, "UPDATE t SET a = a + 1 ORDER BY id DESC LIMIT 2");
+  run(b.s, "UPDATE t SET id = id + 10 WHERE id = 4");
+  run(b.s, "UPDATE t SET b = 'ab ' WHERE id = 2");
+  EXPECT_TRUE(b.s.warnings().empty());
+  run(b.s, "UPDATE t SET a = NULL, b = NULL WHERE id = 3");
+  b.expect_refused("UPDATE nothere SET a = 1", 1146, "42S02", "Table 'pt.nothere' doesn't exist");
+  run(b.s, "UPDATE t AS x SET x.a = 7 WHERE x.id = 2");
+  b.expect_refused("UPDATE t SET a = 1 WHERE zz = 1", 1054, "42S22", "Unknown column 'zz' in 'where clause'");
+  b.expect_refused("UPDATE t SET d = DEFAULT WHERE id = 2", 1364, "HY000", "Field 'd' doesn't have a default value");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM t")),
+            (Rows{{"1", "11", "x", "10", "1"}, {"2", "7", "ab ", "20", "2"}, {"3", "NULL", "NULL", "30", "3"}, {"14", "5", "x", "40", "NULL"}}));
+  o = run(b.s, "DELETE FROM t WHERE id = 2");
+  EXPECT_EQ(o.affected_rows, 1u);
+  EXPECT_EQ(o.info, "");
+  EXPECT_EQ(run(b.s, "DELETE FROM t WHERE a > 1000").affected_rows, 0u);
+  run(b.s, "DELETE FROM t ORDER BY id DESC LIMIT 1");
+  b.expect_refused("DELETE FROM nothere", 1146, "42S02", "Table 'pt.nothere' doesn't exist");
+  b.expect_refused("DELETE FROM t WHERE zz = 1", 1054, "42S22", "Unknown column 'zz' in 'where clause'");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM t")), (Rows{{"1", "11", "x", "10", "1"}, {"3", "NULL", "NULL", "30", "3"}}));
+  // The key and the unique value of a row deleted are free again.
+  run(b.s, "INSERT INTO t (id, a, d, u) VALUES (2, 9, 9, 2)");
+  EXPECT_EQ(run(b.s, "DELETE FROM t").affected_rows, 3u);
+  // The counter went past 14, which an UPDATE set.
+  EXPECT_EQ(run(b.s, "INSERT INTO t (a, d) VALUES (1, 1)").last_insert_id, 15u);
+
+  run(b.s, "CREATE TABLE n (a INT, b INT)");
+  run(b.s, "INSERT INTO n VALUES (1, 1), (2, 2), (1, 3)");
+  run(b.s, "UPDATE n SET b = b * 10 WHERE a = 1");
+  run(b.s, "DELETE FROM n WHERE b = 2");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM n")), (Rows{{"1", "10"}, {"1", "30"}}));
+  run(b.s, "UPDATE n SET a = 1, a = 2");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM n")), (Rows{{"2", "10"}, {"2", "30"}}));
+  run(b.s, "UPDATE n SET b = a, a = b");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM n")), (Rows{{"2", "2"}, {"2", "2"}}));
+}
+
+// UPDATE and DELETE in transactions: they build on the latest commit, not
+// the snapshot (InnoDB's current read), so no change is lost; a row another
+// transaction holds must be waited for; ROLLBACK brings rows back.
+TEST(ExecSessionRows, UpdatesInTransactions) {
+  TableBed b;
+  auto other = b.other();
+  run(b.s, "CREATE TABLE c (id INT PRIMARY KEY, n INT)");
+  run(b.s, "INSERT INTO c VALUES (1, 0)");
+  run(b.s, "BEGIN");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT n FROM c")), (Rows{{"0"}}));
+  run(other, "UPDATE c SET n = n + 1");
+  // The snapshot still says 0; the UPDATE adds to the 1 committed.
+  EXPECT_EQ(rows_of(run(b.s, "SELECT n FROM c")), (Rows{{"0"}}));
+  run(b.s, "UPDATE c SET n = n + 1");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT n FROM c")), (Rows{{"2"}}));
+  // Its row is locked until it ends.
+  EXPECT_THROW(run(other, "UPDATE c SET n = 100"), LockWaitNeeded);
+  EXPECT_THROW(run(other, "DELETE FROM c"), LockWaitNeeded);
+  run(b.s, "COMMIT");
+  EXPECT_EQ(rows_of(run(other, "SELECT n FROM c")), (Rows{{"2"}}));
+  run(b.s, "BEGIN");
+  run(b.s, "DELETE FROM c");
+  EXPECT_TRUE(run(b.s, "SELECT n FROM c").result->rows.empty());
+  EXPECT_EQ(rows_of(run(other, "SELECT n FROM c")), (Rows{{"2"}}));
+  run(b.s, "ROLLBACK");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT n FROM c")), (Rows{{"2"}}));
+}
+
 TEST(ExecSessionRows, InsertsKvasirDoesNotYetCarryOut) {
   TableBed b;
   run(b.s, "CREATE TABLE n (a INT, b INT)");

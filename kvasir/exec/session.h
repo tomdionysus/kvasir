@@ -155,6 +155,8 @@ class Session : private VariableSource {
   Outcome show_tables(const sql::Statement& statement);
   Outcome select_from_table(const sql::Select& select);
   Outcome insert(const sql::Statement& statement);
+  // UPDATE and DELETE.
+  Outcome change_rows(const sql::Statement& statement);
   // The transaction a statement runs in: the open one, else a new one, which
   // autocommit commits when the statement ends.
   txn::Transaction& transaction();

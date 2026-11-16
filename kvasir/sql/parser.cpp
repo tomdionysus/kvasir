@@ -194,6 +194,14 @@ class Parser {
     } else if (word("REPLACE")) {
       s.kind = Statement::Kind::insert;
       unsupported(s, "REPLACE");
+    } else if (word("UPDATE")) {
+      take();
+      s.kind = Statement::Kind::update;
+      parse_update(s);
+    } else if (word("DELETE")) {
+      take();
+      s.kind = Statement::Kind::delete_;
+      parse_delete(s);
     } else if (word("CREATE") && (word("TABLE", 1) || word("TEMPORARY", 1))) {
       take();
       s.kind = Statement::Kind::create_table;
@@ -398,9 +406,66 @@ class Parser {
     if (word("ON")) return unsupported(s, "ON DUPLICATE KEY UPDATE");
   }
 
-  // A value in INSERT: an expression, or DEFAULT.
+  // UPDATE after UPDATE: [LOW_PRIORITY] table [[AS] alias] SET ... then
+  // WHERE, ORDER BY and LIMIT.
+  void parse_update(Statement& s) {
+    auto& c = s.change;
+    accept_word("LOW_PRIORITY");
+    if (word("IGNORE")) return unsupported(s, "UPDATE IGNORE");
+    c.table = parse_table();
+    if (symbol(",") || word("JOIN") || word("INNER") || word("LEFT") || word("RIGHT") || word("CROSS") || word("STRAIGHT_JOIN") || word("NATURAL"))
+      return unsupported(s, "multiple-table UPDATE");
+    expect_word("SET");
+    do {
+      std::vector<std::string> column{name()};
+      while (symbol(".") && column.size() < 3) {
+        take();
+        column.push_back(name_after_dot());
+      }
+      if (!symbol("=") && !symbol(":=")) fail(peek());
+      take();
+      c.set.emplace_back(std::move(column), insert_value());
+    } while (symbol(",") && (take(), true));
+    parse_change_tail(c);
+  }
+
+  // DELETE after DELETE: [LOW_PRIORITY] [QUICK] FROM table [[AS] alias],
+  // then WHERE, ORDER BY and LIMIT.
+  void parse_delete(Statement& s) {
+    auto& c = s.change;
+    for (bool more = true; more;) more = accept_word("LOW_PRIORITY") || accept_word("QUICK");
+    if (word("IGNORE")) return unsupported(s, "DELETE IGNORE");
+    // DELETE t FROM ... names the tables to delete from before FROM.
+    if (name_token() && (word("FROM", 1) || symbol(",", 1) || symbol(".", 1))) return unsupported(s, "multiple-table DELETE");
+    expect_word("FROM");
+    c.table = parse_table();
+    if (symbol(",") || word("USING") || word("JOIN") || word("INNER") || word("LEFT") || word("RIGHT") || word("CROSS"))
+      return unsupported(s, "multiple-table DELETE");
+    parse_change_tail(c);
+  }
+
+  void parse_change_tail(Change& c) {
+    if (accept_word("WHERE")) c.where = expression();
+    if (accept_word("ORDER")) {
+      expect_word("BY");
+      do {
+        OrderItem item;
+        item.expr = expression();
+        if (accept_word("DESC")) {
+          item.descending = true;
+        } else {
+          accept_word("ASC");
+        }
+        c.order.push_back(std::move(item));
+      } while (symbol(",") && (take(), true));
+    }
+    if (accept_word("LIMIT")) c.limit = limit_value();
+  }
+
+  // A value in INSERT or UPDATE: an expression, or DEFAULT (DEFAULT(column)
+  // is a function).
   ExprPtr insert_value() {
-    if (word("DEFAULT") && (symbol(",", 1) || symbol(")", 1) || statement_ends(1))) return node(ExprKind::default_value, take().offset, "DEFAULT");
+    if (word("DEFAULT") && !symbol("(", 1)) return node(ExprKind::default_value, take().offset, "DEFAULT");
     return expression();
   }
 

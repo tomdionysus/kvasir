@@ -435,6 +435,9 @@ Outcome Session::run(const sql::Statement& statement) {
       return show_tables(statement);
     case Kind::insert:
       return insert(statement);
+    case Kind::update:
+    case Kind::delete_:
+      return change_rows(statement);
   }
   return {};
 }
@@ -535,6 +538,55 @@ std::string escaped_bytes(const std::string& s) {
     }
   }
   return out;
+}
+
+// A value as a column stores it, or the error MySQL gives a row for it
+// (strict mode).
+std::string stored_text(const catalog::Column& column, const Value& value, const ResultType& from, size_t row_number, std::vector<Warning>& warnings) {
+  const std::string at_row = " at row " + std::to_string(row_number);
+  const auto stored = store(column.type, value, from);
+  const auto value_text = [&]() { return to_text(value, from).value_or("NULL"); };
+  switch (stored.result) {
+    case Stored::Result::truncated:
+      warnings.push_back({"Note", 1265, "Data truncated for column '" + column.name + "'" + at_row});
+      [[fallthrough]];
+    case Stored::Result::stored:
+      return stored.text;
+    case Stored::Result::out_of_range:
+      throw SqlError(1264, "22003", "Out of range value for column '" + column.name + "'" + at_row);
+    case Stored::Result::too_long:
+      throw SqlError(1406, "22001", "Data too long for column '" + column.name + "'" + at_row);
+    case Stored::Result::garbage:
+      if (column.type.kind != catalog::TypeKind::decimal) throw SqlError(1265, "01000", "Data truncated for column '" + column.name + "'" + at_row);
+      [[fallthrough]];
+    case Stored::Result::invalid:
+      break;
+  }
+  if (catalog::is_text(column.type.kind))
+    throw SqlError(1366, "HY000", "Incorrect string value: '" + escaped_bytes(value_text()) + "' for column '" + column.name + "'" + at_row);
+  throw SqlError(1366, "HY000",
+                 std::string("Incorrect ") + (column.type.kind == catalog::TypeKind::decimal ? "decimal" : "integer") + " value: '" + value_text() +
+                     "' for column '" + column.name + "'" + at_row);
+}
+
+// The row's unique key values, each with its key's name, for the store.
+std::vector<std::string> unique_names(const catalog::Table& table, std::optional<size_t> primary, const txn::Row& row) {
+  std::vector<std::string> out;
+  for (size_t k = 0; k < table.keys.size(); ++k) {
+    const auto& key = table.keys[k];
+    if (key.kind == catalog::Key::Kind::index || primary == k || key_has_null(key, row)) continue;
+    out.push_back(key.name + std::string(1, '\0') + encode_key(table, key, row));
+  }
+  return out;
+}
+
+// Error 1062 for the key the store says another row holds ("" for the
+// primary key).
+[[noreturn]] void duplicate_entry(const catalog::Table& table, std::optional<size_t> primary, const std::string& duplicate, const txn::Row& row) {
+  const auto name = duplicate.substr(0, duplicate.find('\0'));
+  const auto& key =
+      duplicate.empty() ? table.keys[*primary] : *std::find_if(table.keys.begin(), table.keys.end(), [&](const catalog::Key& k) { return k.name == name; });
+  throw SqlError(1062, "23000", "Duplicate entry '" + key_text(key, row) + "' for key '" + table.name + "." + key.name + "'");
 }
 
 // The collation an ORDER BY value sorts under: a column's own, else the
@@ -726,7 +778,6 @@ Outcome Session::insert(const sql::Statement& statement) {
     // of its rows (observed: the values of a failed statement are lost).
     uint64_t next_auto = 0, reserved = 0, first_auto = 0;
     for (size_t r = 0; r < in.rows.size(); ++r) {
-      const std::string at_row = " at row " + std::to_string(r + 1);
       txn::Row row(table->columns.size());
       std::vector<bool> set(table->columns.size(), false);
       std::optional<size_t> generate;
@@ -760,32 +811,7 @@ Outcome Session::insert(const sql::Statement& statement) {
           }
           continue;
         }
-        const auto stored = store(column.type, value, from);
-        const auto value_text = [&]() {
-          const auto text = to_text(value, from);
-          return text.value_or("NULL");
-        };
-        switch (stored.result) {
-          case Stored::Result::truncated:
-            _warnings.push_back({"Note", 1265, "Data truncated for column '" + column.name + "'" + at_row});
-            [[fallthrough]];
-          case Stored::Result::stored:
-            row[i] = stored.text;
-            break;
-          case Stored::Result::out_of_range:
-            throw SqlError(1264, "22003", "Out of range value for column '" + column.name + "'" + at_row);
-          case Stored::Result::too_long:
-            throw SqlError(1406, "22001", "Data too long for column '" + column.name + "'" + at_row);
-          case Stored::Result::garbage:
-            if (column.type.kind != catalog::TypeKind::decimal) throw SqlError(1265, "01000", "Data truncated for column '" + column.name + "'" + at_row);
-            [[fallthrough]];
-          case Stored::Result::invalid:
-            if (catalog::is_text(column.type.kind))
-              throw SqlError(1366, "HY000", "Incorrect string value: '" + escaped_bytes(value_text()) + "' for column '" + column.name + "'" + at_row);
-            throw SqlError(1366, "HY000",
-                           std::string("Incorrect ") + (column.type.kind == catalog::TypeKind::decimal ? "decimal" : "integer") + " value: '" + value_text() +
-                               "' for column '" + column.name + "'" + at_row);
-        }
+        row[i] = stored_text(column, value, from, r + 1, _warnings);
         // 0 in an AUTO_INCREMENT column asks for the next value.
         if (column.auto_increment) {
           if (*row[i] == "0") {
@@ -816,26 +842,16 @@ Outcome Session::insert(const sql::Statement& statement) {
         uint64_t id = _rows.next_row_id(table->id);
         for (int b = 7; b >= 0; --b, id >>= 8) key[static_cast<size_t>(b)] = static_cast<char>(id & 0xff);
       }
-      std::vector<std::string> unique;
-      for (size_t k = 0; k < table->keys.size(); ++k) {
-        const auto& kd = table->keys[k];
-        if (kd.kind == catalog::Key::Kind::index || primary == k || key_has_null(kd, row)) continue;
-        unique.push_back(kd.name + std::string(1, '\0') + encode_key(*table, kd, row));
-      }
       std::string duplicate;
       uint64_t holder = 0;
-      switch (_rows.insert(t, table->id, key, unique, row, &duplicate, &holder)) {
+      switch (_rows.insert(t, table->id, key, unique_names(*table, primary, row), row, &duplicate, &holder)) {
         case txn::Store::Inserted::inserted:
           ++outcome.affected_rows;
           break;
         case txn::Store::Inserted::locked:
           throw LockWaitNeeded(t.id(), holder);
-        case txn::Store::Inserted::duplicate: {
-          const auto& kd = duplicate.empty() ? table->keys[*primary] : *std::find_if(table->keys.begin(), table->keys.end(), [&](const catalog::Key& k) {
-            return k.name == duplicate.substr(0, duplicate.find('\0'));
-          });
-          throw SqlError(1062, "23000", "Duplicate entry '" + key_text(kd, row) + "' for key '" + table->name + "." + kd.name + "'");
-        }
+        case txn::Store::Inserted::duplicate:
+          duplicate_entry(*table, primary, duplicate, row);
       }
     }
     if (first_auto) {
@@ -849,6 +865,138 @@ Outcome Session::insert(const sql::Statement& statement) {
   }
   end_statement(false);
   if (in.rows.size() > 1) outcome.info = "Records: " + std::to_string(in.rows.size()) + "  Duplicates: 0  Warnings: " + std::to_string(_warnings.size());
+  return outcome;
+}
+
+Outcome Session::change_rows(const sql::Statement& statement) {
+  const bool deleting = statement.kind == sql::Statement::Kind::delete_;
+  const auto& c = statement.change;
+  const auto database = database_of(c.table.name);
+  const auto table = _catalog.table({database, c.table.name.back()});
+  if (!table) {
+    if (!_catalog.database(database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
+    throw SqlError(1146, "42S02", "Table '" + database + "." + c.table.name.back() + "' doesn't exist");
+  }
+  check_isolation();
+  auto settings = eval_settings();
+  TableColumns columns(*table, database, c.table.alias, settings);
+  settings.columns = &columns;
+  Evaluator evaluator(settings);
+  // SET's columns, and its values typed (an unknown column is in the field
+  // list).
+  struct Set {
+    size_t column;
+    const sql::Expr* value;
+  };
+  std::vector<Set> sets;
+  for (const auto& [path, value] : c.set) {
+    const auto i = columns.index(path);
+    if (!i) {
+      std::string name;
+      for (size_t k = 0; k < path.size(); ++k) name += (k ? "." : "") + path[k];
+      throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + name + "' in 'field list'");
+    }
+    if (value->kind != sql::ExprKind::default_value) evaluator.type(*value);
+    sets.push_back({*i, value.get()});
+  }
+  if (c.where) in_clause("where clause", [&] { evaluator.type(*c.where); });
+  std::vector<std::pair<const sql::Expr*, uint16_t>> sorts;
+  for (const auto& order : c.order) {
+    ResultType type;
+    in_clause("order clause", [&] { type = evaluator.type(*order.expr); });
+    sorts.emplace_back(order.expr.get(), order_collation(*order.expr, type, columns, settings.result_collation));
+  }
+  const uint64_t limit = c.limit ? limit_of(*c.limit) : UINT64_MAX;
+
+  auto& t = transaction();
+  _rows.begin_statement(t);
+  Outcome outcome;
+  uint64_t matched = 0;
+  try {
+    // InnoDB's current read: the latest committed rows and this
+    // transaction's own.
+    auto rows = _rows.current(t, table->id);
+    struct Chosen {
+      size_t index;
+      std::vector<Value> keys;
+    };
+    std::vector<Chosen> chosen;
+    for (size_t i = 0; i < rows.size(); ++i) {
+      columns.set_row(&rows[i].row);
+      if (c.where && !truth(evaluator.value(*c.where))) continue;
+      Chosen ch{i, {}};
+      for (const auto& sort : sorts) ch.keys.push_back(evaluator.value(*sort.first));
+      chosen.push_back(std::move(ch));
+    }
+    if (!sorts.empty()) {
+      std::stable_sort(chosen.begin(), chosen.end(), [&](const Chosen& a, const Chosen& b) {
+        for (size_t i = 0; i < sorts.size(); ++i) {
+          const int order = compare_for_order(a.keys[i], b.keys[i], sorts[i].second);
+          if (order != 0) return c.order[i].descending ? order > 0 : order < 0;
+        }
+        return false;
+      });
+    }
+    if (chosen.size() > limit) chosen.resize(limit);
+    const auto primary = table->primary_key();
+    for (const auto& ch : chosen) {
+      const auto& [key, old_row] = rows[ch.index];
+      ++matched;
+      uint64_t holder = 0;
+      if (deleting) {
+        if (!_rows.remove(t, table->id, key, &holder)) throw LockWaitNeeded(t.id(), holder);
+        ++outcome.affected_rows;
+        continue;
+      }
+      // Each value sees the columns set before it.
+      txn::Row row = old_row;
+      columns.set_row(&row);
+      for (const auto& set : sets) {
+        const auto& column = table->columns[set.column];
+        if (set.value->kind == sql::ExprKind::default_value) {
+          if (column.default_kind == catalog::Column::Default::value) {
+            row[set.column] = column.default_value;
+          } else if (column.default_kind == catalog::Column::Default::none && !column.nullable) {
+            throw SqlError(1364, "HY000", "Field '" + column.name + "' doesn't have a default value");
+          } else {
+            row[set.column].reset();
+          }
+          continue;
+        }
+        const auto from = evaluator.type(*set.value);
+        const auto value = evaluator.value(*set.value);
+        if (is_null(value)) {
+          if (!column.nullable) throw SqlError(1048, "23000", "Column '" + column.name + "' cannot be null");
+          row[set.column].reset();
+          continue;
+        }
+        row[set.column] = stored_text(column, value, from, matched, _warnings);
+        if (column.auto_increment && (*row[set.column])[0] != '-') _rows.saw_auto(table->id, table->auto_increment, std::stoull(*row[set.column]));
+      }
+      columns.set_row(nullptr);
+      if (row != old_row) ++outcome.affected_rows;
+      const std::string new_key = primary ? encode_key(*table, table->keys[*primary], row) : key;
+      std::string duplicate;
+      switch (_rows.update(t, table->id, key, new_key, unique_names(*table, primary, row), row, &duplicate, &holder)) {
+        case txn::Store::Inserted::inserted:
+          break;
+        case txn::Store::Inserted::locked:
+          throw LockWaitNeeded(t.id(), holder);
+        case txn::Store::Inserted::duplicate:
+          duplicate_entry(*table, primary, duplicate, row);
+      }
+    }
+  } catch (...) {
+    columns.set_row(nullptr);
+    _rows.undo_statement(t);
+    end_statement(true);
+    throw;
+  }
+  end_statement(false);
+  _warnings.insert(_warnings.end(), evaluator.warnings().begin(), evaluator.warnings().end());
+  if (!deleting)
+    outcome.info =
+        "Rows matched: " + std::to_string(matched) + "  Changed: " + std::to_string(outcome.affected_rows) + "  Warnings: " + std::to_string(_warnings.size());
   return outcome;
 }
 

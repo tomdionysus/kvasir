@@ -56,18 +56,26 @@ class Transaction {
  private:
   friend class Store;
   uint64_t _id = 0;
+  // A row as this transaction has written it: nothing when deleted.
   struct Pending {
-    Row row;
+    std::optional<Row> row;
     std::vector<std::string> unique;
+  };
+  struct Undo {
+    uint64_t table;
+    std::string key;
+    // What the transaction had written there before the statement, if
+    // anything.
+    std::optional<Pending> before;
   };
   // The commit sequence it reads at, once it has read.
   std::optional<uint64_t> _snapshot;
-  // Rows it inserted, by table and key, not yet committed.
+  // Rows it wrote, by table and key, not yet committed.
   std::map<uint64_t, std::map<std::string, Pending>> _writes;
   // Lock names it holds.
   std::set<std::string> _locks;
-  // What the statement under way added, undone if it fails.
-  std::vector<std::pair<uint64_t, std::string>> _statement_writes;
+  // What the statement under way changed, undone in reverse if it fails.
+  std::vector<Undo> _statement_undo;
   std::vector<std::string> _statement_locks;
 };
 
@@ -105,8 +113,26 @@ class Store {
   // The waiter gives up (its timeout, its session's end); `wake` is dropped.
   void stop_waiting(uint64_t waiter);
 
+  // UPDATE: the row under `key` becomes `row` under `new_key` (the same key
+  // unless its primary key changed), holding the unique names given. Locks
+  // both keys and the names; a duplicate is judged as for insert, the row's
+  // own old values not counting.
+  Inserted update(Transaction& t, uint64_t table, const std::string& key, const std::string& new_key, const std::vector<std::string>& unique, Row row,
+                  std::string* duplicate_of, uint64_t* holder = nullptr);
+  // DELETE: the row under `key` goes. False, with `holder` set, when another
+  // transaction holds its lock.
+  bool remove(Transaction& t, uint64_t table, const std::string& key, uint64_t* holder = nullptr);
+
   // The rows `t` sees, in key order: its snapshot's, and its own writes.
   std::vector<Row> rows(Transaction& t, uint64_t table);
+  // What UPDATE and DELETE read (InnoDB's current read): the latest
+  // committed rows and the transaction's own writes, whatever its
+  // snapshot, each with its key.
+  struct Keyed {
+    std::string key;
+    Row row;
+  };
+  std::vector<Keyed> current(Transaction& t, uint64_t table);
 
   // AUTO_INCREMENT: `count` values from the table's counter, the first
   // returned; it starts at `start` the first time.
@@ -120,9 +146,11 @@ class Store {
   void drop_table(uint64_t table);
 
  private:
+  // A committed row as of a commit: nothing when deleted then.
   struct Version {
     uint64_t commit = 0;
-    Row row;
+    std::optional<Row> row;
+    std::vector<std::string> unique;
   };
   struct Rows {
     std::map<std::string, std::vector<Version>> by_key;
@@ -136,6 +164,18 @@ class Store {
     std::function<void()> wake;
   };
   static std::string lock_name(uint64_t table, const std::string& name);
+  // Whether a row is under `key` now, as `t` sees it for writing.
+  bool exists(const Transaction& t, uint64_t table, const Rows& rows, const std::string& key) const DANNAN_REQUIRES(_mutex);
+  // The key of another row holding a unique name now, as `t` sees it for
+  // writing, leaving out `except`.
+  std::optional<std::string> unique_holder(const Transaction& t, uint64_t table, const Rows& rows, const std::string& name, const std::string& except,
+                                           const std::string& except_too) const DANNAN_REQUIRES(_mutex);
+  // The lock names' holder other than `t`, if any.
+  std::optional<uint64_t> locked_by_other(const Transaction& t, const std::vector<std::string>& names) const DANNAN_REQUIRES(_mutex);
+  void take_locks(Transaction& t, const std::vector<std::string>& names) DANNAN_REQUIRES(_mutex);
+  // Sets what `t` has written under a key, keeping what was there for the
+  // statement's undo.
+  void write(Transaction& t, uint64_t table, const std::string& key, Transaction::Pending pending) DANNAN_REQUIRES(_mutex);
   void release(Transaction& t) DANNAN_REQUIRES(_mutex);
   void commit_locked(Transaction& t) DANNAN_REQUIRES(_mutex);
   // The wakes of those waiting for `holder`, taken out to be called once the
