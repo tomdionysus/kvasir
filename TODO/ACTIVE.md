@@ -215,12 +215,18 @@ builds on node-d (4 GB).
     built next): prepare answers carry a ballot, a has-value bit and a
     64-byte store summary (Kvasir: the range's version, rows, bytes); the
     base is fetched by ballot, in pieces resumable by offset; an accept may
-    carry a delta, applied in the store by `apply(slot, name, base_ballot,
-    new_ballot, delta, done(applied | need_whole))`, applied as durable as
-    a whole accept, a check the store cannot pass answering need_whole; a
-    name an acceptor holds at the base ballot is neither fetched nor sent,
-    so catching a range's new acceptors up first makes transfer a ballot
-    check. A delta is one commit's row changes.
+    carry a delta; a name an acceptor holds at the base ballot is neither
+    fetched nor sent, so catching a range's new acceptors up first makes
+    transfer a ballot check. A delta is one commit's row changes. Changed
+    in building part 4 (Dannan ca7ad31, reviewed by Kvasir 2026-11-16 and
+    taken): no separate `apply()`, which could leave a value at a ballot
+    its recorded state did not say after a crash; deltas go into `keep()`
+    (a held state may carry a delta and its base), which applies them and
+    records the ballots as one durable step, all or nothing, answering
+    `Kept{kept, need_whole}` (need_whole non-empty means nothing kept); a
+    repeated accept already kept is answered by the rule from the recorded
+    state, the store not asked; `keep()` is asynchronous, never inline.
+    Dannan will say when the store interface is final.
   Dannan has also taken Kvasir's
   ask to export its fuzz harness with the test fixtures (a 0.9 item, not
   started). Dannan's working tree may be on a feature branch: read
