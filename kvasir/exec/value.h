@@ -37,6 +37,9 @@ struct ResultType {
   uint16_t flags = 0;
   // Digits: of an integer, or of a decimal in all.
   int precision = 0;
+  // A decimal shown at its value's own scale, not the column's: a user
+  // variable holding a DECIMAL reports 30 decimals and shows 1.5 as 1.5.
+  bool own_scale = false;
 
   bool nullable() const noexcept;
   bool is_unsigned() const noexcept;

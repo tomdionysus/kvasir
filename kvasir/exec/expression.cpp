@@ -88,7 +88,10 @@ Domain domain_of(const ResultType& t) {
   return Domain::real;
 }
 
-bool is_text(const ResultType& t) { return t.field_type == f::var_string && t.collation != binary_collation; }
+bool is_string(const ResultType& t) {
+  return t.field_type == f::var_string || t.field_type == f::blob || t.field_type == f::medium_blob || t.field_type == f::long_blob;
+}
+bool is_text(const ResultType& t) { return is_string(t) && t.collation != binary_collation; }
 
 size_t characters(const std::string& s) {
   size_t n = 0;
@@ -140,7 +143,7 @@ std::optional<std::string> to_text(const Value& value, const ResultType& type) {
     std::optional<std::string> operator()(int64_t v) const { return std::to_string(v); }
     std::optional<std::string> operator()(uint64_t v) const { return std::to_string(v); }
     std::optional<std::string> operator()(const Decimal& v) const {
-      return type.decimals == any_decimals ? v.to_string() : v.rounded(type.decimals).to_string();
+      return type.own_scale || type.decimals == any_decimals ? v.to_string() : v.rounded(type.decimals).to_string();
     }
     std::optional<std::string> operator()(double v) const { return format_double(v); }
     std::optional<std::string> operator()(const std::string& v) const { return v; }
@@ -246,7 +249,8 @@ ResultType Evaluator::type(const Expr& e) const {
         return decimal_type(pa - sa + sb + scale, scale, false);
       }
       if (decimal) {
-        if (op == "*") return decimal_type(pa + pb, std::min(sa + sb, static_cast<int>(decimal_max_scale)), result_not_null);
+        // A product's precision stops at 65; a sum's does not (observed).
+        if (op == "*") return decimal_type(std::min(pa + pb, static_cast<int>(decimal_max_precision)), std::min(sa + sb, static_cast<int>(decimal_max_scale)), result_not_null);
         const int scale = std::max(sa, sb);
         const int whole = std::max(pa - sa, pb - sb);
         if (op == "%") return decimal_type(whole + scale, scale, false);
@@ -278,10 +282,22 @@ ResultType Evaluator::type(const Expr& e) const {
       throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + name + "' in 'field list'");
     }
     case ExprKind::call:
+      if ((e.value == "DATABASE" || e.value == "SCHEMA") && e.args.empty() && _settings.variables) {
+        // A name of up to 64 characters, NULL with none (observed).
+        ResultType t;
+        t.field_type = f::var_string;
+        t.collation = _settings.result_collation;
+        t.length = 64 * _settings.result_max_bytes;
+        t.decimals = any_decimals;
+        return t;
+      }
       not_yet("function " + e.value);
     case ExprKind::user_variable:
+      if (!_settings.variables) not_yet("variables");
+      return _settings.variables->user_type(e.value);
     case ExprKind::system_variable:
-      not_yet("variables");
+      if (!_settings.variables) not_yet("variables");
+      return _settings.variables->system_type(e.scope, e.value);
     default:
       not_yet("this expression");
   }
@@ -598,6 +614,18 @@ Value Evaluator::value(const Expr& e) {
       if (r && e.negated) r = !*r;
       return boolean(r);
     }
+    case ExprKind::call: {
+      type(e);
+      const auto database = _settings.variables->current_database();
+      if (!database) return {};
+      return *database;
+    }
+    case ExprKind::user_variable:
+      if (!_settings.variables) not_yet("variables");
+      return _settings.variables->user_value(e.value);
+    case ExprKind::system_variable:
+      if (!_settings.variables) not_yet("variables");
+      return _settings.variables->system_value(e.scope, e.value);
     default:
       type(e);
       not_yet("this expression");

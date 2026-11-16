@@ -11,6 +11,7 @@
 add_library(kvasir SHARED
   exec/decimal.cpp
   exec/expression.cpp
+  exec/session.cpp
   exec/variables.cpp
   protocol/caching_sha2.cpp
   protocol/codec.cpp

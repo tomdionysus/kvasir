@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -25,7 +26,23 @@
 // is NULL either way.
 namespace kvasir::exec {
 
+// Where variables are read from: a session's.
+class VariableSource {
+ public:
+  virtual ~VariableSource() = default;
+  // @@[scope.]name. Each throws SqlError for a name or scope not known.
+  virtual ResultType system_type(const std::string& scope, const std::string& name) const = 0;
+  virtual Value system_value(const std::string& scope, const std::string& name) const = 0;
+  // @name: NULL with its type when never set.
+  virtual ResultType user_type(const std::string& name) const = 0;
+  virtual Value user_value(const std::string& name) const = 0;
+  // DATABASE(): the session's current database, if any.
+  virtual std::optional<std::string> current_database() const = 0;
+};
+
 struct EvalSettings {
+  // Variables; without them a variable is not supported.
+  const VariableSource* variables = nullptr;
   // div_precision_increment.
   int div_precision_increment = 4;
   // The collation a string result is reported in: character_set_results'.
