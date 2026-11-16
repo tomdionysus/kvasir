@@ -93,8 +93,11 @@ spending limit needs to be increased", while the repository was private.
 Whether it runs now the repository is public is to be seen on the next
 push. While it does not: the clang thread-safety analysis runs nowhere (no Pi
 has clang); ASan/UBSan runs by hand on a Pi (`tools/ci.sh asan`); TSan
-cannot run on the Pis at all ("FATAL: ThreadSanitizer: unsupported VMA
-range, Found 47 - Supported 39, 42 and 48", a kernel limit).
+cannot run under g++ on the 47-bit Pis ("FATAL: ThreadSanitizer: unsupported
+VMA range, Found 47 - Supported 39, 42 and 48"), but node-a has a
+39-bit kernel and clang 19, where TSan, clang's thread-safety analysis and
+the fuzz targets can run (`CC=clang-19 CXX=clang++-19`, Makefiles). The maintainer,
+2026-11-16: TSan on the Mac only when hunting a specific bug.
 
 Before that, on hosted CI: every CI job
 (check, release on x86-64 and arm64, clang, ASan/UBSan, TSan, coverage)
