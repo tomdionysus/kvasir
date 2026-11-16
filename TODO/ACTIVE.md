@@ -240,10 +240,14 @@ builds on node-d (4 GB).
     for Kvasir to catch up, never resent; the fast path keeping ballots,
     not bytes, and checking the base by ballot only (right for ranges,
     which change only through agreement). Kvasir makes a delta only when
-    `local`, else forwards the batch to a replica. Asked (open, may follow
-    0.9.0): a read with no deltas that commits without an accept when a
-    majority promised one base, so a current read is a round trip with no
-    sync.
+    `local`, else forwards the batch to a replica. A delta is taken only
+    at exactly its base (and summary), a replay at the new ballot answered
+    as kept (confirmed). Reads, in part 6 too: a `change_deltas` with no
+    delta commits without an accept when every promiser names the same
+    accepted ballot and summary, so a current read is one round trip with
+    no keep(); otherwise it falls back to a ballot-only accept. Asked: is
+    the read's promise kept durably (one sync per promiser) or not (safe,
+    by Kvasir's reading, but to be shown in the simulator with crashes)?
   Dannan has also taken Kvasir's
   ask to export its fuzz harness with the test fixtures (a 0.9 item, not
   started). Dannan's working tree may be on a feature branch: read
