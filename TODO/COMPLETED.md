@@ -2,6 +2,37 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-16: step 2a, the evaluator, the session and the command phase
+
+- The MySQL 8.4.13 reference server (ruling 30) was set up on node-b
+  and used as the oracle: most expected types, lengths, flags, values,
+  warnings and errors in the new tests were observed on it, and the
+  greeting encoder was checked against its bytes.
+- Landed: exact decimals and MySQL's text for doubles; typing and
+  evaluating constant expressions; the system variables; the session; the
+  command phase. Each suite failed against stubs first (14 of 14 decimal, 15
+  of 15 expression, 11 of 11 variables; the session's and the command
+  phase's stub runs crashed on an empty result, so their counts were not
+  seen), then passed.
+- Hosted CI ran again once the repository was public, and its x86-64 ASan
+  and TSan found a use-after-free in the parser (an argument read from a
+  token that `take()` had freed; GCC's order differs on arm64) that the
+  Pi's ASan run passed. Fixed and recorded; hosted CI is now part of the
+  gate.
+- The Pis moved to a 4K-page, 39-bit kernel: TSan works there, ASan does
+  not start (g++ or clang). An ASan build on 4 GB node-d was among
+  tonight's out-of-memory hangs there; Kvasir moved off it at Lir
+  coordinating session's request.
+- Gate: release on node-a **230 passed, 0 failed**; check passed;
+  hosted CI on the evaluator and variables commits passed every job
+  (release x86-64 and arm64, clang, ASan, TSan, coverage, CodeQL). The
+  session commit failed hosted `check` (formatted on a Pi without
+  clang-format); the next commits carry the formatting.
+- Next: the connection on Dannan's listener, then `kvasir-node` on 3306
+  (needs Dannan 0.8.4's `start_tls_unanswered`), then the differential gate
+  as a tool. No claim is held but the light one for the container on
+  node-b.
+
 ## 2026-11-15: step 2a, second session: authentication and the SQL front
 
 - Checked the plan against the tree and the siblings. Found that Dannan's

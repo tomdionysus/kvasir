@@ -22,7 +22,8 @@ session starting with no memory of it.
 
 Step 2a, one node speaking the MySQL protocol, is in hand.
 
-**Done and pushed** (163 tests, release and ASan/UBSan):
+**Done and pushed** (230 tests; hosted CI's x86-64 ASan and TSan are the
+sanitizer gate, since ASan cannot start on the Pis' 39-bit kernels):
 
 - `kvasir/protocol/`: the value codec, packet framing, the connection
   messages, and `caching_sha2.h` (the scramble, the fast-path check, the
@@ -38,23 +39,30 @@ Step 2a, one node speaking the MySQL protocol, is in hand.
   CHARACTER SET), USE, BEGIN / START TRANSACTION, COMMIT (with its hint),
   ROLLBACK, with MySQL's operator precedence and bounded nesting.
 - Fuzz targets for the packet reader, lexer and parser; each compiles under
-  g++ (`-fsyntax-only`) and none has run (no clang on any Pi).
+  g++ (`-fsyntax-only`) and none has run yet. clang 19 with libFuzzer is
+  now on node-a, node-b and node-c.
+- `kvasir/exec/`: exact decimals and MySQL's text for doubles
+  (`decimal.h`); typing and evaluating constant expressions with MySQL
+  8.4's result types, NULLs, overflow (1690) and division by zero (NULL,
+  1365) (`expression.h`); the system variable registry and a session's
+  values with MySQL's defaults, normal forms and refusals, plus `ack_level`
+  (`variables.h`); the session: SELECT with no table, SET (evaluating every
+  value before assigning any), USE, transactions in the status flags, user
+  variables with their types, DATABASE() (`session.h`).
+- `kvasir/server/commands.h`: the command phase as a state machine
+  (COM_QUERY, COM_PING, COM_INIT_DB, COM_QUIT, COM_RESET_CONNECTION, 1047
+  for others), text result sets ended by EOF or by OK under
+  CLIENT_DEPRECATE_EOF, one statement per query.
+- Almost every expected type, length, flag and value in `exec_*_test.cpp`
+  and the greeting's bytes were observed on the MySQL 8.4.13 container
+  (see "Waiting on the maintainer" for where it runs). Known difference: arithmetic on
+  a bare NULL literal is typed DOUBLE 23/31 where MySQL reports smaller
+  lengths.
 
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
-first and watched to fail:
+and the reference server first, and watched to fail:
 
-1. Values and the evaluation of constant expressions: MySQL's types as a
-   result column reports them, NULL, the arithmetic and comparison rules,
-   for SELECT with no table.
-2. The session: system variables (a registry with scopes, defaults and
-   types: `version_comment`, `autocommit`, `sql_mode`, the `character_set_*`
-   and `collation_*` set, `ack_level`, and the others connectors read), user
-   variables, the current database; executing SELECT without a table, SET,
-   USE, BEGIN, COMMIT and ROLLBACK against it, and the result set encoded.
-3. The command phase: `COM_QUERY`, `COM_PING`, `COM_INIT_DB`, `COM_QUIT`,
-   `COM_RESET_CONNECTION`, an unknown command refused (1047), sequence ids
-   reset per command, as a state machine like the sign-in.
-4. The connection on Dannan's listener, driving the two state machines;
+1. The connection on Dannan's listener, driving the two state machines;
    the full path's Argon2id check posted to a worker, never the strand. Read
    SSLRequest with exact-length reads so nothing past it is consumed. The
    back-off per principal and per source before any hashing.
@@ -64,23 +72,29 @@ first and watched to fail:
    answer between. Dannan agreed `void Stream::start_tls_unanswered(
    std::function<void(std::string)> done)` (no answer, no waiting-bytes
    check, every other check kept), proposed to the maintainer for 0.8.4, not yet built.
-   When tagged, move the pin (`KVASIR_DANNAN_TAG`).
-5. `kvasir-node` listening on port 3306, then a real `mysql` client against
+   When tagged, move the pin (`KVASIR_DANNAN_TAG`). The connection can be
+   built and tested before then over a seam for the TLS step.
+2. `kvasir-node` listening on port 3306 with its YAML settings (`ack_level`
+   with no built-in default, the users), then a real `mysql` client against
    it by hand on a build Pi. Needs 0.8.4.
+3. The differential gate as a tool: one list of statements run against the
+   reference server and against Kvasir, compared up to the written list of
+   allowed differences.
+4. String comparison under utf8mb4's collations (refused with 1235 today),
+   then the functions connectors call, then the catalog and DDL.
 
-**Known and unverified**, to settle at the first run against a real client or
-server:
+**Known and unverified**, to settle at the first run against a real client:
 
-- The tests use the manual's example bytes as recalled, not checked against
-  a server.
+- OK, ERR and EOF bytes follow the manual as recalled; the greeting alone
+  has been checked against the bytes MySQL 8.4 sends.
 - The response decoder refuses bytes after the last field it knows; a real
   client may send more (a compression level, for one).
-- No fuzz target has run: no build Pi has clang (Lir was installing it on
-  node-b on 2026-11-15; check), and hosted CI's clang job does not
-  build fuzz targets. Dannan's exported harness, when it comes, runs them
-  in the test binary.
-- The lexer and parser follow the manual's text; nothing has been compared
-  with a MySQL 8.4 server (no server is set up yet).
+- No fuzz target has run. Dannan's exported harness, when it comes, runs
+  them in the test binary; clang 19 on node-a, node-b or node-c can run
+  them as libFuzzer meanwhile.
+- The stub runs for the session and the command phase crashed (dereferencing
+  an empty result) instead of reporting each failure; they failed, but
+  their failure counts were not seen.
 
 **The repository is public** (`github.com/tomdionysus/kvasir`), at the maintainer's
 word, 2026-11-15, after a check that no local notes, keys or server
