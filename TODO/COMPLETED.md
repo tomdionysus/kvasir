@@ -2,6 +2,28 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-16: UPDATE and DELETE
+
+- Observed on MySQL 8.4.13 first: UPDATE counts changed rows, sends
+  "Rows matched: M  Changed: C  Warnings: W", sets columns in the order
+  written (each seeing those before), takes ORDER BY, LIMIT and an alias,
+  and a raised AUTO_INCREMENT value carries the counter past it; DELETE
+  removes row by row (ROW_COUNT() the count); their refusals are INSERT's
+  (1048, 1062, 1364, 1366, 1406, 1054 in 'field list' or 'where clause').
+- The store keeps deletions as versions, moves unique values with their
+  rows (released at commit, judged with the transaction's own changes),
+  and undoes a failed statement exactly (an undo log per statement).
+  UPDATE and DELETE read the latest committed rows and the transaction's
+  own (InnoDB's current read), so a concurrent committed change is built
+  on, not lost; a row another transaction holds is waited for.
+- Found while making it: DEFAULT before WHERE in UPDATE was read as a
+  syntax error; DEFAULT is now the keyword unless "(" follows.
+- Test-first: run on node-a against a stub store and HEAD's parser; the
+  new tests failed (with the older row tests, the store being empty).
+- Gate: release on node-a **318 passed, 0 failed**; ASan and
+  UBSan on node-a **318 passed**; the differential gate **433 of 433** (51 new statements, recorded on
+  node-b; the 382 before unchanged).
+
 ## 2026-11-16: lock waits
 
 - A writer that meets another transaction's lock now waits, as InnoDB's

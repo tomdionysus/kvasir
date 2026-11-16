@@ -22,7 +22,7 @@ it.
 
 Step 2a, one node speaking the MySQL protocol, is in hand.
 
-**Done and pushed** (312 tests; sanitizers run on the Pis and in hosted
+**Done and pushed** (318 tests; sanitizers run on the Pis and in hosted
 CI's x86-64 jobs):
 
 - `kvasir/protocol/`: the value codec, packet framing, the connection
@@ -65,11 +65,11 @@ CI's x86-64 jobs):
   credential.
 - The differential gate, recorded: `tools/record_mysql.sh` runs
   `kvasir/test/differential/session.sql` on the reference server, and
-  `differential_test.cpp` replays it through a session: 382 of 382
+  `differential_test.cpp` replays it through a session: 433 of 433
   statements answer as MySQL 8.4 does. Re-record when the list grows.
 - Tables and rows on one node: CREATE / DROP TABLE, SHOW TABLES, INSERT,
-  SELECT over a table's rows, and transactions in `kvasir/txn/store.h`
-  (see COMPLETED, 2026-11-16).
+  UPDATE, DELETE, SELECT over a table's rows, and transactions with lock
+  waits in `kvasir/txn/store.h` (see COMPLETED, 2026-11-16).
 - Collations (ruling 32): `tools/kvasir_ducet.cpp` compiles
   `kvasir/data/unicode/allkeys-9.0.0.txt` into the library at build time;
   `kvasir/exec/collation.h` weighs strings by hand under
@@ -111,10 +111,12 @@ and the reference server first, and watched to fail:
    run again once woken. Known difference: MySQL's statement keeps the
    locks it took before the wait; Kvasir's lets them go and takes them
    again.
-2. UPDATE and DELETE over the store (versions marked deleted), then the
-   functions clients use most (COUNT and the other aggregates, GROUP BY,
-   string and number functions), then SHOW STATUS and the other
-   statements a client's `status` command and connectors send.
+2. UPDATE and DELETE are done (see COMPLETED). Next: the functions
+   clients use most (COUNT and the other aggregates, GROUP BY, string and
+   number functions), then SHOW STATUS and the other statements a
+   client's `status` command and connectors send. Old versions are never
+   folded away yet (memory grows with every change; folding older than
+   every open snapshot is the design's, to come before long runs).
 3. SERIALIZABLE (range read marks), INSERT IGNORE, REPLACE, ON DUPLICATE
    KEY UPDATE, INSERT ... SELECT.
    Known differences now: an engine other than InnoDB is refused as
