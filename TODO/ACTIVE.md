@@ -22,8 +22,8 @@ it.
 
 Step 2a, one node speaking the MySQL protocol, is in hand.
 
-**Done and pushed** (268 tests; hosted CI's x86-64 ASan and TSan are the
-sanitizer gate, since ASan cannot start on the Pis' 39-bit kernels):
+**Done and pushed** (279 tests; sanitizers run on the Pis and in hosted
+CI's x86-64 jobs):
 
 - `kvasir/protocol/`: the value codec, packet framing, the connection
   messages, and `caching_sha2.h` (the scramble, the fast-path check, the
@@ -140,11 +140,10 @@ ran again once it was public. Its x86-64 sanitizers are part of the gate:
 they found a use-after-free the Pi's arm64 ASan run passed. Dependabot's two
 pull requests (actions bumps) are untouched, the maintainer's to merge.
 
-On the Pis: since 2026-11-16 every build Pi runs a 4K-page kernel with a
-39-bit address space, where TSan works and ASan does not start (g++ or
-clang); until a 48-bit 4K kernel comes, hosted CI's x86-64 ASan is the ASan
-gate. clang 19 (thread-safety analysis, libFuzzer) is on node-a, node-b
-and node-c.
+On the Pis: since 2026-11-16 (~10:30Z) all four run a 4K-page, 48-bit-VA
+kernel, where ASan, UBSan and TSan all work (g++ everywhere, clang 19 on
+node-a, node-b and node-c). Hosted CI's x86-64 sanitizers remain part of
+the gate: they found a use-after-free arm64 missed.
 The maintainer's rules: TSan on the Mac only when hunting a specific bug; no sanitizer
 builds on node-d (4 GB).
 
