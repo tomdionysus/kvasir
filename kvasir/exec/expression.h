@@ -27,8 +27,10 @@
 // on either side makes it a comparison of bytes. A collation Kvasir cannot
 // yet compare under (collation.h) is refused.
 //
-// Not yet: LIKE and REGEXP, functions, columns and placeholders, each refused
-// with its MySQL error.
+// LIKE matches under the same collation (Collation::like).
+//
+// Not yet: REGEXP, functions, columns and placeholders, each refused with its
+// MySQL error.
 // Known difference: arithmetic on a bare NULL literal is typed DOUBLE with
 // length 23 and 31 decimals, where MySQL reports smaller lengths; its value
 // is NULL either way.

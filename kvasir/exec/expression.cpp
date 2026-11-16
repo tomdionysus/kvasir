@@ -280,8 +280,13 @@ ResultType Evaluator::type(const Expr& e) const {
       }
       return boolean_type(all);
     }
-    case ExprKind::like:
-      not_yet("LIKE");
+    case ExprKind::like: {
+      const auto a = type(*e.args[0]);
+      const auto b = type(*e.args[1]);
+      string_collation(*e.args[0], a, *e.args[1], b);
+      if (e.args.size() > 2) type(*e.args[2]);
+      return boolean_type(not_null(a) && not_null(b));
+    }
     case ExprKind::regexp:
       not_yet("REGEXP");
     case ExprKind::column: {
@@ -685,6 +690,28 @@ Value Evaluator::value(const Expr& e) {
       if (r && e.negated) r = !*r;
       return boolean(r);
     }
+    case ExprKind::like: {
+      const auto ta = type(*e.args[0]);
+      const auto tb = type(*e.args[1]);
+      // The escape: one character, or none when empty; '\' when not given.
+      std::string escape = "\\";
+      if (e.args.size() > 2) {
+        const auto text = to_text(value(*e.args[2]), type(*e.args[2]));
+        if (!text || characters(*text) > 1) throw SqlError(er_wrong_arguments, "HY000", "Incorrect arguments to ESCAPE");
+        escape = *text;
+      }
+      const auto a = value(*e.args[0]);
+      const auto b = value(*e.args[1]);
+      if (is_null(a) || is_null(b)) return {};
+      // Two strings match under the pair's collation; a number by its text,
+      // under the other side's.
+      auto collation = string_collation(*e.args[0], ta, *e.args[1], tb);
+      if (!collation) collation = is_string(ta) ? ta.collation : is_string(tb) ? tb.collation : _settings.result_collation;
+      const auto* c = collation_by_id(*collation);
+      if (!c) not_yet("LIKE under this collation");
+      const bool matches = c->like(*to_text(a, ta), *to_text(b, tb), escape);
+      return int64_t{matches != e.negated ? 1 : 0};
+    }
     case ExprKind::call: {
       type(e);
       ResultType t;
@@ -737,8 +764,22 @@ std::string mysql_text(const Expr& e) {
 std::string column_name(const sql::SelectItem& item) {
   if (item.has_alias) return item.alias;
   if (item.star) return "*";
-  if (item.expr && item.expr->kind == ExprKind::string) return item.expr->path.empty() ? item.expr->value : item.expr->path.front();
-  return item.text;
+  // A generated name is held in utf8mb3, where a character past the BMP
+  // (four bytes in UTF-8) becomes '?' (observed).
+  const auto narrowed = [](const std::string& name) {
+    std::string out;
+    for (size_t i = 0; i < name.size(); ++i) {
+      if ((static_cast<uint8_t>(name[i]) & 0xf8) == 0xf0 && i + 3 < name.size()) {
+        out.push_back('?');
+        i += 3;
+      } else {
+        out.push_back(name[i]);
+      }
+    }
+    return out;
+  };
+  if (item.expr && item.expr->kind == ExprKind::string) return narrowed(item.expr->path.empty() ? item.expr->value : item.expr->path.front());
+  return narrowed(item.text);
 }
 
 }  // namespace kvasir::exec

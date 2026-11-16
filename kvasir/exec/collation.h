@@ -39,6 +39,17 @@ class Collation {
   // What MySQL's WEIGHT_STRING() gives: the weights, two bytes each, high
   // byte first, levels after the first each preceded by 0000.
   virtual std::string sort_key(std::string_view s) const = 0;
+  // LIKE (observed): the pattern against the subject one character at a
+  // time, each pair compared under this collation and never padded; '%'
+  // matches any run of characters and '_' exactly one; `escape`, one
+  // character or empty for none, makes the character after it literal (at
+  // the pattern's end it is itself). Under the binary character set a
+  // character is a byte.
+  bool like(std::string_view subject, std::string_view pattern, std::string_view escape) const;
+
+ protected:
+  // Whether a character is a byte rather than a UTF-8 code point.
+  virtual bool characters_are_bytes() const { return false; }
 };
 
 // The collation with this id, or nothing for one Kvasir cannot yet compare

@@ -192,6 +192,70 @@ TEST(ExecCollation, GeneralCiSortKeys) {
   EXPECT_LT(c->compare("a", "B"), 0);
 }
 
+// LIKE, observed on MySQL 8.4.13, 2026-11-16: one character at a time, each
+// pair compared under the collation, never padded; under the binary
+// character set a character is a byte.
+TEST(ExecCollation, Like) {
+  struct Case {
+    uint16_t collation;
+    std::string subject, pattern, escape;
+    bool matches;
+  };
+  const std::string sharp_s = bytes("C39F"), a_acute = bytes("C3A1"), ae = bytes("C386"), dz = bytes("C786"), dz_title = bytes("C785");
+  const std::string e_acute = bytes("C3A9"), emoji = bytes("F09F9880");
+  const std::vector<Case> cases = {
+      {ai_ci, "a", "A", "\\", true},
+      {ai_ci, a_acute, "a", "\\", true},
+      {ai_ci, sharp_s, "ss", "\\", false},
+      {ai_ci, "ss", sharp_s, "\\", false},
+      {ai_ci, sharp_s, "_", "\\", true},
+      {ai_ci, "ss", "_", "\\", false},
+      {ai_ci, "a ", "a", "\\", false},
+      {ai_ci, "a", "a ", "\\", false},
+      {ai_ci, "abc", "a%", "\\", true},
+      {ai_ci, "abc", "%c", "\\", true},
+      {ai_ci, "abc", "a_c", "\\", true},
+      {ai_ci, "abc", "a__c", "\\", false},
+      {ai_ci, "", "%", "\\", true},
+      {ai_ci, "", "_", "\\", false},
+      {ai_ci, "a%c", "a\\%c", "\\", true},
+      {ai_ci, "abc", "a\\%c", "\\", false},
+      {ai_ci, "a_c", "a|_c", "|", true},
+      {ai_ci, ae, "AE", "\\", false},
+      {ai_ci, ae, ae, "\\", true},
+      {ai_ci, "x", "%%%x", "\\", true},
+      {ai_ci, "a\\b", "a\\\\b", "\\", true},
+      {ai_ci, "ab", "a\\", "\\", false},
+      {ai_ci, dz, "d" + bytes("C5BE"), "\\", false},
+      {ai_ci, dz, "_", "\\", true},
+      {ai_ci, dz, "__", "\\", false},
+      {ai_ci, dz_title, dz, "\\", true},
+      {ai_ci, emoji, "_", "\\", true},
+      {ai_ci, "a", "a%%", "\\", true},
+      {ai_ci, "abc", "A%C", "\\", true},
+      {ai_ci, e_acute, "e_", "\\", false},
+      {ai_ci, e_acute, "e", "\\", true},
+      // No escape: a backslash is itself.
+      {ai_ci, "a\\b", "a\\_", "", true},
+      {ai_ci, "a%c", "a\\%c", "", false},
+      {bin, "a", "A", "\\", false},
+      {bin, "a ", "a", "\\", false},
+      {bin, "a", "a ", "\\", false},
+      {bin, e_acute, "_", "\\", true},
+      {45, "a", "A", "\\", true},
+      {45, sharp_s, "s", "\\", true},
+      {45, "a ", "a", "\\", false},
+      {45, e_acute, "E", "\\", true},
+      {63, "a", "A", "\\", false},
+      {63, e_acute, "_", "\\", false},
+      {63, e_acute, "__", "\\", true},
+  };
+  for (const auto& c : cases) {
+    SCOPED_TRACE(std::to_string(c.collation) + " " + hex(c.subject) + " LIKE " + hex(c.pattern));
+    EXPECT_EQ(collation_by_id(c.collation)->like(c.subject, c.pattern, c.escape), c.matches);
+  }
+}
+
 TEST(ExecCollation, CollationsNotYetBuiltAreNone) {
   EXPECT_FALSE(collation_by_id(224));  // utf8mb4_unicode_ci
   EXPECT_FALSE(collation_by_id(9999));

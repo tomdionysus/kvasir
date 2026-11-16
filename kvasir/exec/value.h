@@ -71,6 +71,7 @@ struct Warning {
   std::string message;
 };
 
+inline constexpr uint16_t er_wrong_arguments = 1210;
 inline constexpr uint16_t er_not_supported_yet = 1235;
 inline constexpr uint16_t er_division_by_zero = 1365;
 inline constexpr uint16_t er_truncated_wrong_value = 1292;

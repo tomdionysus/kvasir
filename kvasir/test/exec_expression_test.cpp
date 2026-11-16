@@ -294,7 +294,7 @@ TEST(ExecExpression, WhatIsNotBuiltIsRefused) {
     }
     return uint16_t{0};
   };
-  EXPECT_EQ(refused("'a' LIKE 'A'"), 1235);
+  EXPECT_EQ(refused("'a' REGEXP 'A'"), 1235);
   EXPECT_EQ(refused("CONCAT('a', 'b')"), 1235);
   EXPECT_EQ(refused("a"), 1054);
   // A character set Kvasir does not yet compare in.
@@ -325,6 +325,23 @@ TEST(ExecExpression, StringsCompareUnderTheConnectionsCollation) {
   });
 }
 
+// Observed on MySQL 8.4.13, 2026-11-16.
+TEST(ExecExpression, Like) {
+  check({
+      {"'a' LIKE 'A'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "1"},
+      {"'abc' NOT LIKE 'a%'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "0"},
+      {"'a_c' LIKE 'a|_c' ESCAPE '|'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "1"},
+      {"NULL LIKE 'a'", "LONGLONG", 63, 1, 0, "BINARY NUM", "NULL"},
+      {"'a' LIKE NULL", "LONGLONG", 63, 1, 0, "BINARY NUM", "NULL"},
+      {"10 LIKE '1%'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "1"},
+      {"1.5 LIKE '1.%'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "1"},
+      {"X'61' LIKE 'a'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "1"},
+      {"X'61' LIKE 'A'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "0"},
+      {"'a%c' LIKE 'a\\\\%c' ESCAPE ''", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "0"},
+  });
+  expect_error("'a' LIKE 'b' ESCAPE 'xy'", 1210, "HY000", "Incorrect arguments to ESCAPE");
+}
+
 TEST(ExecExpression, StringsCompareUnderOtherConnectionCollations) {
   const auto answer = [](const std::string& sql, uint16_t collation) {
     EvalSettings settings;
@@ -351,6 +368,11 @@ TEST(ExecExpression, ColumnNames) {
   };
   EXPECT_EQ(names("1+1, 'abc', _latin1'x', 1 AS one, 'a' 'b', 0x41, @@version_comment"),
             (std::vector<std::string>{"1+1", "abc", "x", "one", "a", "0x41", "@@version_comment"}));
+  // Names are held in utf8mb3: a character past the BMP becomes '?'
+  // (observed).
+  EXPECT_EQ(names("'\xF0\x9F\x98\x80', 'a\xF0\x9F\x98\x80"
+                  "b', '\xF0\x9F\x98\x80' LIKE '_'"),
+            (std::vector<std::string>{"?", "a?b", "'?' LIKE '_'"}));
 }
 
 }  // namespace

@@ -604,5 +604,90 @@ column 'й' = 'и'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
 column 'ё' = 'Е'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
 row 1	1	0	1	1	1	0	1
 end
+statement SELECT 'a' LIKE 'A', 'ß' LIKE 's', 'a ' LIKE 'a', 'é' LIKE 'E'
+column 'a' LIKE 'A'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'ß' LIKE 's'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a ' LIKE 'a'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'é' LIKE 'E'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 1	1	0	1
+end
+statement SET NAMES DEFAULT
+end
+statement SELECT 'a' LIKE 'A', 'á' LIKE 'a', 'ß' LIKE 'ss', 'ss' LIKE 'ß', 'ß' LIKE '_', 'ss' LIKE '_', 'a ' LIKE 'a', 'a' LIKE 'a '
+column 'a' LIKE 'A'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'á' LIKE 'a'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'ß' LIKE 'ss'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'ss' LIKE 'ß'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'ß' LIKE '_'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'ss' LIKE '_'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a ' LIKE 'a'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a' LIKE 'a '|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 1	1	0	0	1	0	0	0
+end
+statement SELECT 'abc' LIKE 'a%', 'abc' LIKE '%c', 'abc' LIKE 'a_c', 'abc' LIKE 'a__c', '' LIKE '%', '' LIKE '_', 'a%c' LIKE 'a\%c', 'abc' LIKE 'a\%c', 'a_c' LIKE 'a|_c' ESCAPE '|', 'abc' NOT LIKE 'a%'
+column 'abc' LIKE 'a%'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'abc' LIKE '%c'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'abc' LIKE 'a_c'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'abc' LIKE 'a__c'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column '' LIKE '%'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column '' LIKE '_'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a%c' LIKE 'a\%c'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'abc' LIKE 'a\%c'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a_c' LIKE 'a|_c' ESCAPE '|'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'abc' NOT LIKE 'a%'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 1	1	1	0	1	0	1	0	1	0
+end
+statement SELECT NULL LIKE 'a', 'a' LIKE NULL, 10 LIKE '1%', 1.5 LIKE '1.%', 'Æ' LIKE 'AE', 'Æ' LIKE 'Æ', 'x' LIKE '%%%x', 'a\\b' LIKE 'a\\\\b', 'ab' LIKE 'a\\'
+column NULL LIKE 'a'|LONGLONG|63|1|0|BINARY NUM
+column 'a' LIKE NULL|LONGLONG|63|1|0|BINARY NUM
+column 10 LIKE '1%'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 1.5 LIKE '1.%'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'Æ' LIKE 'AE'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'Æ' LIKE 'Æ'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'x' LIKE '%%%x'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a\\b' LIKE 'a\\\\b'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'ab' LIKE 'a\\'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row \N	\N	1	1	0	1	1	1	0
+end
+statement SELECT 'ǆ' LIKE 'dž', 'ǆ' LIKE '_', 'ǆ' LIKE '__', 'ǅ' LIKE 'ǆ', '😀' LIKE '_', 'a' LIKE 'a%%', 'abc' LIKE 'A%C', 'é' LIKE 'e_', 'é' LIKE 'e'
+column 'ǆ' LIKE 'dž'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'ǆ' LIKE '_'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'ǆ' LIKE '__'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'ǅ' LIKE 'ǆ'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column '?' LIKE '_'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a' LIKE 'a%%'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'abc' LIKE 'A%C'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'é' LIKE 'e_'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'é' LIKE 'e'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 0	1	0	1	1	1	1	0	1
+end
+statement SELECT 'a%c' LIKE 'a\\%c' ESCAPE '', 'a\\b' LIKE 'a\\_' ESCAPE '', @@character_set_client LIKE 'UTF%', X'61' LIKE 'a', X'61' LIKE 'A'
+column 'a%c' LIKE 'a\\%c' ESCAPE ''|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a\\b' LIKE 'a\\_' ESCAPE ''|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column @@character_set_client LIKE 'UTF%'|LONGLONG|63|1|0|BINARY NUM
+column X'61' LIKE 'a'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column X'61' LIKE 'A'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 0	1	1	1	0
+end
+statement SELECT 'a' LIKE 'b' ESCAPE 'xy'
+error 1210|HY000|Incorrect arguments to ESCAPE
+end
+statement SET NAMES utf8mb4 COLLATE utf8mb4_bin
+end
+statement SELECT 'a' LIKE 'A', 'a ' LIKE 'a', 'a' LIKE 'a ', 'é' LIKE '_'
+column 'a' LIKE 'A'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a ' LIKE 'a'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a' LIKE 'a '|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'é' LIKE '_'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 0	0	0	1
+end
+statement SET NAMES binary
+end
+statement SELECT 'a' LIKE 'A', 'é' LIKE '_', 'é' LIKE '__'
+column 'a' LIKE 'A'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'é' LIKE '_'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'é' LIKE '__'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 0	0	1
+end
 statement SET NAMES DEFAULT
 end

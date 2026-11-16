@@ -30,6 +30,7 @@ add_library(kvasir SHARED
   ${kvasir_ducet_table}
   ${kvasir_general_ci_table}
   exec/collation.cpp
+  exec/like.cpp
   exec/decimal.cpp
   exec/expression.cpp
   exec/session.cpp

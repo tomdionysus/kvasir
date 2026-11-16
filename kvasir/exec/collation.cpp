@@ -189,8 +189,16 @@ class Uca : public Collation {
 // order) and the binary character set.
 class Bytes : public Collation {
  public:
+  // For the binary character set a character is a byte.
+  explicit Bytes(bool binary_charset) : _binary_charset(binary_charset) {}
   int compare(std::string_view a, std::string_view b) const override { return sign(a.compare(b)); }
   std::string sort_key(std::string_view s) const override { return std::string(s); }
+
+ protected:
+  bool characters_are_bytes() const override { return _binary_charset; }
+
+ private:
+  bool _binary_charset;
 };
 
 // One weight per code point, PAD SPACE: the shorter string compares as if
@@ -250,7 +258,8 @@ const Collation* collation_by_id(uint16_t id) {
   static const Uca accent_and_case_insensitive(1);
   static const Uca accent_and_case_sensitive(3);
   static const CodePoints by_code_point;
-  static const Bytes by_byte;
+  static const Bytes by_byte(false);
+  static const Bytes binary_charset(true);
   static const General general_weights;
   switch (id) {
     case 255:  // utf8mb4_0900_ai_ci
@@ -260,8 +269,9 @@ const Collation* collation_by_id(uint16_t id) {
     case 46:  // utf8mb4_bin
       return &by_code_point;
     case 309:  // utf8mb4_0900_bin
-    case 63:   // binary
       return &by_byte;
+    case 63:  // binary
+      return &binary_charset;
     case 45:  // utf8mb4_general_ci
     case 33:  // utf8mb3_general_ci
       return &general_weights;
