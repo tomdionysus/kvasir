@@ -248,6 +248,14 @@ builds on node-d (4 GB).
     no keep(); otherwise it falls back to a ballot-only accept. Asked: is
     the read's promise kept durably (one sync per promiser) or not (safe,
     by Kvasir's reading, but to be shown in the simulator with crashes)?
+    Added at Mimir's review, accepted by Kvasir: `Deltas::decline` (Kvasir
+    declines when not `local` and forwards); `Deltas::summaries`, the
+    summary keep() will set, which the fast path checks with the ballot
+    (Kvasir computes it from base summary and delta, and must test the two
+    computations agree; a mismatch costs a round, not safety); DeltaChange
+    runs on the agreement's strand and never waits on a store (Kvasir's
+    row checks come before the call); a need_whole acceptor is caught up by
+    an identity change(), or by Kvasir's own copy first.
   Dannan has also taken Kvasir's
   ask to export its fuzz harness with the test fixtures (a 0.9 item, not
   started). Dannan's working tree may be on a feature branch: read
