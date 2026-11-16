@@ -2,6 +2,22 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-16: the catalog's databases
+
+- Landed: `kvasir::catalog::Catalog` (in memory, one lock, names as
+  bytes), shared by a node's sessions through their constructors and the
+  connection's; CREATE / DROP DATABASE and SCHEMA with MySQL's options and
+  refusals (1007, 1008, 1044, 1059, 1102, 1253, 1273, and 1235 for a
+  character set Kvasir does not convert); SHOW DATABASES and its LIKE
+  (case-sensitive, observed); USE and qualified table names checked against
+  the catalog; dropping the current database leaves none current.
+- Found by the gate: its own flag printer lacked NO_DEFAULT_VALUE.
+- Test-first: the parser, session and gate tests failed first (3 failed,
+  the gate 166 of 187); the catalog class itself was written beside its
+  test, not watched to fail first.
+- Gate: release on node-b **273 passed, 0 failed**, the
+  differential gate **187 of 187**. Hosted CI passed every job on 0eb9efe.
+
 ## 2026-11-16: COLLATE, and collations aggregated as MySQL does
 
 - Landed: COLLATE (checked against the operand's character set: 1253 for

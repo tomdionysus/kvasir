@@ -1,7 +1,7 @@
 # Kvasir - Active Work
 
-Last updated: 2026-11-15, at the end of the first session, written for a
-session starting with no memory of it.
+Last updated: 2026-11-16, written for a session starting with no memory of
+it.
 
 ## Read, in this order
 
@@ -22,7 +22,7 @@ session starting with no memory of it.
 
 Step 2a, one node speaking the MySQL protocol, is in hand.
 
-**Done and pushed** (230 tests; hosted CI's x86-64 ASan and TSan are the
+**Done and pushed** (268 tests; hosted CI's x86-64 ASan and TSan are the
 sanitizer gate, since ASan cannot start on the Pis' 39-bit kernels):
 
 - `kvasir/protocol/`: the value codec, packet framing, the connection
@@ -38,9 +38,8 @@ sanitizer gate, since ASan cannot start on the Pis' 39-bit kernels):
   tables, WHERE, ORDER BY, LIMIT), SET (variables with scopes, NAMES,
   CHARACTER SET), USE, BEGIN / START TRANSACTION, COMMIT (with its hint),
   ROLLBACK, with MySQL's operator precedence and bounded nesting.
-- Fuzz targets for the packet reader, lexer and parser; each compiles under
-  g++ (`-fsyntax-only`) and none has run yet. clang 19 with libFuzzer is
-  now on node-a, node-b and node-c.
+- Fuzz targets for the packet reader, lexer and parser (run: see below).
+  clang 19 with libFuzzer is on node-a, node-b and node-c.
 - `kvasir/exec/`: exact decimals and MySQL's text for doubles
   (`decimal.h`); typing and evaluating constant expressions with MySQL
   8.4's result types, NULLs, overflow (1690) and division by zero (NULL,
@@ -66,7 +65,7 @@ sanitizer gate, since ASan cannot start on the Pis' 39-bit kernels):
   credential.
 - The differential gate, recorded: `tools/record_mysql.sh` runs
   `kvasir/test/differential/session.sql` on the reference server, and
-  `differential_test.cpp` replays it through a session: 163 of 163
+  `differential_test.cpp` replays it through a session: 187 of 187
   statements answer as MySQL 8.4 does. Re-record when the list grows.
 - Collations (ruling 32): `tools/kvasir_ducet.cpp` compiles
   `kvasir/data/unicode/allkeys-9.0.0.txt` into the library at build time;
@@ -85,6 +84,13 @@ sanitizer gate, since ASan cannot start on the Pis' 39-bit kernels):
   matches under the pair's collation, one character at a time. COLLATE
   works, and collations aggregate over every operand as MySQL's do
   (1253, 1267, 1270, 1273).
+- `kvasir/catalog/catalog.h`: the node's databases in memory, shared by
+  every session (step 2's catalog; in the cluster it becomes agreed state).
+  CREATE DATABASE, DROP DATABASE, SHOW DATABASES and USE work as MySQL's.
+  Known differences: SHOW DATABASES lists only Kvasir's databases (MySQL
+  also lists information_schema, mysql, performance_schema and sys); DROP
+  DATABASE IF EXISTS on a missing database keeps its note (MySQL counts one
+  and lists none).
 - The fuzz targets have run (libFuzzer, clang 19 on node-a, fuzzer and
   UBSan): the lexer's found an empty token, fixed; the packet reader and
   parser ran clean for a minute each. Corpora in `/root/kvasir-work/corpus`
@@ -123,7 +129,9 @@ and the reference server first, and watched to fail:
 3. utf8mb4_unicode_ci, and character sets besides
    utf8mb4, utf8mb3 and binary (N'...' and _latin1'...' are refused); an
    alias holding a character past the BMP (MySQL refuses it with 3854,
-   Kvasir accepts it). Then the catalog and DDL.
+   Kvasir accepts it). Then tables: CREATE TABLE with MySQL's types into
+   the catalog, then INSERT and SELECT over in-memory rows (the design's
+   surface order).
 4. Dannan 0.8.4 is built on its `release/0.8.4` (start_tls_unanswered at
    383b6f5), waiting on its release gate and the maintainer's push word. When tagged:
    move `KVASIR_DANNAN_TAG`, write the stream transport and the worker-pool
