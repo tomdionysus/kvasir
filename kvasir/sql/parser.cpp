@@ -178,6 +178,30 @@ class Parser {
       take();
       if (peek().kind == TokenKind::hint) s.hint = take().value;
       accept_word("WORK");
+    } else if (word("SHOW")) {
+      s.kind = Statement::Kind::show_warnings;
+      take();
+      if (accept_word("COUNT")) {
+        expect_symbol("(");
+        expect_symbol("*");
+        expect_symbol(")");
+        s.count_only = true;
+      }
+      if (accept_word("ERRORS")) {
+        s.errors_only = true;
+      } else {
+        expect_word("WARNINGS");
+      }
+      if (!s.count_only && accept_word("LIMIT")) {
+        auto first = limit_value();
+        if (symbol(",")) {
+          take();
+          s.select.offset = std::move(first);
+          s.select.limit = limit_value();
+        } else {
+          s.select.limit = std::move(first);
+        }
+      }
     } else if (word("ROLLBACK")) {
       s.kind = Statement::Kind::rollback;
       take();

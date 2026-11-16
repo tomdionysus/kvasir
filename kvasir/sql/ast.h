@@ -126,7 +126,7 @@ struct Assignment {
 };
 
 struct Statement {
-  enum class Kind : uint8_t { select, set, use, begin, commit, rollback };
+  enum class Kind : uint8_t { select, set, use, begin, commit, rollback, show_warnings };
   Kind kind = Kind::select;
   Select select;
   std::vector<Assignment> assignments;
@@ -135,6 +135,10 @@ struct Statement {
   bool read_only = false;
   // COMMIT's optimizer hint, Kvasir's place for ack_level.
   std::string hint;
+  // SHOW WARNINGS or SHOW ERRORS [LIMIT [offset,] count], or SHOW COUNT(*)
+  // of either.
+  bool errors_only = false;
+  bool count_only = false;
   // Where it stands in the text sent.
   size_t offset = 0;
   size_t length = 0;

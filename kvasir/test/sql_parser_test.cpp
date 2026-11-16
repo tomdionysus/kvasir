@@ -324,6 +324,27 @@ TEST(SqlParser, Transactions) {
   EXPECT_EQ(one("rollback work").kind, Kind::rollback);
 }
 
+TEST(SqlParser, ShowWarningsAndErrors) {
+  auto s = one("SHOW WARNINGS");
+  EXPECT_EQ(s.kind, Kind::show_warnings);
+  EXPECT_FALSE(s.errors_only);
+  EXPECT_FALSE(s.count_only);
+  EXPECT_FALSE(s.select.limit);
+  s = one("show errors limit 2");
+  EXPECT_TRUE(s.errors_only);
+  EXPECT_EQ(to_string(*s.select.limit), "2");
+  s = one("SHOW WARNINGS LIMIT 1, 3");
+  EXPECT_EQ(to_string(*s.select.offset), "1");
+  EXPECT_EQ(to_string(*s.select.limit), "3");
+  s = one("SHOW COUNT(*) WARNINGS");
+  EXPECT_TRUE(s.count_only);
+  EXPECT_FALSE(s.errors_only);
+  EXPECT_TRUE(one("SHOW COUNT(*) ERRORS").errors_only);
+  EXPECT_EQ(error_at("SHOW"), 4u);
+  EXPECT_EQ(error_at("SHOW NOPE"), 5u);
+  EXPECT_EQ(error_at("SHOW COUNT(1) WARNINGS"), 11u);
+}
+
 TEST(SqlParser, SeveralStatements) {
   const std::string text = "SELECT 1; SELECT 2 ;\nSET @a=1;";
   const auto statements = parse(text);
