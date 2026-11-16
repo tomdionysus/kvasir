@@ -131,3 +131,15 @@ SHOW WARNINGS
 SELECT CONNECTION_ID() > 0, LAST_INSERT_ID(), ROW_COUNT(), FOUND_ROWS(), DATABASE(), SCHEMA()
 SET @x = 1
 SELECT ROW_COUNT()
+SELECT 'a' = 'A', 'a' < 'b', 'B' > 'a', 'a' != 'á', 'a' <=> 'A', 'a' = 'a ', 'ß' = 'ss', 'Æ' = 'AE', 'abc' < 'abd'
+SELECT 'a' IN ('A', 'b'), 'b' BETWEEN 'A' AND 'C', 'a' IN ('b', NULL), NULL = 'a', 'z' NOT IN ('a', 'b')
+SELECT X'61' = 'a', X'41' = 'a', _binary'a' = 'A', _utf8mb4'a' = 'A', 'a' = 1, '1' = 1
+SET @cmp = 'x'
+SELECT @cmp = 'X', @cmp < 'y', @never = 'x'
+SET NAMES utf8mb4 COLLATE utf8mb4_bin
+SELECT 'a' = 'A', 'a' = 'a ', 'a' < 'B', @cmp = 'X'
+SET NAMES utf8mb4 COLLATE utf8mb4_0900_as_cs
+SELECT 'a' = 'A', 'a' < 'B', 'A' < 'a', 'á' > 'a', @cmp = 'X'
+SET NAMES binary
+SELECT 'a' = 'A', 'a' = 'a ', 'b' > 'a'
+SET NAMES DEFAULT

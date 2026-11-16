@@ -128,6 +128,11 @@ TEST(ExecCollation, BinaryCollations) {
   ASSERT_TRUE(no_pad);
   EXPECT_NE(no_pad->compare("a", "a "), 0);
   EXPECT_LT(no_pad->compare("a", "b"), 0);
+  // The binary character set's collation: bytes, NO PAD.
+  const auto* bytes_only = collation_by_id(63);
+  ASSERT_TRUE(bytes_only);
+  EXPECT_NE(bytes_only->compare("a", "a "), 0);
+  EXPECT_LT(bytes_only->compare("A", "a"), 0);
 }
 
 TEST(ExecCollation, CollationsNotYetBuiltAreNone) {

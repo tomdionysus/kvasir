@@ -294,9 +294,53 @@ TEST(ExecExpression, WhatIsNotBuiltIsRefused) {
     }
     return uint16_t{0};
   };
-  EXPECT_EQ(refused("'a' = 'A'"), 1235);
+  EXPECT_EQ(refused("'a' LIKE 'A'"), 1235);
   EXPECT_EQ(refused("CONCAT('a', 'b')"), 1235);
   EXPECT_EQ(refused("a"), 1054);
+  // A character set Kvasir does not yet compare in.
+  EXPECT_EQ(refused("_latin1'a' = 'A'"), 1235);
+  EXPECT_EQ(refused("N'a' = 'A'"), 1235);
+}
+
+// Observed on MySQL 8.4.13, 2026-11-16 (ruling 32): a literal compares under
+// collation_connection; a binary string on either side compares bytes.
+TEST(ExecExpression, StringsCompareUnderTheConnectionsCollation) {
+  check({
+      {"'a' = 'A'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "1"},
+      {"'a' < 'b'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "1"},
+      {"'B' > 'a'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "1"},
+      {"'a' != 'á'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "0"},
+      {"'a' <=> 'A'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "1"},
+      {"'a' = 'a '", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "0"},
+      {"'a' IN ('A','b')", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "1"},
+      {"'b' BETWEEN 'A' AND 'C'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "1"},
+      {"'ß' = 'ss'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "1"},
+      {"X'61' = 'a'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "1"},
+      {"X'41' = 'a'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "0"},
+      {"'abc' < 'abd'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "1"},
+      {"NULL = 'a'", "LONGLONG", 63, 1, 0, "BINARY NUM", "NULL"},
+      {"'a' IN ('b', NULL)", "LONGLONG", 63, 1, 0, "BINARY NUM", "NULL"},
+      {"_utf8mb4'a' = 'A'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "1"},
+      {"_binary'a' = 'A'", "LONGLONG", 63, 1, 0, "NOT_NULL BINARY NUM", "0"},
+  });
+}
+
+TEST(ExecExpression, StringsCompareUnderOtherConnectionCollations) {
+  const auto answer = [](const std::string& sql, uint16_t collation) {
+    EvalSettings settings;
+    settings.result_collation = collation;
+    settings.result_max_bytes = collation == 63 ? 1 : 4;
+    Evaluator evaluator(settings);
+    const auto statement = select(sql);
+    return to_text(evaluator.value(*statement.select.items.at(0).expr), evaluator.type(*statement.select.items.at(0).expr)).value_or("NULL");
+  };
+  EXPECT_EQ(answer("'a' = 'A'", 46), "0");  // utf8mb4_bin
+  EXPECT_EQ(answer("'a' = 'a '", 46), "1");
+  EXPECT_EQ(answer("'a' = 'A'", 278), "0");  // utf8mb4_0900_as_cs
+  EXPECT_EQ(answer("'a' < 'B'", 278), "1");
+  EXPECT_EQ(answer("'A' < 'a'", 278), "0");
+  EXPECT_EQ(answer("'a' = 'A'", 63), "0");  // binary
+  EXPECT_EQ(answer("'a' = 'a '", 63), "0");
 }
 
 TEST(ExecExpression, ColumnNames) {

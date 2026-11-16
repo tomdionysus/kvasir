@@ -14,7 +14,10 @@
 #include <limits>
 #include <stdexcept>
 
+#include "kvasir/exec/collation.h"
+#include "kvasir/exec/variables.h"
 #include "kvasir/protocol/types.h"
+#include "kvasir/sql/keywords.h"
 
 namespace kvasir::exec {
 
@@ -226,7 +229,7 @@ ResultType Evaluator::type(const Expr& e) const {
       const auto& op = e.value;
       const bool both = not_null(a) && not_null(b);
       if (comparison(op)) {
-        if (is_text(a) && is_text(b)) not_yet("comparing strings");
+        string_collation(*e.args[0], a, *e.args[1], b);
         return boolean_type(op == "<=>" || both);
       }
       if (logical(op)) return boolean_type(both);
@@ -269,16 +272,18 @@ ResultType Evaluator::type(const Expr& e) const {
     case ExprKind::in:
     case ExprKind::between: {
       bool all = true;
-      for (const auto& arg : e.args) {
-        const auto t = type(*arg);
-        if (is_text(t) && is_text(type(*e.args[0]))) not_yet("comparing strings");
+      const auto first = type(*e.args[0]);
+      for (size_t i = 0; i < e.args.size(); ++i) {
+        const auto t = i ? type(*e.args[i]) : first;
+        if (i) string_collation(*e.args[0], first, *e.args[i], t);
         all = all && not_null(t);
       }
       return boolean_type(all);
     }
     case ExprKind::like:
+      not_yet("LIKE");
     case ExprKind::regexp:
-      not_yet("comparing strings");
+      not_yet("REGEXP");
     case ExprKind::column: {
       std::string name;
       for (size_t i = 0; i < e.path.size(); ++i) name += (i ? "." : "") + e.path[i];
@@ -300,6 +305,65 @@ ResultType Evaluator::type(const Expr& e) const {
     default:
       not_yet("this expression");
   }
+}
+
+namespace {
+
+// How strongly an operand holds its collation: the lower wins (the manual's
+// "Collation Coercibility in Expressions").
+constexpr int implicit_coercibility = 2, sysconst_coercibility = 3, coercible_coercibility = 4;
+// What system variables and session functions compare under (observed).
+constexpr uint16_t utf8mb3_general_ci = 33;
+
+struct Derivation {
+  uint16_t collation;
+  int coercibility;
+};
+
+bool is_bin(uint16_t collation) { return collation == 46 || collation == 309; }
+
+}  // namespace
+
+std::optional<uint16_t> Evaluator::string_collation(const Expr& x, const ResultType& tx, const Expr& y, const ResultType& ty) const {
+  if (!is_string(tx) || !is_string(ty)) return std::nullopt;
+  const auto derive = [&](const Expr& e, const ResultType& t) -> Derivation {
+    switch (e.kind) {
+      case ExprKind::string:
+        if (e.charset.empty()) return {t.collation, coercible_coercibility};
+        if (sql::same_word(e.charset, "binary")) return {binary_collation, coercible_coercibility};
+        if (sql::same_word(e.charset, "utf8mb4")) return {protocol::collation::utf8mb4_0900_ai_ci, coercible_coercibility};
+        not_yet("comparing strings in character set " + (e.charset == "national" ? std::string("utf8mb3") : e.charset));
+      case ExprKind::hex:
+      case ExprKind::bits:
+        return {binary_collation, coercible_coercibility};
+      case ExprKind::user_variable:
+        return {t.collation, implicit_coercibility};
+      case ExprKind::system_variable:
+      case ExprKind::call:
+        return {utf8mb3_general_ci, sysconst_coercibility};
+      default:
+        not_yet("comparing these strings");
+    }
+  };
+  const auto a = derive(x, tx);
+  const auto b = derive(y, ty);
+  uint16_t chosen = a.collation;
+  if (a.collation == binary_collation || b.collation == binary_collation) {
+    chosen = binary_collation;
+  } else if (a.coercibility != b.coercibility) {
+    chosen = a.coercibility < b.coercibility ? a.collation : b.collation;
+  } else if (a.collation != b.collation) {
+    // One character set, a _bin collation beside another: the _bin one.
+    if (is_bin(a.collation) == is_bin(b.collation)) not_yet("comparing strings of two collations");
+    chosen = is_bin(a.collation) ? a.collation : b.collation;
+  }
+  if (!collation_by_id(chosen)) {
+    std::string name = chosen == utf8mb3_general_ci ? "utf8mb3_general_ci" : std::to_string(chosen);
+    for (const auto* c : {"utf8mb4_general_ci", "utf8mb4_unicode_ci"})
+      if (const auto* info = find_collation(c); info && info->id == chosen) name = c;
+    not_yet("comparing strings under " + name);
+  }
+  return chosen;
 }
 
 namespace {
@@ -376,9 +440,17 @@ Value Evaluator::value(const Expr& e) {
     _warnings.push_back({"Warning", er_division_by_zero, "Division by 0"});
     return {};
   };
-  // -1, 0 or 1; nothing when either is NULL.
-  const auto compare_values = [&](const Value& x, const ResultType& tx, const Value& y, const ResultType& ty) -> std::optional<int> {
+  // -1, 0 or 1; nothing when either is NULL. Two strings compare under the
+  // collation derived for the pair.
+  const auto compare_values = [&](const Expr& ex, const Value& x, const ResultType& tx, const Expr& ey, const Value& y,
+                                  const ResultType& ty) -> std::optional<int> {
+    const auto collation = string_collation(ex, tx, ey, ty);
     if (is_null(x) || is_null(y)) return std::nullopt;
+    if (collation) {
+      const auto* sx = std::get_if<std::string>(&x);
+      const auto* sy = std::get_if<std::string>(&y);
+      if (sx && sy) return collation_by_id(*collation)->compare(*sx, *sy);
+    }
     const auto dx = domain_of(tx), dy = domain_of(ty);
     if (dx == Domain::integer && dy == Domain::integer) {
       const Int a = as_int(x), b = as_int(y);
@@ -461,7 +533,7 @@ Value Evaluator::value(const Expr& e) {
         if (op == "<=>") {
           if (is_null(a) || is_null(b)) return int64_t{is_null(a) && is_null(b) ? 1 : 0};
         }
-        const auto c3 = compare_values(a, ta, b, tb);
+        const auto c3 = compare_values(*e.args[0], a, ta, *e.args[1], b, tb);
         if (!c3) return {};
         const int r = *c3;
         bool result = false;
@@ -587,7 +659,7 @@ Value Evaluator::value(const Expr& e) {
       if (is_null(a)) return {};
       bool saw_null = false;
       for (size_t i = 1; i < e.args.size(); ++i) {
-        const auto r = compare_values(a, ta, value(*e.args[i]), type(*e.args[i]));
+        const auto r = compare_values(*e.args[0], a, ta, *e.args[i], value(*e.args[i]), type(*e.args[i]));
         if (!r) {
           saw_null = true;
         } else if (*r == 0) {
@@ -600,8 +672,8 @@ Value Evaluator::value(const Expr& e) {
     case ExprKind::between: {
       const auto ta = type(*e.args[0]);
       const auto a = value(*e.args[0]);
-      const auto low = compare_values(a, ta, value(*e.args[1]), type(*e.args[1]));
-      const auto high = compare_values(a, ta, value(*e.args[2]), type(*e.args[2]));
+      const auto low = compare_values(*e.args[0], a, ta, *e.args[1], value(*e.args[1]), type(*e.args[1]));
+      const auto high = compare_values(*e.args[0], a, ta, *e.args[2], value(*e.args[2]), type(*e.args[2]));
       // a >= low AND a <= high, with NULL as unknown.
       const std::optional<bool> x = low ? std::optional<bool>(*low >= 0) : std::nullopt;
       const std::optional<bool> y = high ? std::optional<bool>(*high <= 0) : std::nullopt;

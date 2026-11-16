@@ -19,8 +19,16 @@
 // types and its rules for NULL, overflow and division by zero, as observed on
 // MySQL 8.4.13.
 //
-// Not yet: comparing strings (they need their collation's rules), functions,
-// variables, columns and placeholders, each refused with its MySQL error.
+// Strings compare under the collation MySQL derives for the pair (the
+// manual's "Collation Coercibility in Expressions", as observed): a literal
+// has collation_connection's at coercibility 4, a user variable the one it
+// was set with at 2, a system variable or session function
+// utf8mb3_general_ci at 3; the lower coercibility wins, and a binary string
+// on either side makes it a comparison of bytes. A collation Kvasir cannot
+// yet compare under (collation.h) is refused.
+//
+// Not yet: LIKE and REGEXP, functions, columns and placeholders, each refused
+// with its MySQL error.
 // Known difference: arithmetic on a bare NULL literal is typed DOUBLE with
 // length 23 and 31 decimals, where MySQL reports smaller lengths; its value
 // is NULL either way.
@@ -72,6 +80,11 @@ class Evaluator {
   void clear_warnings() { _warnings.clear(); }
 
  private:
+  // The collation two operands compare under, or nothing when either is not
+  // a string (they compare as numbers). Throws SqlError (1235) for one Kvasir
+  // cannot yet compare under.
+  std::optional<uint16_t> string_collation(const sql::Expr& a, const ResultType& ta, const sql::Expr& b, const ResultType& tb) const;
+
   EvalSettings _settings;
   std::vector<Warning> _warnings;
 };

@@ -502,3 +502,69 @@ statement SELECT ROW_COUNT()
 column ROW_COUNT()|LONGLONG|63|21|0|NOT_NULL BINARY NUM
 row 0
 end
+statement SELECT 'a' = 'A', 'a' < 'b', 'B' > 'a', 'a' != 'á', 'a' <=> 'A', 'a' = 'a ', 'ß' = 'ss', 'Æ' = 'AE', 'abc' < 'abd'
+column 'a' = 'A'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a' < 'b'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'B' > 'a'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a' != 'á'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a' <=> 'A'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a' = 'a '|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'ß' = 'ss'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'Æ' = 'AE'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'abc' < 'abd'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 1	1	1	0	1	0	1	1	1
+end
+statement SELECT 'a' IN ('A', 'b'), 'b' BETWEEN 'A' AND 'C', 'a' IN ('b', NULL), NULL = 'a', 'z' NOT IN ('a', 'b')
+column 'a' IN ('A', 'b')|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'b' BETWEEN 'A' AND 'C'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a' IN ('b', NULL)|LONGLONG|63|1|0|BINARY NUM
+column NULL = 'a'|LONGLONG|63|1|0|BINARY NUM
+column 'z' NOT IN ('a', 'b')|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 1	1	\N	\N	1
+end
+statement SELECT X'61' = 'a', X'41' = 'a', _binary'a' = 'A', _utf8mb4'a' = 'A', 'a' = 1, '1' = 1
+column X'61' = 'a'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column X'41' = 'a'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column _binary'a' = 'A'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column _utf8mb4'a' = 'A'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a' = 1|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column '1' = 1|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 1	0	0	1	0	1
+end
+statement SET @cmp = 'x'
+end
+statement SELECT @cmp = 'X', @cmp < 'y', @never = 'x'
+column @cmp = 'X'|LONGLONG|63|1|0|BINARY NUM
+column @cmp < 'y'|LONGLONG|63|1|0|BINARY NUM
+column @never = 'x'|LONGLONG|63|1|0|BINARY NUM
+row 1	1	\N
+end
+statement SET NAMES utf8mb4 COLLATE utf8mb4_bin
+end
+statement SELECT 'a' = 'A', 'a' = 'a ', 'a' < 'B', @cmp = 'X'
+column 'a' = 'A'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a' = 'a '|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a' < 'B'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column @cmp = 'X'|LONGLONG|63|1|0|BINARY NUM
+row 0	1	0	1
+end
+statement SET NAMES utf8mb4 COLLATE utf8mb4_0900_as_cs
+end
+statement SELECT 'a' = 'A', 'a' < 'B', 'A' < 'a', 'á' > 'a', @cmp = 'X'
+column 'a' = 'A'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a' < 'B'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'A' < 'a'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'á' > 'a'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column @cmp = 'X'|LONGLONG|63|1|0|BINARY NUM
+row 0	1	0	1	1
+end
+statement SET NAMES binary
+end
+statement SELECT 'a' = 'A', 'a' = 'a ', 'b' > 'a'
+column 'a' = 'A'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'a' = 'a '|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column 'b' > 'a'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 0	0	1
+end
+statement SET NAMES DEFAULT
+end

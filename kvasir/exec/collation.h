@@ -25,7 +25,8 @@
 // utf8mb4_0900_ai_ci compares primary weights only; utf8mb4_0900_as_cs
 // primaries, then secondaries, then tertiaries. utf8mb4_bin and
 // utf8mb4_0900_bin compare code points, the first ignoring trailing spaces
-// (PAD SPACE). Bytes that are not UTF-8 count as U+FFFD.
+// (PAD SPACE); binary, the binary character set's, compares bytes, NO PAD.
+// Bytes that are not UTF-8 count as U+FFFD under the UCA collations.
 namespace kvasir::exec {
 
 class Collation {

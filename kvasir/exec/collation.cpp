@@ -214,6 +214,7 @@ const Collation* collation_by_id(uint16_t id) {
     case 46:  // utf8mb4_bin
       return &padded;
     case 309:  // utf8mb4_0900_bin
+    case 63:   // binary
       return &unpadded;
     default:
       return nullptr;
