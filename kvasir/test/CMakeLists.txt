@@ -7,6 +7,7 @@
 
 add_executable(kvasir_tests
   differential_test.cpp
+  exec_collation_test.cpp
   exec_decimal_test.cpp
   exec_expression_test.cpp
   exec_session_test.cpp

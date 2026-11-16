@@ -8,7 +8,18 @@
 # The database. Public headers are kvasir/include/kvasir/*.h, included as
 # "kvasir/x.h"; everything else is included from the repository root as
 # "kvasir/<subsystem>/x.h".
+# Unicode's collation table (ruling 32), compiled into C++ by kvasir-ducet.
+set(kvasir_ducet_table ${PROJECT_BINARY_DIR}/generated/kvasir/ducet_table.cpp)
+add_custom_command(
+  OUTPUT ${kvasir_ducet_table}
+  COMMAND kvasir-ducet ${CMAKE_CURRENT_SOURCE_DIR}/data/unicode/allkeys-9.0.0.txt ${kvasir_ducet_table}
+  DEPENDS kvasir-ducet ${CMAKE_CURRENT_SOURCE_DIR}/data/unicode/allkeys-9.0.0.txt
+  COMMENT "Compiling Unicode's collation table"
+)
+
 add_library(kvasir SHARED
+  ${kvasir_ducet_table}
+  exec/collation.cpp
   exec/decimal.cpp
   exec/expression.cpp
   exec/session.cpp
