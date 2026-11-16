@@ -18,6 +18,7 @@ add_executable(kvasir_tests
   server_accounts_test.cpp
   server_commands_test.cpp
   server_connection_test.cpp
+  server_node_settings_test.cpp
   server_sign_in_test.cpp
   sql_lexer_test.cpp
   sql_parser_test.cpp

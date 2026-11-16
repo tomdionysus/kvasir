@@ -20,6 +20,7 @@ add_library(kvasir SHARED
   server/accounts.cpp
   server/commands.cpp
   server/connection.cpp
+  server/node_settings.cpp
   server/sign_in.cpp
   sql/keywords.cpp
   sql/lexer.cpp
