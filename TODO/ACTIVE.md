@@ -194,7 +194,19 @@ builds on node-d (4 GB).
     and deltas come. Kvasir's ranges, and its rows if they become names,
     must respect that bound.
   - `hint(space, slot)` reads the `agree.slots/<space>` advert. A wrong hint
-    costs one refusal, which names the set and its version. Dannan has also taken Kvasir's
+    costs one refusal, which names the set and its version.
+  - Value-less prepare and deltas (Dannan's design, "Value-less prepare
+    and deltas", reviewed by Kvasir and Mimir 2026-11-16, Dannan 857f9dd,
+    built next): prepare answers carry a ballot, a has-value bit and a
+    64-byte store summary (Kvasir: the range's version, rows, bytes); the
+    base is fetched by ballot, in pieces resumable by offset; an accept may
+    carry a delta, applied in the store by `apply(slot, name, base_ballot,
+    new_ballot, delta, done(applied | need_whole))`, applied as durable as
+    a whole accept, a check the store cannot pass answering need_whole; a
+    name an acceptor holds at the base ballot is neither fetched nor sent,
+    so catching a range's new acceptors up first makes transfer a ballot
+    check. A delta is one commit's row changes.
+  Dannan has also taken Kvasir's
   ask to export its fuzz harness with the test fixtures (a 0.9 item, not
   started). Dannan's working tree may be on a feature branch: read
   its designs from `develop`.
