@@ -104,6 +104,13 @@ CI's x86-64 jobs):
   a bare NULL literal is typed DOUBLE 23/31 where MySQL reports smaller
   lengths.
 
+**A step's gate** is the release build's full suite on a Pi plus the
+differential gate, nothing more. No sanitizer build (ASan, UBSan, TSan) is
+part of any step's gate: sanitizers run only before a release at the maintainer's
+word, or to hunt a named bug that cannot be pinned any other way
+(CLAUDE.md, Tests). Earlier entries in COMPLETED that list ASan counts were
+outside that rule (the maintainer, 2026-11-17).
+
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 and the reference server first, and watched to fail:
 
