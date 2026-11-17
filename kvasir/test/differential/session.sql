@@ -597,3 +597,22 @@ SELECT SUBSTRING('abc',NULL), SUBSTRING('abc',1,NULL), SUBSTRING(_binary'héllo'
 SELECT LEFT('abc',NULL), LEFT(12345,2), RIGHT('héllo',3), LEFT('abc',1.5), RIGHT(_binary'héllo',2), LEFT(_binary'ab',1)
 SELECT SUBSTRING('a')
 SELECT LEFT('a')
+SELECT TRIM('  ab  '), LTRIM('  ab  '), RTRIM('  ab  '), TRIM(LEADING 'x' FROM 'xxabxx'), TRIM(TRAILING 'x' FROM 'xxabxx'), TRIM(BOTH 'xy' FROM 'xyxyabxy'), TRIM('x' FROM 'xabx'), TRIM(NULL), TRIM(12), TRIM(_binary' a ')
+SELECT TRIM('a' FROM NULL), TRIM(NULL FROM 'a'), TRIM(LEADING FROM '  a'), TRIM(TRAILING '' FROM 'a'), TRIM(BOTH 'ab' FROM 'ababa')
+SELECT REPLACE('abcabc','b','XY'), REPLACE('abc','','x'), REPLACE('aAa','a','b'), REPLACE(NULL,'a','b'), REPLACE('abc','b',NULL), REPLACE(123,2,9), REPLACE('ab','b','xyz')
+SELECT LOCATE('b','abcb'), LOCATE('b','abcb',3), LOCATE('B','abc'), LOCATE('','abc'), LOCATE('','abc',4), LOCATE('','abc',5), LOCATE('x','abc'), LOCATE(NULL,'a'), LOCATE('b','abc',0), LOCATE('b','abc',NULL)
+SELECT INSTR('abcb','c'), POSITION('c' IN 'abc'), LOCATE('é','aéb')
+SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
+SELECT REPEAT('ab',3), REPEAT('ab',0), REPEAT('ab',-1), REPEAT(NULL,2), REPEAT(1,2), REVERSE('abc'), REVERSE('héllo'), REVERSE(NULL), REVERSE(123), REVERSE(_binary'ab')
+SELECT REPEAT('ab', 40000000)
+SHOW WARNINGS
+SELECT LOCATE('a')
+SELECT REPLACE('a','b')
+SELECT TRIM()
+CREATE DATABASE kv_strings2
+USE kv_strings2
+CREATE TABLE f (i INT, v VARCHAR(10), c CHAR(3) COLLATE utf8mb4_bin, x TEXT, vb VARBINARY(5))
+INSERT INTO f VALUES (1, 'abc', 'x', 'tt', 'zz'), (NULL, NULL, NULL, NULL, NULL)
+SELECT LPAD(v, i, 'x'), REPEAT(v, i), TRIM(c), REPLACE(v, 'b', c), REVERSE(x), LOCATE(c, v), RPAD(c, 4, v), TRIM(BOTH c FROM v), REPEAT(vb, 2), LPAD(v, 3, vb) FROM f
+SELECT REPLACE(v,'b',v), REPLACE(v,v,'xyz'), REPLACE(v,'bc',c), REPLACE(c,'b',v), REPLACE('abc','b',c), REPLACE(v,'b',''), REPLACE(v, c, 'x') FROM f
+DROP DATABASE kv_strings2

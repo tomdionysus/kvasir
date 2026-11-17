@@ -2,6 +2,33 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-17: TRIM, LTRIM, RTRIM, REPLACE, LOCATE, INSTR, POSITION, LPAD, RPAD, REPEAT and REVERSE
+
+- Observed on MySQL 8.4.13 first. The string results hold their first
+  argument's collation (no 1267 for mixed ones) and are never NOT NULL.
+  TRIM and REPLACE match bytes (case counts); LOCATE, INSTR and POSITION
+  compare under the strings' collation ('B' is found in 'abc'), bytes when
+  the collations disagree, BIGINT of 11, an empty needle found at its
+  position up to one past the end. REPLACE is reported as long as the
+  string times one less than the replacement's length (at least once), as
+  observed. LPAD and RPAD as long as the constant length asked for; REPEAT
+  the string times the count; a negative constant reads as past any limit,
+  and a length or count that is not a constant (or is NULL) gives a LONG
+  BLOB of max_allowed_packet characters. A result past max_allowed_packet
+  is NULL with 1301 "Result of repeat() was larger than ...".
+- The parser takes TRIM([{BOTH | LEADING | TRAILING} [remstr] FROM] str)
+  (`scope` holds the side) and POSITION(substr IN str), and gives REPLACE
+  three arguments and REPEAT two, as MySQL's grammar (1064); LOCATE,
+  INSTR, LPAD, LTRIM and the rest refuse other counts with 1582.
+- Not yet checked against MySQL: the type of LPAD with a NULL length
+  (Kvasir: a LONG BLOB, as for REPEAT with a NULL count).
+- Test-first on node-c (node-d off the network): the 3 new tests
+  failed against the committed code; node-c's tree first moved to Dannan
+  0.9.0 and rebuilt in full.
+- Gate: release on node-c **334 passed, 0 failed**; the
+  differential gate **588 of 588** (19 new statements; the 569 before
+  recorded unchanged).
+
 ## 2026-11-17: SUBSTRING, SUBSTR, MID, LEFT and RIGHT
 
 - Observed on MySQL 8.4.13 first. In characters (bytes of a binary

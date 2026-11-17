@@ -130,12 +130,11 @@ and the reference server first, and watched to fail:
    Kvasir merges as DOUBLE. CONCAT, CONCAT_WS, LENGTH, CHAR_LENGTH,
    SUBSTRING, LEFT and RIGHT are done (see COMPLETED); known difference: a
    constant string argument read as an integer warns once where MySQL
-   warns twice. Next: the other string functions clients use most
-   (TRIM, REPLACE, LOCATE, LPAD, RPAD,
-   REPEAT, REVERSE; UPPER and LOWER need Unicode's case mapping), then the
-   number functions (ABS, ROUND, TRUNCATE, FLOOR, CEILING, MOD, SIGN), then
-   SHOW STATUS and the other statements a client's `status` command and
-   connectors send.
+   warns twice. TRIM, REPLACE, LOCATE, INSTR, POSITION, LPAD, RPAD,
+   REPEAT and REVERSE are done too. Next: the number functions (ABS,
+   ROUND, TRUNCATE, FLOOR, CEILING, MOD, SIGN), then SHOW STATUS and the
+   other statements a client's `status` command and connectors send; UPPER
+   and LOWER after, as they need Unicode's case mapping.
    Old versions are never
    folded away yet (memory grows with every change; folding older than
    every open snapshot is the design's, to come before long runs).

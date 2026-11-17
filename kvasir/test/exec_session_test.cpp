@@ -1575,6 +1575,41 @@ TEST(ExecSessionFunctions, ConcatAndLengthOverColumns) {
                                {f::var_string, bin, 2400, 31, binflag}}));
 }
 
+// TRIM, REPLACE, LOCATE, LPAD, RPAD, REPEAT and REVERSE over columns,
+// observed on MySQL 8.4.13, 2026-11-17: the first argument's collation; a
+// length or count from a column makes a LONG BLOB; REPLACE as long as the
+// string times one less than the replacement's length (at least once).
+TEST(ExecSessionFunctions, MoreStringFunctionsOverColumns) {
+  TableBed b;
+  run(b.s, "CREATE TABLE f (i INT, v VARCHAR(10), c CHAR(3) COLLATE utf8mb4_bin, x TEXT, vb VARBINARY(5))");
+  run(b.s, "INSERT INTO f VALUES (1, 'abc', 'x', 'tt', 'zz')");
+  auto o = run(b.s,
+               "SELECT LPAD(v, i, 'x'), REPEAT(v, i), TRIM(c), REPLACE(v, 'b', c), REVERSE(x), LOCATE(c, v), RPAD(c, 4, v), TRIM(BOTH c FROM v), "
+               "REPEAT(vb, 2), LPAD(v, 3, vb) FROM f");
+  EXPECT_EQ(rows_of(o), (Rows{{"a", "abc", "x", "axc", "tt", "0", "xabc", "abc", "zzzz", "abc"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::long_blob, ai, 268435456, 31, 0},
+                               {f::long_blob, ai, 268435456, 31, 0},
+                               {f::var_string, ai, 12, 31, binflag},
+                               {f::var_string, ai, 80, 31, 0},
+                               {f::medium_blob, ai, 1048560, 31, 0},
+                               {f::longlong, bin, 11, 0, binflag | num},
+                               {f::var_string, ai, 16, 31, binflag},
+                               {f::var_string, ai, 40, 31, 0},
+                               {f::var_string, bin, 10, 31, binflag},
+                               {f::var_string, ai, 12, 31, 0}}));
+  o = run(b.s,
+          "SELECT REPLACE(v,'b',v), REPLACE(v,v,'xyz'), REPLACE(v,'bc',c), REPLACE(c,'b',v), REPLACE('abc','b',c), REPLACE(v,'b',''), "
+          "REPLACE(v, c, 'x') FROM f");
+  EXPECT_EQ(rows_of(o), (Rows{{"aabcc", "xyz", "ax", "x", "axc", "ac", "abc"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::var_string, ai, 360, 31, 0},
+                               {f::var_string, ai, 80, 31, 0},
+                               {f::var_string, ai, 80, 31, 0},
+                               {f::var_string, ai, 108, 31, binflag},
+                               {f::var_string, ai, 24, 31, 0},
+                               {f::var_string, ai, 40, 31, 0},
+                               {f::var_string, ai, 40, 31, 0}}));
+}
+
 // SUBSTRING, LEFT and RIGHT over columns, observed on MySQL 8.4.13,
 // 2026-11-17: a position or length from a column takes nothing from the
 // length; a short enough piece of a TEXT is a VARCHAR.

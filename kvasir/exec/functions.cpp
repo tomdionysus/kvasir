@@ -9,11 +9,14 @@
 // manual's "String Functions and Operators", as observed).
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <cmath>
 #include <limits>
 #include <string>
 #include <string_view>
 
+#include "kvasir/exec/collation.h"
 #include "kvasir/exec/expression.h"
 #include "kvasir/protocol/types.h"
 
@@ -48,6 +51,24 @@ size_t characters(std::string_view s) {
 bool is_length(const std::string& name) { return name == "LENGTH" || name == "OCTET_LENGTH" || name == "CHAR_LENGTH" || name == "CHARACTER_LENGTH"; }
 bool is_substring(const std::string& name) { return name == "SUBSTRING" || name == "SUBSTR" || name == "MID"; }
 bool is_left_right(const std::string& name) { return name == "LEFT" || name == "RIGHT"; }
+bool is_locate(const std::string& name) { return name == "LOCATE" || name == "INSTR" || name == "POSITION"; }
+bool is_trim(const std::string& name) { return name == "TRIM" || name == "LTRIM" || name == "RTRIM"; }
+
+// The warning for a result max_allowed_packet cannot hold, which is NULL.
+Warning too_long(const std::string& name) {
+  std::string lower;
+  for (const char ch : name) lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+  return {"Warning", 1301, "Result of " + lower + "() was larger than max_allowed_packet (67108864) - truncated"};
+}
+
+// Where each character of `s` starts, then its end: each byte when `bytes`.
+std::vector<size_t> character_starts(const std::string& s, bool bytes) {
+  std::vector<size_t> starts;
+  for (size_t i = 0; i < s.size(); ++i)
+    if (bytes || (static_cast<uint8_t>(s[i]) & 0xc0) != 0x80) starts.push_back(i);
+  starts.push_back(s.size());
+  return starts;
+}
 
 // Whether an expression is a constant, whose value MySQL reads when typing
 // it: literals and operators over them.
@@ -117,15 +138,31 @@ std::optional<int64_t> Evaluator::integer_argument(const Expr& x) {
 std::optional<Evaluator::Merged> Evaluator::string_function(const Expr& e) const {
   if (e.kind != sql::ExprKind::call) return std::nullopt;
   const auto& name = e.value;
-  const bool concat = name == "CONCAT", concat_ws = name == "CONCAT_WS", length = is_length(name);
-  const bool substring = is_substring(name), left_right = is_left_right(name);
-  if (!concat && !concat_ws && !length && !substring && !left_right) return std::nullopt;
-  if ((concat && e.args.empty()) || (concat_ws && e.args.size() < 2) || (length && e.args.size() != 1) ||
-      (substring && (e.args.size() < 2 || e.args.size() > 3)) || (left_right && e.args.size() != 2))
-    wrong_count(name);
+  // Each function and how many arguments it takes.
+  struct Arity {
+    std::string_view name;
+    size_t least, most;
+  };
+  static constexpr size_t any = std::numeric_limits<size_t>::max();
+  static constexpr std::array<Arity, 22> arities = {
+      {{"CONCAT", 1, any},  {"CONCAT_WS", 2, any}, {"LENGTH", 1, 1},  {"OCTET_LENGTH", 1, 1}, {"CHAR_LENGTH", 1, 1}, {"CHARACTER_LENGTH", 1, 1},
+       {"SUBSTRING", 2, 3}, {"SUBSTR", 2, 3},      {"MID", 2, 3},     {"LEFT", 2, 2},         {"RIGHT", 2, 2},       {"TRIM", 1, 2},
+       {"LTRIM", 1, 1},     {"RTRIM", 1, 1},       {"REPLACE", 3, 3}, {"LOCATE", 2, 3},       {"INSTR", 2, 2},       {"POSITION", 2, 2},
+       {"LPAD", 3, 3},      {"RPAD", 3, 3},        {"REPEAT", 2, 2},  {"REVERSE", 1, 1}}};
+  const auto found = std::find_if(arities.begin(), arities.end(), [&](const Arity& a) { return a.name == name; });
+  if (found == arities.end()) return std::nullopt;
+  if (e.args.size() < found->least || e.args.size() > found->most) wrong_count(name);
+  const bool concat = name == "CONCAT", concat_ws = name == "CONCAT_WS";
+  const bool left_right = is_left_right(name);
   Merged m;
-  if (length) {
+  if (is_length(name)) {
     m.type = integer_type(9, false, !type(*e.args[0]).nullable());
+    m.derivation = {binary_collation, numeric_coercibility};
+    return m;
+  }
+  if (is_locate(name)) {
+    const bool not_null = std::all_of(e.args.begin(), e.args.end(), [&](const sql::ExprPtr& a) { return !type(*a).nullable(); });
+    m.type = integer_type(10, false, not_null);
     m.derivation = {binary_collation, numeric_coercibility};
     return m;
   }
@@ -146,7 +183,8 @@ std::optional<Evaluator::Merged> Evaluator::string_function(const Expr& e) const
       collations.push_back({_settings.result_collation, numeric_coercibility});
     }
   }
-  m.derivation = aggregate_collations(collations, concat ? "concat" : concat_ws ? "concat_ws" : "substr");
+  // The others hold their first argument's collation.
+  m.derivation = aggregate_collations(collations, concat ? "concat" : "concat_ws");
   const bool binary = m.derivation.first == binary_collation;
   // Each argument's text at its longest: characters, or bytes when the
   // result is binary.
@@ -156,20 +194,54 @@ std::optional<Evaluator::Merged> Evaluator::string_function(const Expr& e) const
     if ((t.field_type == f::double_ || t.field_type == f::float_) && t.decimals == protocol::not_fixed_decimals) return double_text_length;
     return t.length;
   };
+  // The value of a constant integer argument (nothing inside for NULL), or
+  // nothing for one that is not constant.
+  const auto constant = [&](size_t i) -> std::optional<std::optional<int64_t>> {
+    if (!is_constant(*e.args[i])) return std::nullopt;
+    Evaluator scratch(_settings);
+    return scratch.integer_argument(*e.args[i]);
+  };
+  // Past max_allowed_packet a length is as long as anything can be.
+  constexpr uint64_t past_packet = max_allowed_packet + 1;
   uint64_t total = 0;
+  // A length or count that is not a constant: as long as anything can be,
+  // reported as max_allowed_packet in characters (observed).
+  bool unbounded = false;
   if (concat || concat_ws) {
     for (size_t i = concat_ws ? 1 : 0; i < types.size(); ++i) total += longest(types[i]);
     // CONCAT_WS: a separator between each two arguments, NULL or not.
     if (concat_ws) total += longest(types[0]) * (types.size() - 2);
+  } else if (is_trim(name) || name == "REVERSE") {
+    total = longest(types[0]);
+  } else if (name == "REPLACE") {
+    // The string's length times one less than the replacement's, at least
+    // once (observed).
+    const uint64_t replacement = longest(type(*e.args[2]));
+    total = longest(types[0]) * std::max<uint64_t>(1, replacement > 0 ? replacement - 1 : 0);
+  } else if (name == "LPAD" || name == "RPAD") {
+    // The length asked for; a negative one reads as past any limit.
+    const auto n = constant(1);
+    if (!n || !*n) {
+      unbounded = true;
+    } else {
+      total = **n < 0 ? past_packet : std::min(static_cast<uint64_t>(**n), past_packet);
+    }
+  } else if (name == "REPEAT") {
+    // The string times the count; a negative count reads as past any limit.
+    const auto n = constant(1);
+    const uint64_t each = longest(types[0]);
+    if (!n || !*n) {
+      unbounded = true;
+    } else if (**n < 0) {
+      total = each == 0 ? 0 : past_packet;
+    } else {
+      const auto count = static_cast<uint64_t>(**n);
+      total = each != 0 && count > past_packet / each ? past_packet : each * count;
+    }
   } else {
     // A piece of the string: what a constant position or length takes
     // away (nothing more once one is NULL).
     total = longest(types[0]);
-    const auto constant = [&](size_t i) -> std::optional<std::optional<int64_t>> {
-      if (!is_constant(*e.args[i])) return std::nullopt;
-      Evaluator scratch(_settings);
-      return scratch.integer_argument(*e.args[i]);
-    };
     const auto at_most = [&](int64_t n) { total = n <= 0 ? 0 : std::min(total, static_cast<uint64_t>(n)); };
     [&]() {
       if (left_right) {
@@ -190,16 +262,20 @@ std::optional<Evaluator::Merged> Evaluator::string_function(const Expr& e) const
         if (const auto n = constant(2); n && *n) at_most(**n);
     }();
   }
-  const uint64_t bytes = binary ? total : total * _settings.result_max_bytes;
+  const uint64_t per_character = binary ? 1 : _settings.result_max_bytes;
+  const uint64_t bytes = std::min(total, past_packet) * per_character;
   ResultType& t = m.type;
   t.collation = binary ? binary_collation : _settings.result_collation;
   t.decimals = protocol::not_fixed_decimals;
   t.flags = static_cast<uint16_t>(binary || is_bin_collation(m.derivation.first) ? c::binary : 0);
-  if (bytes > max_varchar_bytes) {
+  if (unbounded) {
+    t.field_type = f::long_blob;
+    t.length = static_cast<uint32_t>(std::min<uint64_t>(max_allowed_packet * per_character, UINT32_MAX));
+  } else if (bytes > max_varchar_bytes) {
     // A BLOB, whose text length is counted in characters once more
     // (observed), and at most max_allowed_packet.
     t.field_type = bytes > max_medium_blob_bytes ? f::long_blob : f::medium_blob;
-    t.length = static_cast<uint32_t>(std::min(binary ? bytes : bytes * _settings.result_max_bytes, max_allowed_packet));
+    t.length = static_cast<uint32_t>(std::min(bytes * per_character, max_allowed_packet));
   } else {
     t.field_type = f::var_string;
     t.length = static_cast<uint32_t>(bytes);
@@ -250,6 +326,139 @@ Value Evaluator::string_function_value(const Expr& e) {
     }
     const auto from = starts[static_cast<size_t>(begin)];
     return s->substr(from, starts[static_cast<size_t>(end)] - from);
+  }
+  // Whether the result counts bytes rather than characters.
+  const auto in_bytes = [&]() { return string_function(e)->type.collation == binary_collation; };
+  if (is_trim(name)) {
+    // Whole runs of `remstr` (a space by default), matched byte for byte.
+    const auto s = text(*e.args[0]);
+    if (!s) return {};
+    std::string remove = " ";
+    if (e.args.size() == 2) {
+      const auto r = text(*e.args[1]);
+      if (!r) return {};
+      remove = *r;
+    }
+    if (remove.empty()) return *s;
+    const bool leading = name != "RTRIM" && e.scope != "TRAILING", trailing = name != "LTRIM" && e.scope != "LEADING";
+    size_t begin = 0, end = s->size();
+    if (leading)
+      while (end - begin >= remove.size() && s->compare(begin, remove.size(), remove) == 0) begin += remove.size();
+    if (trailing)
+      while (end - begin >= remove.size() && s->compare(end - remove.size(), remove.size(), remove) == 0) end -= remove.size();
+    return s->substr(begin, end - begin);
+  }
+  if (name == "REPLACE") {
+    const auto s = text(*e.args[0]);
+    if (!s) return {};
+    const auto from = text(*e.args[1]);
+    if (!from) return {};
+    const auto to = text(*e.args[2]);
+    if (!to) return {};
+    if (from->empty()) return *s;
+    std::string out;
+    size_t at = 0;
+    for (size_t found = s->find(*from); found != std::string::npos; found = s->find(*from, at)) {
+      out.append(*s, at, found - at);
+      out += *to;
+      at = found + from->size();
+    }
+    out.append(*s, at, std::string::npos);
+    return out;
+  }
+  if (name == "REVERSE") {
+    const auto s = text(*e.args[0]);
+    if (!s) return {};
+    const auto starts = character_starts(*s, in_bytes());
+    std::string out;
+    for (size_t i = starts.size() - 1; i > 0; --i) out.append(*s, starts[i - 1], starts[i] - starts[i - 1]);
+    return out;
+  }
+  if (is_locate(name)) {
+    // LOCATE(substr, str[, pos]), POSITION(substr IN str), INSTR(str, substr).
+    const Expr& needle_expr = name == "INSTR" ? *e.args[1] : *e.args[0];
+    const Expr& haystack_expr = name == "INSTR" ? *e.args[0] : *e.args[1];
+    const auto needle = text(needle_expr);
+    const auto haystack = text(haystack_expr);
+    int64_t from = 1;
+    if (e.args.size() == 3) {
+      const auto n = integer_argument(*e.args[2]);
+      if (!n) return {};
+      from = *n;
+    }
+    if (!needle || !haystack) return {};
+    if (from < 1) return int64_t{0};
+    // Compared under the two strings' collation; byte for byte when either
+    // is binary, or when their collations do not agree (observed: no
+    // error).
+    const auto derived = [&](const Expr& x) -> Derivation {
+      const auto t = type(x);
+      if (t.field_type == f::null) return {binary_collation, ignorable_coercibility};
+      if (is_string_type(t)) return derivation(x, t);
+      return {_settings.result_collation, numeric_coercibility};
+    };
+    uint16_t collation = binary_collation;
+    try {
+      collation = aggregate_collations({derived(needle_expr), derived(haystack_expr)}, "locate").first;
+    } catch (const SqlError&) {
+    }
+    const Collation* compare = collation_by_id(collation);
+    if (!compare) throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'comparing strings under this collation'");
+    const bool bytes = collation == binary_collation;
+    const auto hay = character_starts(*haystack, bytes);
+    const auto count = static_cast<int64_t>(hay.size()) - 1;
+    const auto length = static_cast<int64_t>(character_starts(*needle, bytes).size()) - 1;
+    if (length == 0) return from <= count + 1 ? from : int64_t{0};
+    for (int64_t i = from - 1; i + length <= count; ++i) {
+      const auto begin = hay[static_cast<size_t>(i)], end = hay[static_cast<size_t>(i + length)];
+      if (compare->compare(std::string_view(*haystack).substr(begin, end - begin), *needle) == 0) return i + 1;
+    }
+    return int64_t{0};
+  }
+  if (name == "LPAD" || name == "RPAD") {
+    const auto s = text(*e.args[0]);
+    if (!s) return {};
+    const auto n = integer_argument(*e.args[1]);
+    if (!n) return {};
+    const auto pad = text(*e.args[2]);
+    if (!pad || *n < 0) return {};
+    const bool bytes = in_bytes();
+    const auto starts = character_starts(*s, bytes);
+    const auto count = static_cast<int64_t>(starts.size()) - 1;
+    if (*n <= count) return s->substr(0, starts[static_cast<size_t>(*n)]);
+    if (pad->empty()) return std::string();
+    if (static_cast<uint64_t>(*n) > max_allowed_packet) {
+      _warnings.push_back(too_long(name));
+      return {};
+    }
+    const auto pad_starts = character_starts(*pad, bytes);
+    const auto pad_count = pad_starts.size() - 1;
+    std::string fill;
+    for (int64_t i = 0; i < *n - count; ++i) {
+      const auto k = static_cast<size_t>(i) % pad_count;
+      fill.append(*pad, pad_starts[k], pad_starts[k + 1] - pad_starts[k]);
+    }
+    std::string out = name == "LPAD" ? fill + *s : *s + fill;
+    if (out.size() > max_allowed_packet) {
+      _warnings.push_back(too_long(name));
+      return {};
+    }
+    return out;
+  }
+  if (name == "REPEAT") {
+    const auto s = text(*e.args[0]);
+    if (!s) return {};
+    const auto n = integer_argument(*e.args[1]);
+    if (!n) return {};
+    if (*n <= 0 || s->empty()) return std::string();
+    if (static_cast<uint64_t>(*n) > max_allowed_packet / s->size()) {
+      _warnings.push_back(too_long(name));
+      return {};
+    }
+    std::string out;
+    out.reserve(s->size() * static_cast<size_t>(*n));
+    for (int64_t i = 0; i < *n; ++i) out += *s;
+    return out;
   }
   std::string out;
   if (name == "CONCAT") {

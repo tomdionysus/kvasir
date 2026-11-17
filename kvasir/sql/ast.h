@@ -43,7 +43,8 @@ enum class ExprKind : uint8_t {
   between,          // args[0] [NOT] BETWEEN args[1] AND args[2]
   like,             // args[0] [NOT] LIKE args[1] [ESCAPE args[2]]
   regexp,           // args[0] [NOT] REGEXP args[1]
-  call,             // `value` the function's name in upper case; args; `distinct`; `star` for COUNT(*)
+  call,             // `value` the function's name in upper case; args; `distinct`; `star` for COUNT(*);
+                    // TRIM's args are str then remstr if any, `scope` BOTH, LEADING, TRAILING or empty
   case_when,        // `operand` if any; args in pairs, WHEN then THEN; `otherwise` if any
   row,              // (a, b, ...) or ROW(a, b, ...)
   collate,          // args[0] COLLATE `value`

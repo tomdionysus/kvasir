@@ -302,6 +302,26 @@ TEST(SqlParser, SubstringLeftAndRightArguments) {
   EXPECT_EQ(error_at("SELECT RIGHT('a',1,2)"), 18u);
 }
 
+// TRIM([{BOTH | LEADING | TRAILING} [remstr] FROM] str), TRIM([remstr
+// FROM] str), POSITION(substr IN str), REPLACE's three arguments and
+// REPEAT's two, from the grammar (observed on MySQL 8.4.13, 2026-11-17).
+TEST(SqlParser, TrimPositionReplaceAndRepeatArguments) {
+  const auto text = [](const std::string& sql) { return to_string(*one(sql).select.items[0].expr); };
+  EXPECT_EQ(text("SELECT TRIM(a)"), "(TRIM a)");
+  EXPECT_EQ(text("SELECT TRIM('x' FROM a)"), "(TRIM a 'x')");
+  EXPECT_EQ(text("SELECT TRIM(LEADING 'x' FROM a)"), "(TRIM LEADING a 'x')");
+  EXPECT_EQ(text("SELECT TRIM(TRAILING FROM a)"), "(TRIM TRAILING a)");
+  EXPECT_EQ(text("SELECT TRIM(BOTH 'x' FROM a)"), "(TRIM BOTH a 'x')");
+  EXPECT_EQ(text("SELECT POSITION('c' IN 'abc')"), "(POSITION 'c' 'abc')");
+  EXPECT_EQ(text("SELECT REPLACE(a, 'b', 'c')"), "(REPLACE a 'b' 'c')");
+  EXPECT_EQ(error_at("SELECT REPLACE('a','b')"), 22u);
+  EXPECT_EQ(error_at("SELECT REPEAT('a')"), 17u);
+  EXPECT_EQ(error_at("SELECT REVERSE()"), 15u);
+  EXPECT_EQ(error_at("SELECT TRIM()"), 12u);
+  EXPECT_EQ(error_at("SELECT TRIM(LEADING 'a' 'b')"), 27u);
+  EXPECT_EQ(error_at("SELECT POSITION('a')"), 19u);
+}
+
 TEST(SqlParser, SelectHint) { EXPECT_EQ(one("SELECT /*+ MAX_EXECUTION_TIME(1000) */ 1").select.hint, " MAX_EXECUTION_TIME(1000) "); }
 
 TEST(SqlParser, SetVariables) {

@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "kvasir/exec/expression.h"
@@ -38,6 +39,8 @@ std::string type_name(uint8_t t) {
       return "VAR_STRING";
     case f::null:
       return "NULL";
+    case f::long_blob:
+      return "LONG_BLOB";
     default:
       return "type " + std::to_string(t);
   }
@@ -582,6 +585,97 @@ TEST(ExecExpression, SubstringLeftAndRight) {
   ASSERT_FALSE(evaluator.warnings().empty());
   EXPECT_EQ(evaluator.warnings().back().code, 1292);
   EXPECT_EQ(evaluator.warnings().back().message, "Truncated incorrect INTEGER value: '2x'");
+}
+
+// TRIM, LTRIM, RTRIM, REPLACE, LOCATE, INSTR, POSITION, LPAD, RPAD, REPEAT
+// and REVERSE, observed on MySQL 8.4.13, 2026-11-17. The string results
+// hold their first argument's collation and are never NOT NULL; TRIM and
+// REPLACE match bytes, LOCATE compares under the collation. A length or
+// count that is not a constant makes a LONG BLOB; a result past
+// max_allowed_packet is NULL with warning 1301.
+TEST(ExecExpression, MoreStringFunctions) {
+  check({
+      {"TRIM('  ab  ')", "VAR_STRING", 255, 24, 31, "", "ab"},
+      {"LTRIM('  ab  ')", "VAR_STRING", 255, 24, 31, "", "ab  "},
+      {"RTRIM('  ab  ')", "VAR_STRING", 255, 24, 31, "", "  ab"},
+      {"TRIM(LEADING 'x' FROM 'xxabxx')", "VAR_STRING", 255, 24, 31, "", "abxx"},
+      {"TRIM(TRAILING 'x' FROM 'xxabxx')", "VAR_STRING", 255, 24, 31, "", "xxab"},
+      {"TRIM(BOTH 'xy' FROM 'xyxyabxy')", "VAR_STRING", 255, 32, 31, "", "ab"},
+      {"TRIM('x' FROM 'xabx')", "VAR_STRING", 255, 16, 31, "", "ab"},
+      {"TRIM(LEADING FROM '  a')", "VAR_STRING", 255, 12, 31, "", "a"},
+      {"TRIM(TRAILING '' FROM 'a')", "VAR_STRING", 255, 4, 31, "", "a"},
+      {"TRIM(BOTH 'ab' FROM 'ababa')", "VAR_STRING", 255, 20, 31, "", "a"},
+      {"TRIM(NULL)", "VAR_STRING", 63, 0, 31, "BINARY", "NULL"},
+      {"TRIM(12)", "VAR_STRING", 255, 12, 31, "", "12"},
+      {"TRIM(_binary' a ')", "VAR_STRING", 63, 3, 31, "BINARY", "a"},
+      {"TRIM('a' FROM NULL)", "VAR_STRING", 63, 0, 31, "BINARY", "NULL"},
+      {"TRIM(NULL FROM 'a')", "VAR_STRING", 255, 4, 31, "", "NULL"},
+      {"TRIM('a' COLLATE utf8mb4_bin FROM 'b' COLLATE utf8mb4_0900_as_cs)", "VAR_STRING", 255, 4, 31, "", "b"},
+      {"REPLACE('abcabc','b','XY')", "VAR_STRING", 255, 24, 31, "", "aXYcaXYc"},
+      {"REPLACE('abc','','x')", "VAR_STRING", 255, 12, 31, "", "abc"},
+      {"REPLACE('aAa','a','b')", "VAR_STRING", 255, 12, 31, "", "bAb"},
+      {"REPLACE(NULL,'a','b')", "VAR_STRING", 63, 0, 31, "BINARY", "NULL"},
+      {"REPLACE('abc','b',NULL)", "VAR_STRING", 255, 12, 31, "", "NULL"},
+      {"REPLACE(123,2,9)", "VAR_STRING", 255, 16, 31, "", "193"},
+      {"REPLACE('ab','b','xyz')", "VAR_STRING", 255, 16, 31, "", "axyz"},
+      {"REPLACE('ab','','xyz')", "VAR_STRING", 255, 16, 31, "", "ab"},
+      {"LOCATE('b','abcb')", "LONGLONG", 63, 11, 0, "NOT_NULL BINARY NUM", "2"},
+      {"LOCATE('b','abcb',3)", "LONGLONG", 63, 11, 0, "NOT_NULL BINARY NUM", "4"},
+      {"LOCATE('B','abc')", "LONGLONG", 63, 11, 0, "NOT_NULL BINARY NUM", "2"},
+      {"LOCATE('','abc')", "LONGLONG", 63, 11, 0, "NOT_NULL BINARY NUM", "1"},
+      {"LOCATE('','abc',4)", "LONGLONG", 63, 11, 0, "NOT_NULL BINARY NUM", "4"},
+      {"LOCATE('','abc',5)", "LONGLONG", 63, 11, 0, "NOT_NULL BINARY NUM", "0"},
+      {"LOCATE('x','abc')", "LONGLONG", 63, 11, 0, "NOT_NULL BINARY NUM", "0"},
+      {"LOCATE(NULL,'a')", "LONGLONG", 63, 11, 0, "BINARY NUM", "NULL"},
+      {"LOCATE('b','abc',0)", "LONGLONG", 63, 11, 0, "NOT_NULL BINARY NUM", "0"},
+      {"LOCATE('b','abcb',-1)", "LONGLONG", 63, 11, 0, "NOT_NULL BINARY NUM", "0"},
+      {"LOCATE('b','abc',NULL)", "LONGLONG", 63, 11, 0, "BINARY NUM", "NULL"},
+      {"LOCATE('\xC3\xA9','a\xC3\xA9"
+       "b')",
+       "LONGLONG", 63, 11, 0, "NOT_NULL BINARY NUM", "2"},
+      {"INSTR('abcb','c')", "LONGLONG", 63, 11, 0, "NOT_NULL BINARY NUM", "3"},
+      {"POSITION('c' IN 'abc')", "LONGLONG", 63, 11, 0, "NOT_NULL BINARY NUM", "3"},
+      {"LOCATE('a' COLLATE utf8mb4_bin, 'b' COLLATE utf8mb4_0900_as_cs)", "LONGLONG", 63, 11, 0, "BINARY NUM", "0"},
+      {"LPAD('ab',5,'xy')", "VAR_STRING", 255, 20, 31, "", "xyxab"},
+      {"RPAD('ab',5,'xy')", "VAR_STRING", 255, 20, 31, "", "abxyx"},
+      {"LPAD('abcdef',3,'x')", "VAR_STRING", 255, 12, 31, "", "abc"},
+      {"LPAD('ab',5,'')", "VAR_STRING", 255, 20, 31, "", ""},
+      {"LPAD('ab',-1,'x')", "LONG_BLOB", 255, 67108864, 31, "", "NULL"},
+      {"LPAD(NULL,3,'x')", "VAR_STRING", 63, 3, 31, "BINARY", "NULL"},
+      {"LPAD('a',3,NULL)", "VAR_STRING", 255, 12, 31, "", "NULL"},
+      {"RPAD(1,3,0)", "VAR_STRING", 255, 12, 31, "", "100"},
+      {"LPAD('ab', 0, 'x')", "VAR_STRING", 255, 0, 31, "", ""},
+      {"RPAD('\xC3\xA9',3,'\xC3\xBC')", "VAR_STRING", 255, 12, 31, "", "\xC3\xA9\xC3\xBC\xC3\xBC"},
+      {"REPEAT('ab',3)", "VAR_STRING", 255, 24, 31, "", "ababab"},
+      {"REPEAT('ab',0)", "VAR_STRING", 255, 0, 31, "", ""},
+      {"REPEAT('ab',-1)", "LONG_BLOB", 255, 67108864, 31, "", ""},
+      {"REPEAT(NULL,2)", "VAR_STRING", 63, 0, 31, "BINARY", "NULL"},
+      {"REPEAT(1,2)", "VAR_STRING", 255, 16, 31, "", "11"},
+      {"REVERSE('abc')", "VAR_STRING", 255, 12, 31, "", "cba"},
+      {"REVERSE('h\xC3\xA9llo')", "VAR_STRING", 255, 20, 31, "", "oll\xC3\xA9h"},
+      {"REVERSE(NULL)", "VAR_STRING", 63, 0, 31, "BINARY", "NULL"},
+      {"REVERSE(123)", "VAR_STRING", 255, 16, 31, "", "321"},
+      {"REVERSE(_binary'ab')", "VAR_STRING", 63, 2, 31, "BINARY", "ba"},
+  });
+  for (const auto& [sql, message] : std::vector<std::pair<std::string, std::string>>{
+           {"REPEAT('ab', 40000000)", "Result of repeat() was larger than max_allowed_packet (67108864) - truncated"},
+           {"LPAD('a', 70000000, 'x')", "Result of lpad() was larger than max_allowed_packet (67108864) - truncated"}}) {
+    SCOPED_TRACE(sql);
+    Evaluator evaluator;
+    const auto statement = select(sql);
+    const auto& expr = *statement.select.items[0].expr;
+    EXPECT_EQ(type_name(evaluator.type(expr).field_type), "LONG_BLOB");
+    EXPECT_EQ(evaluator.type(expr).length, 67108864u);
+    EXPECT_TRUE(is_null(evaluator.value(expr)));
+    ASSERT_EQ(evaluator.warnings().size(), 1u);
+    EXPECT_EQ(evaluator.warnings()[0].code, 1301);
+    EXPECT_EQ(evaluator.warnings()[0].message, message);
+  }
+  expect_error("LOCATE('a')", 1582, "42000", "Incorrect parameter count in the call to native function 'LOCATE'");
+  expect_error("LOCATE('a','b',1,2)", 1582, "42000", "Incorrect parameter count in the call to native function 'LOCATE'");
+  expect_error("INSTR('a')", 1582, "42000", "Incorrect parameter count in the call to native function 'INSTR'");
+  expect_error("LPAD('a',1)", 1582, "42000", "Incorrect parameter count in the call to native function 'LPAD'");
+  expect_error("LTRIM('a','b')", 1582, "42000", "Incorrect parameter count in the call to native function 'LTRIM'");
 }
 
 TEST(ExecExpression, ColumnNames) {

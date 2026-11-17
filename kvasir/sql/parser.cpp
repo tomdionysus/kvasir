@@ -1444,13 +1444,50 @@ class Parser {
       expect_symbol(")");
       return;
     }
-    if (call.value == "LEFT" || call.value == "RIGHT") {
-      call.args.push_back(expression());
-      expect_symbol(",");
+    // Arguments the grammar fixes: LEFT, RIGHT and REPEAT two, REPLACE three.
+    if (call.value == "LEFT" || call.value == "RIGHT" || call.value == "REPEAT" || call.value == "REPLACE") {
+      const int count = call.value == "REPLACE" ? 3 : 2;
+      for (int i = 0; i < count; ++i) {
+        if (i) expect_symbol(",");
+        call.args.push_back(expression());
+      }
+      expect_symbol(")");
+      return;
+    }
+    // TRIM([{BOTH | LEADING | TRAILING} [remstr] FROM] str) or TRIM([remstr
+    // FROM] str): args are str then remstr, `scope` the side.
+    if (call.value == "TRIM") {
+      if (word("BOTH") || word("LEADING") || word("TRAILING")) {
+        call.scope = upper(take().value);
+        if (!accept_word("FROM")) {
+          auto remstr = expression();
+          if (!accept_word("FROM")) fail(peek());
+          call.args.push_back(expression());
+          call.args.push_back(std::move(remstr));
+        } else {
+          call.args.push_back(expression());
+        }
+      } else {
+        auto first = expression();
+        if (accept_word("FROM")) {
+          call.args.push_back(expression());
+          call.args.push_back(std::move(first));
+        } else {
+          call.args.push_back(std::move(first));
+        }
+      }
+      expect_symbol(")");
+      return;
+    }
+    // POSITION(substr IN str), as LOCATE(substr, str).
+    if (call.value == "POSITION") {
+      call.args.push_back(bit_or());
+      if (!accept_word("IN")) fail(peek());
       call.args.push_back(expression());
       expect_symbol(")");
       return;
     }
+    if (call.value == "REVERSE" && symbol(")")) fail(peek());
     if (call.value == "COALESCE" && symbol(")")) fail(peek());
     if (symbol(")")) {
       take();
@@ -1600,7 +1637,7 @@ std::string to_string(const Expr& e) {
     case ExprKind::regexp:
       return "(" + negatable("REGEXP") + args(0) + ")";
     case ExprKind::call:
-      return "(" + e.value + (e.distinct ? " DISTINCT" : "") + (e.star ? " *" : "") + args(0) + ")";
+      return "(" + e.value + (e.scope.empty() ? "" : " " + e.scope) + (e.distinct ? " DISTINCT" : "") + (e.star ? " *" : "") + args(0) + ")";
     case ExprKind::case_when: {
       std::string out = "(CASE";
       if (e.operand) out += " " + to_string(*e.operand);
