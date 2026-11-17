@@ -274,6 +274,9 @@ builds on node-d (4 GB).
     changes go through plan item 7's atomic commit (a transaction record),
     which is Kvasir's design for commits across ranges; Kvasir will use
     Dannan's item 7 and never names more than one range per change.
+    Merged on Dannan's develop (ea84a31, unpushed until the maintainer says): a
+    repeatable change is always run on the retry's own base; change(),
+    change_deltas() and forget() take one name until item 7.
   Dannan has also taken Kvasir's
   ask to export its fuzz harness with the test fixtures (a 0.9 item, not
   started). Dannan's working tree may be on a feature branch: read
