@@ -148,6 +148,52 @@ int written_digits(std::string_view text) {
 
 bool is_string_type(const ResultType& t) { return is_string(t); }
 
+namespace {
+
+bool is_integer(const ResultType& t) {
+  return t.field_type == f::longlong || t.field_type == f::long_ || t.field_type == f::int24 || t.field_type == f::short_ || t.field_type == f::tiny;
+}
+
+// The digits an integer of this type can hold.
+int integer_digits(const ResultType& t) {
+  switch (t.field_type) {
+    case f::tiny:
+      return 3;
+    case f::short_:
+      return 5;
+    case f::int24:
+      return 8;
+    case f::long_:
+      return 10;
+    default:
+      return t.is_unsigned() ? 20 : 19;
+  }
+}
+
+bool is_blob(uint8_t type) { return type == f::blob || type == f::tiny_blob || type == f::medium_blob || type == f::long_blob; }
+
+// IFNULL, COALESCE, NULLIF and IF (CASE is its own kind of node).
+bool is_flow_control(const Expr& e) {
+  return e.kind == ExprKind::call && (e.value == "IFNULL" || e.value == "COALESCE" || e.value == "NULLIF" || e.value == "IF");
+}
+
+}  // namespace
+
+ResultType column_as_expression(const ResultType& column, uint32_t result_max_bytes) {
+  ResultType t = column;
+  const bool unsigned_ = column.is_unsigned();
+  if (is_string(column)) {
+    t.decimals = any_decimals;
+    if (column.field_type == f::blob && column.collation != binary_collation)
+      t.length = static_cast<uint32_t>(std::min<uint64_t>(uint64_t{column.length} * result_max_bytes, UINT32_MAX));
+    t.flags = static_cast<uint16_t>(column.collation == binary_collation || (column.flags & c::binary) ? c::binary : 0);
+    return t;
+  }
+  if (is_integer(column)) t.length = static_cast<uint32_t>(integer_digits(column) + (unsigned_ ? 0 : 1));
+  t.flags = static_cast<uint16_t>(c::binary | c::num | (unsigned_ ? c::unsigned_ : 0));
+  return t;
+}
+
 bool ResultType::nullable() const noexcept { return (flags & c::not_null) == 0; }
 bool ResultType::is_unsigned() const noexcept { return (flags & c::unsigned_) != 0; }
 
@@ -334,12 +380,15 @@ ResultType Evaluator::type(const Expr& e) const {
           if (const auto t = _settings.aggregates->aggregate_type(e)) return *t;
         throw SqlError(er_invalid_group_func_use, "HY000", "Invalid use of group function");
       }
+      if (is_flow_control(e)) return flow_type(e).type;
       if (e.args.empty() && !e.star && _settings.variables) {
         ResultType t;
         Value unused;
         if (_settings.variables->session_function(e.value, t, unused)) return t;
       }
       not_yet("function " + e.value);
+    case ExprKind::case_when:
+      return flow_type(e).type;
     case ExprKind::user_variable:
       if (!_settings.variables) not_yet("variables");
       return _settings.variables->user_type(e.value);
@@ -389,7 +438,10 @@ std::pair<uint16_t, int> Evaluator::derivation(const Expr& e, const ResultType& 
     case ExprKind::call:
       // MIN and MAX hold their argument's collation.
       if (is_aggregate(e) && !e.args.empty()) return derivation(*e.args[0], type(*e.args[0]));
+      if (is_flow_control(e)) return flow_type(e).derivation;
       return {utf8mb3_general_ci, sysconst_coercibility};
+    case ExprKind::case_when:
+      return flow_type(e).derivation;
     case ExprKind::system_variable:
       return {utf8mb3_general_ci, sysconst_coercibility};
     case ExprKind::collate:
@@ -433,7 +485,7 @@ uint16_t Evaluator::explicit_collation(const Expr& e) const {
 std::optional<uint16_t> Evaluator::string_collation(const std::vector<Operand>& operands, const std::string& operation) const {
   // Only strings take part; the first operand must be one, and with two
   // operands both must, or they compare as numbers.
-  std::vector<std::pair<uint16_t, int>> strings;
+  std::vector<Derivation> strings;
   for (size_t i = 0; i < operands.size(); ++i) {
     if (!is_string(operands[i].type)) {
       if (i == 0 || operands.size() == 2) return std::nullopt;
@@ -442,6 +494,12 @@ std::optional<uint16_t> Evaluator::string_collation(const std::vector<Operand>& 
     strings.push_back(derivation(*operands[i].expr, operands[i].type));
   }
   if (strings.size() < 2) return std::nullopt;
+  const auto chosen = aggregate_collations(strings, operation);
+  if (!collation_by_id(chosen.first)) not_yet("comparing strings under " + collation_text(chosen.first));
+  return chosen.first;
+}
+
+Evaluator::Derivation Evaluator::aggregate_collations(const std::vector<Derivation>& strings, const std::string& operation) const {
   const auto illegal_mix = [&]() {
     std::string message = "Illegal mix of collations ";
     for (size_t i = 0; i < strings.size(); ++i) {
@@ -468,8 +526,7 @@ std::optional<uint16_t> Evaluator::string_collation(const std::vector<Operand>& 
       }
     }
   }
-  if (!collation_by_id(chosen.first)) not_yet("comparing strings under " + collation_text(chosen.first));
-  return chosen.first;
+  return chosen;
 }
 
 namespace {
@@ -538,14 +595,34 @@ double Evaluator::real(const Value& v, const ResultType& t) {
   return number.empty() ? 0.0 : parse_double(number);
 }
 
+std::optional<bool> Evaluator::truth(const Value& v, const ResultType& t) {
+  if (is_null(v)) return std::nullopt;
+  if (const auto* d = std::get_if<Decimal>(&v)) return !d->is_zero();
+  if (std::holds_alternative<int64_t>(v) || std::holds_alternative<uint64_t>(v)) return as_int(v) != 0;
+  return real(v, t) != 0;
+}
+
+std::optional<int> Evaluator::compare_values(const Value& x, const ResultType& tx, const Value& y, const ResultType& ty, std::optional<uint16_t> collation) {
+  if (is_null(x) || is_null(y)) return std::nullopt;
+  if (collation) {
+    const auto* sx = std::get_if<std::string>(&x);
+    const auto* sy = std::get_if<std::string>(&y);
+    if (sx && sy) return collation_by_id(*collation)->compare(*sx, *sy);
+  }
+  const auto dx = domain_of(tx), dy = domain_of(ty);
+  if (dx == Domain::integer && dy == Domain::integer) {
+    const Int a = as_int(x), b = as_int(y);
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+  if (dx == Domain::real || dy == Domain::real) {
+    const double a = real(x, tx), b = real(y, ty);
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+  return compare(as_decimal(x), as_decimal(y));
+}
+
 Value Evaluator::value(const Expr& e) {
   const auto to_double = [&](const Value& v, const ResultType& t) -> double { return real(v, t); };
-  const auto truth = [&](const Value& v, const ResultType& t) -> std::optional<bool> {
-    if (is_null(v)) return std::nullopt;
-    if (const auto* d = std::get_if<Decimal>(&v)) return !d->is_zero();
-    if (std::holds_alternative<int64_t>(v) || std::holds_alternative<uint64_t>(v)) return as_int(v) != 0;
-    return to_double(v, t) != 0;
-  };
   const auto boolean = [](std::optional<bool> b) -> Value {
     if (!b) return {};
     return int64_t{*b ? 1 : 0};
@@ -553,27 +630,6 @@ Value Evaluator::value(const Expr& e) {
   const auto division_by_zero = [&]() -> Value {
     _warnings.push_back({"Warning", er_division_by_zero, "Division by 0"});
     return {};
-  };
-  // -1, 0 or 1; nothing when either is NULL. Two strings compare under
-  // `collation`, the one derived for the operation.
-  const auto compare_values = [&](const Value& x, const ResultType& tx, const Value& y, const ResultType& ty,
-                                  std::optional<uint16_t> collation) -> std::optional<int> {
-    if (is_null(x) || is_null(y)) return std::nullopt;
-    if (collation) {
-      const auto* sx = std::get_if<std::string>(&x);
-      const auto* sy = std::get_if<std::string>(&y);
-      if (sx && sy) return collation_by_id(*collation)->compare(*sx, *sy);
-    }
-    const auto dx = domain_of(tx), dy = domain_of(ty);
-    if (dx == Domain::integer && dy == Domain::integer) {
-      const Int a = as_int(x), b = as_int(y);
-      return a < b ? -1 : a > b ? 1 : 0;
-    }
-    if (dx == Domain::real || dy == Domain::real) {
-      const double a = to_double(x, tx), b = to_double(y, ty);
-      return a < b ? -1 : a > b ? 1 : 0;
-    }
-    return compare(as_decimal(x), as_decimal(y));
   };
   const auto out_of_range = [&](const char* what) -> SqlError {
     return SqlError(er_data_out_of_range, "22003", std::string(what) + " value is out of range in '" + mysql_text(e) + "'");
@@ -831,7 +887,10 @@ Value Evaluator::value(const Expr& e) {
       if (is_null(v) || std::holds_alternative<std::string>(v)) return v;
       return *to_text(v, t);
     }
+    case ExprKind::case_when:
+      return flow_value(e);
     case ExprKind::call: {
+      if (is_flow_control(e)) return flow_value(e);
       type(e);
       if (is_aggregate(e)) return _settings.aggregates->aggregate_value(e);
       ResultType t;
@@ -852,6 +911,229 @@ Value Evaluator::value(const Expr& e) {
       type(e);
       not_yet("this expression");
   }
+}
+
+Evaluator::Merged Evaluator::merged(const std::vector<Operand>& operands, const std::string& operation) const {
+  Merged out;
+  out.derivation = {binary_collation, coercible_coercibility};
+  ResultType& t = out.type;
+  // NULL takes no part; a column counts as an expression over it.
+  std::vector<ResultType> types;
+  std::vector<Derivation> strings;
+  bool any_real = false, any_decimal = false;
+  for (const auto& o : operands) {
+    if (o.type.field_type == f::null) continue;
+    types.push_back(o.expr->kind == ExprKind::column ? column_as_expression(o.type, _settings.result_max_bytes) : o.type);
+    const auto& a = types.back();
+    if (is_string(a)) strings.push_back(derivation(*o.expr, o.type));
+    any_real = any_real || a.field_type == f::double_ || a.field_type == f::float_;
+    any_decimal = any_decimal || a.field_type == f::newdecimal;
+  }
+  if (types.empty()) {
+    t.field_type = f::null;
+    t.collation = binary_collation;
+    t.flags = c::binary | c::num;
+    return out;
+  }
+  if (!strings.empty()) {
+    // A string as long as the longest operand's text: in characters, or in
+    // bytes for a binary string. A DOUBLE's text is 22 long (observed).
+    out.derivation = aggregate_collations(strings, operation);
+    const bool binary = out.derivation.first == binary_collation;
+    bool blob = false, all_char = true;
+    uint64_t longest = 0;
+    for (const auto& a : types) {
+      uint64_t n = a.length;
+      if (is_string(a)) {
+        blob = blob || is_blob(a.field_type);
+        all_char = all_char && a.field_type == f::string;
+        if (!binary && a.collation != binary_collation) n = a.length / std::max<uint32_t>(_settings.result_max_bytes, 1);
+      } else if ((a.field_type == f::double_ || a.field_type == f::float_) && a.decimals == any_decimals) {
+        n = 22;
+      }
+      longest = std::max(longest, n);
+    }
+    t.field_type = blob ? f::blob : all_char ? f::string : f::var_string;
+    t.collation = binary ? binary_collation : _settings.result_collation;
+    t.length = static_cast<uint32_t>(std::min<uint64_t>(binary ? longest : longest * _settings.result_max_bytes, UINT32_MAX));
+    t.decimals = any_decimals;
+    t.flags = static_cast<uint16_t>(binary || is_bin(out.derivation.first) ? c::binary : 0);
+    return out;
+  }
+  if (any_real) {
+    t = double_type(double_length, false);
+    return out;
+  }
+  if (any_decimal) {
+    // Room for the most digits either side of the point.
+    int whole = 0, scale = 0;
+    for (const auto& a : types) {
+      if (a.field_type == f::newdecimal) {
+        whole = std::max(whole, a.precision - a.decimals);
+        scale = std::max(scale, static_cast<int>(a.decimals));
+      } else {
+        whole = std::max(whole, a.precision);
+      }
+    }
+    t = decimal_type(std::min(whole + scale, static_cast<int>(decimal_max_precision)), scale, false);
+    return out;
+  }
+  // Integers: the widest type, one wider where an unsigned type at least as
+  // wide as every signed one meets a signed one, DECIMAL past BIGINT.
+  static constexpr std::array<uint8_t, 5> by_width = {f::tiny, f::short_, f::int24, f::long_, f::longlong};
+  const auto width = [](uint8_t type) { return static_cast<int>(std::find(by_width.begin(), by_width.end(), type) - by_width.begin()); };
+  int widest_signed = -1, widest_unsigned = -1, precision = 0;
+  uint32_t length = 0;
+  for (const auto& a : types) {
+    auto& widest = a.is_unsigned() ? widest_unsigned : widest_signed;
+    widest = std::max(widest, std::min(width(a.field_type), 4));
+    precision = std::max(precision, a.precision);
+    length = std::max(length, a.length);
+  }
+  int result_width = std::max(widest_signed, widest_unsigned);
+  if (widest_signed >= 0 && widest_unsigned >= widest_signed) {
+    if (widest_unsigned == 4) {
+      t = decimal_type(precision, 0, false);
+      return out;
+    }
+    result_width = widest_unsigned + 1;
+  }
+  t = integer_type(precision, widest_signed < 0, false);
+  t.field_type = by_width[static_cast<size_t>(result_width)];
+  t.length = length;
+  return out;
+}
+
+std::optional<uint16_t> Evaluator::case_collation(const Expr& e) const {
+  std::vector<Derivation> strings;
+  bool all_strings = true;
+  const auto add = [&](const Expr& x) {
+    const auto t = type(x);
+    if (t.field_type == f::null) return;
+    if (!is_string(t)) {
+      all_strings = false;
+      return;
+    }
+    strings.push_back(derivation(x, t));
+  };
+  add(*e.operand);
+  for (size_t i = 0; i + 1 < e.args.size(); i += 2) add(*e.args[i]);
+  if (!all_strings || strings.empty()) return std::nullopt;
+  const auto chosen = aggregate_collations(strings, "case");
+  if (!collation_by_id(chosen.first)) not_yet("comparing strings under " + collation_text(chosen.first));
+  return chosen.first;
+}
+
+Evaluator::Merged Evaluator::flow_type(const Expr& e) const {
+  const auto operand = [&](const sql::ExprPtr& a) { return Operand{a.get(), type(*a)}; };
+  const auto is_not_null = [](const ResultType& t) { return (t.flags & c::not_null) != 0; };
+  // IF and CASE show a DECIMAL at the chosen value's own scale (observed).
+  const auto own_scale = [](Merged m) {
+    if (m.type.field_type == f::newdecimal) m.type.own_scale = true;
+    return m;
+  };
+  if (e.kind == ExprKind::case_when) {
+    if (e.operand) {
+      case_collation(e);
+    } else {
+      for (size_t i = 0; i + 1 < e.args.size(); i += 2) type(*e.args[i]);
+    }
+    std::vector<Operand> results;
+    for (size_t i = 1; i < e.args.size(); i += 2) results.push_back(operand(e.args[i]));
+    if (e.otherwise) results.push_back(operand(e.otherwise));
+    // NULL when nothing matches and there is no ELSE.
+    bool not_null = e.otherwise != nullptr;
+    for (const auto& r : results) not_null = not_null && is_not_null(r.type);
+    auto m = merged(results, "case");
+    if (not_null) m.type.flags = static_cast<uint16_t>(m.type.flags | c::not_null);
+    return own_scale(m);
+  }
+  const auto& name = e.value;
+  if ((name == "IFNULL" || name == "NULLIF") && e.args.size() != 2)
+    throw SqlError(1582, "42000", "Incorrect parameter count in the call to native function '" + name + "'");
+  std::vector<Operand> args;
+  for (const auto& a : e.args) args.push_back(operand(a));
+  if (name == "NULLIF") {
+    // The first argument, NULL when the two are equal.
+    string_collation(args, "nullif");
+    const auto& first = args[0];
+    Merged m;
+    m.type = first.expr->kind == ExprKind::column ? column_as_expression(first.type, _settings.result_max_bytes) : first.type;
+    m.type.flags = static_cast<uint16_t>(m.type.flags & ~c::not_null);
+    m.derivation = is_string(first.type) ? derivation(*first.expr, first.type) : Derivation{binary_collation, coercible_coercibility};
+    return m;
+  }
+  if (name == "IF") {
+    type(*e.args[0]);
+    auto m = merged({args[1], args[2]}, "if");
+    if (is_not_null(args[1].type) && is_not_null(args[2].type)) m.type.flags = static_cast<uint16_t>(m.type.flags | c::not_null);
+    return own_scale(m);
+  }
+  // IFNULL and COALESCE: NULL only when every argument may be.
+  auto m = merged(args, name == "IFNULL" ? "ifnull" : "coalesce");
+  if (std::any_of(args.begin(), args.end(), [&](const Operand& a) { return is_not_null(a.type); }))
+    m.type.flags = static_cast<uint16_t>(m.type.flags | c::not_null);
+  return m;
+}
+
+Value Evaluator::converted(const Value& v, const ResultType& from, const ResultType& to) {
+  if (is_null(v)) return v;
+  if (is_string(to)) {
+    if (std::holds_alternative<std::string>(v)) return v;
+    return *to_text(v, from);
+  }
+  if (to.field_type == f::double_) return real(v, from);
+  if (to.field_type == f::newdecimal) return as_decimal(v);
+  return v;
+}
+
+Value Evaluator::flow_value(const Expr& e) {
+  const auto to = flow_type(e).type;
+  // Only what is needed is evaluated.
+  const auto result = [&](const Expr& x) { return converted(value(x), type(x), to); };
+  if (e.kind == ExprKind::case_when) {
+    std::optional<uint16_t> collation;
+    Value subject;
+    ResultType subject_type;
+    if (e.operand) {
+      collation = case_collation(e);
+      subject_type = type(*e.operand);
+      subject = value(*e.operand);
+    }
+    for (size_t i = 0; i + 1 < e.args.size(); i += 2) {
+      const auto& when = *e.args[i];
+      bool hit = false;
+      if (e.operand) {
+        const auto order = compare_values(subject, subject_type, value(when), type(when), collation);
+        hit = order && *order == 0;
+      } else {
+        const auto b = truth(value(when), type(when));
+        hit = b && *b;
+      }
+      if (hit) return result(*e.args[i + 1]);
+    }
+    if (e.otherwise) return result(*e.otherwise);
+    return {};
+  }
+  const auto& name = e.value;
+  if (name == "IF") {
+    const auto b = truth(value(*e.args[0]), type(*e.args[0]));
+    return result(b && *b ? *e.args[1] : *e.args[2]);
+  }
+  if (name == "NULLIF") {
+    const auto ta = type(*e.args[0]), tb = type(*e.args[1]);
+    const auto a = value(*e.args[0]);
+    if (is_null(a)) return {};
+    const auto collation = string_collation({{e.args[0].get(), ta}, {e.args[1].get(), tb}}, "nullif");
+    const auto order = compare_values(a, ta, value(*e.args[1]), tb, collation);
+    if (order && *order == 0) return {};
+    return a;
+  }
+  for (const auto& a : e.args) {
+    auto v = value(*a);
+    if (!is_null(v)) return converted(v, type(*a), to);
+  }
+  return {};
 }
 
 std::string mysql_text(const Expr& e) {

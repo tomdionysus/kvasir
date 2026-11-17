@@ -38,8 +38,12 @@
 // An aggregate is read from an AggregateSource; anywhere else it is error
 // 1111.
 //
-// Not yet: REGEXP, functions other than the aggregates (aggregate.h) and the
-// session's, and placeholders, each refused with its MySQL error.
+// The flow control functions (IFNULL, COALESCE, NULLIF, IF, CASE) type their
+// result by aggregating their operands' types as MySQL does (observed).
+//
+// Not yet: REGEXP, functions other than the aggregates (aggregate.h), the
+// flow control functions and the session's, and placeholders, each refused
+// with its MySQL error.
 // Known difference: arithmetic on a bare NULL literal is typed DOUBLE with
 // length 23 and 31 decimals, where MySQL reports smaller lengths; its value
 // is NULL either way.
@@ -135,11 +139,36 @@ class Evaluator {
     const sql::Expr* expr;
     ResultType type;
   };
+  using Derivation = std::pair<uint16_t, int>;
   // The collation operands compare under, aggregated as MySQL does, or
   // nothing when they compare as numbers. Throws SqlError: 1267 or 1270 for
   // collations that cannot be reconciled, 1235 for one Kvasir cannot yet
   // compare under. `operation` names the operation in 1267 and 1270.
   std::optional<uint16_t> string_collation(const std::vector<Operand>& operands, const std::string& operation) const;
+  // Strings' collations aggregated (the lower coercibility wins; on a tie a
+  // binary string, then a _bin collation), or 1267 or 1270.
+  Derivation aggregate_collations(const std::vector<Derivation>& strings, const std::string& operation) const;
+  // -1, 0 or 1, or nothing when either is NULL; two strings compare under
+  // `collation`.
+  std::optional<int> compare_values(const Value& x, const ResultType& tx, const Value& y, const ResultType& ty, std::optional<uint16_t> collation);
+  // A value as a condition: nothing for NULL.
+  std::optional<bool> truth(const Value& v, const ResultType& t);
+
+  // The flow control functions (IFNULL, COALESCE, NULLIF, IF and CASE):
+  // the type several operands give together, NULL aside, and the collation
+  // a string result holds.
+  struct Merged {
+    ResultType type;
+    Derivation derivation;
+  };
+  Merged merged(const std::vector<Operand>& operands, const std::string& operation) const;
+  Merged flow_type(const sql::Expr& e) const;
+  // The collation a CASE's operand compares with its WHEN values under:
+  // theirs aggregated when all are strings, else nothing (as numbers).
+  std::optional<uint16_t> case_collation(const sql::Expr& e) const;
+  Value flow_value(const sql::Expr& e);
+  // A value of one type as another's, as a merged result shows it.
+  Value converted(const Value& v, const ResultType& from, const ResultType& to);
   // A string operand's collation and coercibility.
   std::pair<uint16_t, int> derivation(const sql::Expr& e, const ResultType& t) const;
   // The character set an operand's value is in.
@@ -159,6 +188,11 @@ ResultType decimal_type(int precision, int decimals, bool not_null);
 ResultType double_type(uint32_t length, bool not_null);
 // Whether a type is a string's (any character set, binary included).
 bool is_string_type(const ResultType& t);
+// A table column's type as an expression over it reports it (MIN, MAX,
+// NULLIF, IFNULL): an integer as long as its type's digits, a TEXT's length
+// counted in characters once more, and no key, ZEROFILL, BLOB or NOT NULL
+// flags.
+ResultType column_as_expression(const ResultType& column, uint32_t result_max_bytes);
 
 // The expression as MySQL writes it in an error message:
 // (9223372036854775807 + 1), (-(9223372036854775808) - 1).

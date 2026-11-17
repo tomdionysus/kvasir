@@ -2,6 +2,34 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-17: IFNULL, COALESCE, NULLIF, IF and CASE
+
+- Observed on MySQL 8.4.13 first (four probe rounds, then the recording).
+  The result type aggregates the operands', NULL aside: any string makes a
+  string in the operands' aggregated collation (1267/1270 naming 'ifnull',
+  'coalesce', 'if', 'case' or 'nullif'), as long as the longest operand's
+  text (a DOUBLE's is 22), a CHAR only when every string is, a BLOB when
+  any is; else any DOUBLE a DOUBLE; else any DECIMAL one wide enough for
+  each; else the widest integer type, one wider where an unsigned type at
+  least as wide meets a signed one, DECIMAL past BIGINT UNSIGNED. A column
+  counts as an expression over it (`column_as_expression`, moved from
+  aggregate.cpp for MIN and MAX). NULLIF reports its first argument, never
+  NOT NULL. IFNULL and COALESCE show a DECIMAL at the result's scale, IF
+  and CASE at the chosen value's own. Only what is needed is evaluated.
+  CASE compares its operand with each WHEN under the strings' aggregated
+  collation, or as numbers when any is not a string.
+- IF takes exactly three arguments and COALESCE at least one, in the
+  parser (1064, as MySQL's grammar); IFNULL and NULLIF two (1582).
+- Found on the way, fixed with their observed tests: `_binary'ab'` was
+  typed as a utf8mb4 string of 8 (MySQL: binary, 2), and a binary string
+  other than a hex or bit literal was read as a big-endian integer in a
+  numeric context (MySQL reads its text: `_binary'12'+1` is 13).
+- Test-first on node-d: the 2 new tests failed before any code, the
+  parser's one written with the code.
+- Gate: release on node-d **326 passed, 0 failed**; the differential
+  gate **547 of 547** (28 new statements; the 519 before recorded
+  unchanged). No sanitizer run (not a release).
+
 ## 2026-11-17: aggregates, GROUP BY, HAVING and DISTINCT
 
 - Observed on MySQL 8.4.13 first (three probe rounds, then the recording).

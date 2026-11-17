@@ -1455,5 +1455,78 @@ TEST(ExecSessionGroups, Refusals) {
   b.expect_refused("SELECT MAX(n) FROM v WHERE MAX(n) > 1", 1111, "HY000", "Invalid use of group function");
 }
 
+// The flow control functions over a table's columns, observed on MySQL
+// 8.4.13, 2026-11-17: a column counts as an expression over it would (a
+// TEXT's length once more in characters); integers keep the widest column
+// type, one wider where signed meets unsigned; a string result is a CHAR
+// only when every string is, a BLOB when any is.
+TEST(ExecSessionFunctions, FlowControlOverColumns) {
+  TableBed b;
+  run(b.s,
+      "CREATE TABLE f (i INT, u INT UNSIGNED NOT NULL, b BIGINT, d DECIMAL(6,2), v VARCHAR(10), c CHAR(3) COLLATE utf8mb4_bin, t TINYINT, x TEXT, "
+      "db DOUBLE, vb VARBINARY(5))");
+  run(b.s, "INSERT INTO f VALUES (1, 2, 3, 4.5, 'abc', 'x', 7, 'tt', 1.25, 'zz')");
+  auto o = run(b.s,
+               "SELECT IFNULL(i,u), IFNULL(u,u), IFNULL(t,t), IFNULL(t,i), IFNULL(i,b), IFNULL(d,i), IFNULL(v,c), IFNULL(v,x), IFNULL(v,i), "
+               "COALESCE(i,v,d), IFNULL(db,d), IFNULL(vb,v), IFNULL(u,-1), IFNULL(c,c) FROM f");
+  EXPECT_EQ(rows_of(o), (Rows{{"1", "2", "7", "7", "1", "4.50", "abc", "abc", "abc", "1", "1.25", "zz", "2", "x"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::longlong, bin, 11, 0, nn | binflag | num},
+                               {f::long_, bin, 10, 0, nn | uns | binflag | num},
+                               {f::tiny, bin, 4, 0, binflag | num},
+                               {f::long_, bin, 11, 0, binflag | num},
+                               {f::longlong, bin, 20, 0, binflag | num},
+                               {f::newdecimal, bin, 14, 2, binflag | num},
+                               {f::var_string, ai, 40, 31, binflag},
+                               {f::blob, ai, 1048560, 31, 0},
+                               {f::var_string, ai, 44, 31, 0},
+                               {f::var_string, ai, 44, 31, 0},
+                               {f::double_, bin, 23, 31, binflag | num},
+                               {f::var_string, bin, 40, 31, binflag},
+                               {f::longlong, bin, 10, 0, nn | binflag | num},
+                               {f::string, ai, 12, 31, binflag}}));
+  o = run(b.s,
+          "SELECT IFNULL(db,'a'), IFNULL(c,'a'), IFNULL(x,x), IFNULL(i,'a'), IFNULL(d,'a'), IFNULL(c,v), IFNULL(v,_binary'a'), IFNULL(t,1), "
+          "IFNULL(i,1.5), IFNULL(u,1.5), IFNULL(b,1.5), IFNULL(t,2.5), IFNULL(i,1e0), IFNULL(c,1), IFNULL(NULL,v), IFNULL(NULL,t) FROM f");
+  EXPECT_EQ(rows_of(o), (Rows{{"1.25", "x", "tt", "1", "4.50", "x", "abc", "7", "1.0", "2.0", "3.0", "7.0", "1", "x", "abc", "7"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::var_string, ai, 88, 31, nn},
+                               {f::var_string, ai, 12, 31, nn | binflag},
+                               {f::blob, ai, 1048560, 31, 0},
+                               {f::var_string, ai, 44, 31, nn},
+                               {f::var_string, ai, 32, 31, nn},
+                               {f::var_string, ai, 40, 31, binflag},
+                               {f::var_string, ai, 40, 31, nn},
+                               {f::longlong, bin, 4, 0, nn | binflag | num},
+                               {f::newdecimal, bin, 13, 1, nn | binflag | num},
+                               {f::newdecimal, bin, 13, 1, nn | binflag | num},
+                               {f::newdecimal, bin, 22, 1, nn | binflag | num},
+                               {f::newdecimal, bin, 6, 1, nn | binflag | num},
+                               {f::double_, bin, 23, 31, nn | binflag | num},
+                               {f::string, ai, 12, 31, nn | binflag},
+                               {f::var_string, ai, 40, 31, 0},
+                               {f::tiny, bin, 4, 0, binflag | num}}));
+  // NULLIF reports its first argument, never NOT NULL.
+  o = run(b.s, "SELECT NULLIF(i,1), NULLIF(v,'x'), NULLIF(u,2), NULLIF(t,1), NULLIF(c,1), NULLIF(x,1), NULLIF(db,1) FROM f");
+  EXPECT_EQ(rows_of(o), (Rows{{"NULL", "abc", "NULL", "7", "x", "tt", "1.25"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::long_, bin, 11, 0, binflag | num},
+                               {f::var_string, ai, 40, 31, 0},
+                               {f::long_, bin, 10, 0, uns | binflag | num},
+                               {f::tiny, bin, 4, 0, binflag | num},
+                               {f::string, ai, 12, 31, binflag},
+                               {f::blob, ai, 1048560, 31, 0},
+                               {f::double_, bin, 22, 31, binflag | num}}));
+  o = run(b.s,
+          "SELECT IF(i,v,c), IF(1,t,t), CASE i WHEN 1 THEN u ELSE t END, CASE WHEN i THEN x END, IF(1, i, d), CASE WHEN 1 THEN i ELSE d END, "
+          "COALESCE(i, d), IFNULL(d, 1.123) FROM f");
+  EXPECT_EQ(rows_of(o), (Rows{{"abc", "7", "2", "tt", "1", "1", "1.00", "4.500"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::var_string, ai, 40, 31, binflag},
+                               {f::tiny, bin, 4, 0, binflag | num},
+                               {f::longlong, bin, 10, 0, binflag | num},
+                               {f::blob, ai, 1048560, 31, 0},
+                               {f::newdecimal, bin, 14, 2, binflag | num},
+                               {f::newdecimal, bin, 14, 2, binflag | num},
+                               {f::newdecimal, bin, 14, 2, binflag | num},
+                               {f::newdecimal, bin, 9, 3, nn | binflag | num}}));
+}
+
 }  // namespace
 }  // namespace kvasir::exec

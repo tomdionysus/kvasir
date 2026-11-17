@@ -275,6 +275,18 @@ TEST(SqlParser, GroupByAndHaving) {
   EXPECT_EQ(error_at("SELECT g FROM t GROUP g"), 22u);
 }
 
+// The grammar's own functions (observed on MySQL 8.4.13, 2026-11-17): IF
+// takes exactly three arguments and COALESCE at least one, or the statement
+// is not SQL (1064, near the token where it went wrong).
+TEST(SqlParser, IfAndCoalesceArguments) {
+  EXPECT_EQ(to_string(*one("SELECT IF(a, 1, 2)").select.items[0].expr), "(IF a 1 2)");
+  EXPECT_EQ(to_string(*one("SELECT COALESCE(a)").select.items[0].expr), "(COALESCE a)");
+  EXPECT_EQ(error_at("SELECT COALESCE()"), 16u);
+  EXPECT_EQ(error_at("SELECT IF(1,2)"), 13u);
+  EXPECT_EQ(error_at("SELECT IF()"), 10u);
+  EXPECT_EQ(error_at("SELECT IF(1,2,3,4)"), 15u);
+}
+
 TEST(SqlParser, SelectHint) { EXPECT_EQ(one("SELECT /*+ MAX_EXECUTION_TIME(1000) */ 1").select.hint, " MAX_EXECUTION_TIME(1000) "); }
 
 TEST(SqlParser, SetVariables) {

@@ -31,22 +31,6 @@ bool is_integer_type(const ResultType& t) {
          t.number_string;
 }
 
-// The digits an integer of this type can hold.
-int integer_digits(const ResultType& t) {
-  switch (t.field_type) {
-    case f::tiny:
-      return 3;
-    case f::short_:
-      return 5;
-    case f::int24:
-      return 8;
-    case f::long_:
-      return 10;
-    default:
-      return t.is_unsigned() ? 20 : 19;
-  }
-}
-
 Kind kind_of(const std::string& name) {
   if (name == "COUNT") return Kind::count;
   if (name == "SUM") return Kind::sum;
@@ -61,23 +45,6 @@ Kind kind_of(const std::string& name) {
   if (name == "STD" || name == "STDDEV" || name == "STDDEV_POP") return Kind::std_pop;
   if (name == "STDDEV_SAMP") return Kind::std_samp;
   not_yet(name);
-}
-
-// MIN or MAX of a table's column: reported as an expression over it would
-// be, not as the column.
-ResultType as_expression(const ResultType& column, uint32_t result_max_bytes) {
-  ResultType t = column;
-  const bool unsigned_ = column.is_unsigned();
-  if (is_string_type(column)) {
-    t.decimals = protocol::not_fixed_decimals;
-    if (column.field_type == f::blob && column.collation != protocol::collation::binary)
-      t.length = static_cast<uint32_t>(std::min<uint64_t>(uint64_t{column.length} * result_max_bytes, UINT32_MAX));
-    t.flags = static_cast<uint16_t>(column.collation == protocol::collation::binary || (column.flags & c::binary) ? c::binary : 0);
-    return t;
-  }
-  if (is_integer_type(column)) t.length = static_cast<uint32_t>(integer_digits(column) + (unsigned_ ? 0 : 1));
-  t.flags = static_cast<uint16_t>(c::binary | c::num | (unsigned_ ? c::unsigned_ : 0));
-  return t;
 }
 
 Decimal exact_of(const Value& v) {
@@ -115,7 +82,8 @@ AggregateSpec::AggregateSpec(const sql::Expr& call, std::vector<ResultType> args
       break;
     case Kind::min:
     case Kind::max:
-      _type = column ? as_expression(*a, settings.result_max_bytes) : *a;
+      // Of a table's column, reported as an expression over it would be.
+      _type = column ? column_as_expression(*a, settings.result_max_bytes) : *a;
       _type.flags = static_cast<uint16_t>(_type.flags & ~c::not_null);
       break;
     case Kind::bit_and:

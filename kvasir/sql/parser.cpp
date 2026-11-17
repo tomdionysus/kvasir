@@ -1418,6 +1418,16 @@ class Parser {
 
   void call_arguments(Expr& call) {
     expect_symbol("(");
+    // The grammar's own: IF takes three arguments, COALESCE one or more.
+    if (call.value == "IF") {
+      for (int i = 0; i < 3; ++i) {
+        if (i) expect_symbol(",");
+        call.args.push_back(expression());
+      }
+      expect_symbol(")");
+      return;
+    }
+    if (call.value == "COALESCE" && symbol(")")) fail(peek());
     if (symbol(")")) {
       take();
       return;

@@ -396,6 +396,102 @@ TEST(ExecExpression, StringsCompareUnderOtherConnectionCollations) {
   EXPECT_EQ(answer("'a' = 'a '", 63), "0");
 }
 
+// The manual's "Flow Control Functions", observed on MySQL 8.4.13,
+// 2026-11-17. The result's type is the operands' aggregated (NULL ignored):
+// any string makes a string, counted in characters, in the operands'
+// collation; else any DOUBLE a DOUBLE; else any DECIMAL a DECIMAL wide
+// enough for each; else the widest integer, one wider when signed meets
+// unsigned. IFNULL and COALESCE show a DECIMAL at the result's scale, IF and
+// CASE at the chosen value's own. Only what is needed is evaluated.
+TEST(ExecExpression, FlowControlFunctions) {
+  check({
+      {"IFNULL(1,2)", "LONGLONG", 63, 2, 0, "NOT_NULL BINARY NUM", "1"},
+      {"IFNULL(NULL,2)", "LONGLONG", 63, 2, 0, "NOT_NULL BINARY NUM", "2"},
+      {"IFNULL(1,NULL)", "LONGLONG", 63, 2, 0, "NOT_NULL BINARY NUM", "1"},
+      {"IFNULL(-12,3)", "LONGLONG", 63, 3, 0, "NOT_NULL BINARY NUM", "-12"},
+      {"IFNULL(TRUE,5)", "LONGLONG", 63, 2, 0, "NOT_NULL BINARY NUM", "1"},
+      {"IFNULL(1,2.5)", "NEWDECIMAL", 63, 4, 1, "NOT_NULL BINARY NUM", "1.0"},
+      {"IFNULL(12.345,123.4)", "NEWDECIMAL", 63, 8, 3, "NOT_NULL BINARY NUM", "12.345"},
+      {"IFNULL(1.5,2.25)", "NEWDECIMAL", 63, 5, 2, "NOT_NULL BINARY NUM", "1.50"},
+      {"IFNULL(18446744073709551615,1)", "NEWDECIMAL", 63, 21, 0, "NOT_NULL BINARY NUM", "18446744073709551615"},
+      {"IFNULL(1.5e0,2)", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "1.5"},
+      {"IFNULL(2.5,1.5e0)", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "2.5"},
+      {"IFNULL(NULL,1.5e0)", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "1.5"},
+      {"IFNULL(1,'ab')", "VAR_STRING", 255, 8, 31, "NOT_NULL", "1"},
+      {"IFNULL('abc',1)", "VAR_STRING", 255, 12, 31, "NOT_NULL", "abc"},
+      {"IFNULL(-12,'a')", "VAR_STRING", 255, 12, 31, "NOT_NULL", "-12"},
+      {"IFNULL(2.5,'a')", "VAR_STRING", 255, 16, 31, "NOT_NULL", "2.5"},
+      {"IFNULL(1.5e0,'a')", "VAR_STRING", 255, 88, 31, "NOT_NULL", "1.5"},
+      {"IFNULL(0x41,'a')", "VAR_STRING", 63, 4, 31, "NOT_NULL BINARY", "A"},
+      {"IFNULL(0x41,1)", "VAR_STRING", 63, 2, 31, "NOT_NULL BINARY", "A"},
+      {"IFNULL(0x41,0x4243)", "VAR_STRING", 63, 2, 31, "NOT_NULL BINARY", "A"},
+      {"IFNULL(_binary'ab','a')", "VAR_STRING", 63, 4, 31, "NOT_NULL BINARY", "ab"},
+      {"IFNULL(18446744073709551615,0x01)", "VAR_STRING", 63, 20, 31, "NOT_NULL BINARY", "18446744073709551615"},
+      {"IFNULL('a' COLLATE utf8mb4_bin,'b')", "VAR_STRING", 255, 4, 31, "NOT_NULL BINARY", "a"},
+      {"IFNULL('a' COLLATE utf8mb4_0900_as_cs,'b')", "VAR_STRING", 255, 4, 31, "NOT_NULL", "a"},
+      {"IFNULL(NULL,'a' COLLATE utf8mb4_bin)", "VAR_STRING", 255, 4, 31, "BINARY", "a"},
+      {"IFNULL(NULL,NULL)", "NULL", 63, 0, 0, "BINARY NUM", "NULL"},
+      {"COALESCE(NULL,1)", "LONGLONG", 63, 2, 0, "NOT_NULL BINARY NUM", "1"},
+      {"COALESCE(1,NULL)", "LONGLONG", 63, 2, 0, "NOT_NULL BINARY NUM", "1"},
+      {"COALESCE(NULL,NULL,'x')", "VAR_STRING", 255, 4, 31, "NOT_NULL", "x"},
+      {"COALESCE(1,2.25)", "NEWDECIMAL", 63, 5, 2, "NOT_NULL BINARY NUM", "1.00"},
+      {"COALESCE(NULL)", "NULL", 63, 0, 0, "BINARY NUM", "NULL"},
+      {"NULLIF(1,1)", "LONGLONG", 63, 2, 0, "BINARY NUM", "NULL"},
+      {"NULLIF(1,2)", "LONGLONG", 63, 2, 0, "BINARY NUM", "1"},
+      {"NULLIF(1,2.5)", "LONGLONG", 63, 2, 0, "BINARY NUM", "1"},
+      {"NULLIF('a','A')", "VAR_STRING", 255, 4, 31, "", "NULL"},
+      {"NULLIF(2.5,1)", "NEWDECIMAL", 63, 4, 1, "BINARY NUM", "2.5"},
+      {"NULLIF(NULL,1)", "NULL", 63, 0, 0, "BINARY NUM", "NULL"},
+      {"IF(1,2,3)", "LONGLONG", 63, 2, 0, "NOT_NULL BINARY NUM", "2"},
+      {"IF(0,'a','bc')", "VAR_STRING", 255, 8, 31, "NOT_NULL", "bc"},
+      {"IF(NULL,1,2.5)", "NEWDECIMAL", 63, 4, 1, "NOT_NULL BINARY NUM", "2.5"},
+      {"IF(1,1,2.5)", "NEWDECIMAL", 63, 4, 1, "NOT_NULL BINARY NUM", "1"},
+      {"IF(1,1.5,2.25)", "NEWDECIMAL", 63, 5, 2, "NOT_NULL BINARY NUM", "1.5"},
+      {"IF(1,NULL,2)", "LONGLONG", 63, 2, 0, "BINARY NUM", "NULL"},
+      {"IF(1,1,1e0)", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "1"},
+      {"CASE 1 WHEN 1 THEN 'a' ELSE 'bcd' END", "VAR_STRING", 255, 12, 31, "NOT_NULL", "a"},
+      {"CASE WHEN 0 THEN 1 END", "LONGLONG", 63, 2, 0, "BINARY NUM", "NULL"},
+      {"CASE WHEN 1 THEN 1 ELSE 2.5 END", "NEWDECIMAL", 63, 4, 1, "NOT_NULL BINARY NUM", "1"},
+      {"CASE WHEN 1 THEN 1.0 ELSE 1 END", "NEWDECIMAL", 63, 4, 1, "NOT_NULL BINARY NUM", "1.0"},
+      {"CASE WHEN 1 THEN 1 ELSE 'a' END", "VAR_STRING", 255, 8, 31, "NOT_NULL", "1"},
+      {"CASE 'a' WHEN 'A' THEN 1 ELSE 0 END", "LONGLONG", 63, 2, 0, "NOT_NULL BINARY NUM", "1"},
+      {"CASE 1 WHEN 1.0 THEN 'x' WHEN '1' THEN 'y' END", "VAR_STRING", 255, 4, 31, "", "x"},
+      {"CASE 1 WHEN NULL THEN 'x' ELSE 'y' END", "VAR_STRING", 255, 4, 31, "NOT_NULL", "y"},
+      {"CASE 'a' COLLATE utf8mb4_bin WHEN 'A' THEN 1 WHEN 'a' THEN 2 END", "LONGLONG", 63, 2, 0, "BINARY NUM", "2"},
+      {"CASE 1 WHEN 1 THEN 'a' COLLATE utf8mb4_bin ELSE 'b' END", "VAR_STRING", 255, 4, 31, "BINARY", "a"},
+  });
+  // A condition or a compared string read as a number warns as it is read.
+  for (const std::string sql : {"IF('x',1,2)", "CASE '1a' WHEN 1 THEN 'num' ELSE 'no' END"}) {
+    SCOPED_TRACE(sql);
+    Evaluator evaluator;
+    evaluator.value(*select(sql).select.items[0].expr);
+    ASSERT_EQ(evaluator.warnings().size(), 1u);
+    EXPECT_EQ(evaluator.warnings()[0].code, 1292);
+  }
+  {
+    Evaluator evaluator;
+    EXPECT_EQ(to_text(evaluator.value(*select("CASE '1a' WHEN 1 THEN 'num' ELSE 'no' END").select.items[0].expr), {}).value_or("NULL"), "num");
+  }
+  // What is not needed is not evaluated: no division, so no warning.
+  for (const std::string sql : {"IFNULL(1, 1/0)", "COALESCE(NULL, 1, 1/0)", "IF(1, 2, 1/0)", "CASE WHEN 1 THEN 2 ELSE 1/0 END"}) {
+    SCOPED_TRACE(sql);
+    Evaluator evaluator;
+    evaluator.value(*select(sql).select.items[0].expr);
+    EXPECT_TRUE(evaluator.warnings().empty());
+  }
+  const std::string mix = "Illegal mix of collations (utf8mb4_bin,EXPLICIT) and (utf8mb4_0900_as_cs,EXPLICIT) for operation ";
+  expect_error("IFNULL('a' COLLATE utf8mb4_bin, 'b' COLLATE utf8mb4_0900_as_cs)", 1267, "HY000", mix + "'ifnull'");
+  expect_error("IF(1, 'a' COLLATE utf8mb4_bin, 'b' COLLATE utf8mb4_0900_as_cs)", 1267, "HY000", mix + "'if'");
+  expect_error("NULLIF('a' COLLATE utf8mb4_bin, 'b' COLLATE utf8mb4_0900_as_cs)", 1267, "HY000", mix + "'nullif'");
+  expect_error("CASE 1 WHEN 1 THEN 'a' COLLATE utf8mb4_bin ELSE 'b' COLLATE utf8mb4_0900_as_cs END", 1267, "HY000", mix + "'case'");
+  expect_error("CASE 'a' COLLATE utf8mb4_bin WHEN 'b' COLLATE utf8mb4_0900_as_cs THEN 1 END", 1267, "HY000", mix + "'case'");
+  expect_error("COALESCE('a' COLLATE utf8mb4_bin, 'b' COLLATE utf8mb4_0900_as_cs, 'c')", 1270, "HY000",
+               "Illegal mix of collations (utf8mb4_bin,EXPLICIT), (utf8mb4_0900_as_cs,EXPLICIT), (utf8mb4_0900_ai_ci,COERCIBLE) for operation 'coalesce'");
+  expect_error("NULLIF(1)", 1582, "42000", "Incorrect parameter count in the call to native function 'NULLIF'");
+  expect_error("IFNULL(1)", 1582, "42000", "Incorrect parameter count in the call to native function 'IFNULL'");
+  expect_error("IFNULL(1, 2, 3)", 1582, "42000", "Incorrect parameter count in the call to native function 'IFNULL'");
+}
+
 TEST(ExecExpression, ColumnNames) {
   const auto names = [](const std::string& sql) {
     std::vector<std::string> out;

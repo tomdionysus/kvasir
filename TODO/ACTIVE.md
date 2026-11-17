@@ -124,9 +124,16 @@ and the reference server first, and watched to fail:
    function in upper case as Kvasir holds it; DISTINCT with ORDER BY on a
    column not selected is not refused (MySQL's 3065); a grouped result's
    metadata follows MySQL's temporary-table rules as observed (a plan
-   MySQL picks for an index, which Kvasir has none of, may differ). Next:
-   the string and number functions clients use most, then SHOW STATUS and
-   the other statements a client's `status` command and connectors send.
+   MySQL picks for an index, which Kvasir has none of, may differ). The
+   flow control functions (IFNULL, COALESCE, NULLIF, IF, CASE) are done
+   (see COMPLETED); not yet checked against MySQL: FLOAT operands, which
+   Kvasir merges as DOUBLE. Next:
+   the string functions clients use most (CONCAT, CONCAT_WS, LENGTH,
+   CHAR_LENGTH, SUBSTRING, LEFT, RIGHT, TRIM, REPLACE, LOCATE, LPAD, RPAD,
+   REPEAT, REVERSE; UPPER and LOWER need Unicode's case mapping), then the
+   number functions (ABS, ROUND, TRUNCATE, FLOOR, CEILING, MOD, SIGN), then
+   SHOW STATUS and the other statements a client's `status` command and
+   connectors send.
    Old versions are never
    folded away yet (memory grows with every change; folding older than
    every open snapshot is the design's, to come before long runs).
