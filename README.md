@@ -235,7 +235,7 @@ flags, value and error with what a MySQL 8.4.13 server answered: 187 of 187 matc
 Next, in order (`TODO/ACTIVE.md`):
 
 1. One node, in memory: tables and rows, then the SQL and transactions real drivers and
-   tools use, with the differential gate; the sign-in back-off from Dannan 0.8.5.
+   tools use, with the differential gate; the sign-in back-off from Dannan (0.8.5, now 0.9.0).
 2. The commit protocol written down and passed through Dannan's deterministic simulator.
 3. The cluster at `decided` and `replicated`.
 4. Persistence in Dagda, with backup and restore to a point in time.

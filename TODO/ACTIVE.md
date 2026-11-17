@@ -304,6 +304,9 @@ builds on node-d (4 GB).
     unchanged; WorkerPoolConfig gains `schedule`, empty by default. Using
     SimNodes means linking `dannan::sim_checkers` and defining
     DANNAN_TEST_TEMP_ROOT. Changes from 0.8.x: Dannan's CHANGELOG.md.
+    Tagged 2026-11-17 (main 59b7abc); Kvasir's pin moved to 0.9.0 the same
+    day. One break: a test's WorkerPoolConfig aggregate lacked the new
+    `schedule` member (-Werror=missing-field-initializers).
   Dannan has also taken Kvasir's
   ask to export its fuzz harness with the test fixtures (a 0.9 item, not
   started). Dannan's working tree may be on a feature branch: read

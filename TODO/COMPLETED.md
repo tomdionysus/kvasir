@@ -2,6 +2,16 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-17: Dannan pinned at 0.9.0
+
+- Dannan 0.9.0 tagged (main 59b7abc); the pin moved from 0.8.5. One
+  break, in a test only: `server_pool_checker_test.cpp` built a
+  `WorkerPoolConfig` by aggregate without its new `schedule` member,
+  refused under -Werror=missing-field-initializers; given `{}` (threads,
+  as before). Nothing in Kvasir's own sources changed.
+- Gate: release on node-a **318 passed, 0 failed** (the
+  differential gate within it, 433 of 433), the same count as before.
+
 ## 2026-11-16: UPDATE and DELETE
 
 - Observed on MySQL 8.4.13 first: UPDATE counts changed rows, sends

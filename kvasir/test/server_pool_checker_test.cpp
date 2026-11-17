@@ -25,7 +25,7 @@ struct Bed {
   const dannan::identity::Argon2Costs cheap{8, 1, 1};
   Accounts accounts{{"alice:" + make_credential(bytes("open sesame"), cheap)}};
   dannan::sched::ClassGates gates;
-  dannan::sched::WorkerPool pool{dannan::sched::WorkerPoolConfig{2, "kvasir-test", {0, 0, 0, 0}, {16, 16, 16, 16}, {0, 0, 0, 0}}, gates};
+  dannan::sched::WorkerPool pool{dannan::sched::WorkerPoolConfig{2, "kvasir-test", {0, 0, 0, 0}, {16, 16, 16, 16}, {0, 0, 0, 0}, {}}, gates};
   boost::asio::io_context io;
   bool stopped = false;
   Bed() { pool.start(); }
