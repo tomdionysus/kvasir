@@ -106,6 +106,10 @@ struct Select {
   bool from_dual = false;
   std::vector<TableRef> from;
   ExprPtr where;
+  // GROUP BY's items, as written: a column, an expression or a position.
+  std::vector<ExprPtr> group_by;
+  bool with_rollup = false;
+  ExprPtr having;
   std::vector<OrderItem> order;
   ExprPtr limit;
   ExprPtr offset;

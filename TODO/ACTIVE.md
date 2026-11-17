@@ -111,10 +111,16 @@ and the reference server first, and watched to fail:
    run again once woken. Known difference: MySQL's statement keeps the
    locks it took before the wait; Kvasir's lets them go and takes them
    again.
-2. UPDATE and DELETE are done (see COMPLETED). Next: the functions
-   clients use most (COUNT and the other aggregates, GROUP BY, string and
-   number functions), then SHOW STATUS and the other statements a
-   client's `status` command and connectors send. Old versions are never
+2. UPDATE and DELETE, then aggregates, GROUP BY, HAVING and DISTINCT,
+   are done (see COMPLETED). Known differences there: GROUP_CONCAT, the
+   JSON aggregates and WITH ROLLUP are refused (1235); 1056 names the
+   function in upper case as Kvasir holds it; DISTINCT with ORDER BY on a
+   column not selected is not refused (MySQL's 3065); a grouped result's
+   metadata follows MySQL's temporary-table rules as observed (a plan
+   MySQL picks for an index, which Kvasir has none of, may differ). Next:
+   the string and number functions clients use most, then SHOW STATUS and
+   the other statements a client's `status` command and connectors send.
+   Old versions are never
    folded away yet (memory grows with every change; folding older than
    every open snapshot is the design's, to come before long runs).
 3. SERIALIZABLE (range read marks), INSERT IGNORE, REPLACE, ON DUPLICATE

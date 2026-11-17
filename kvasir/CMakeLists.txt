@@ -31,6 +31,7 @@ add_library(kvasir SHARED
   ${kvasir_general_ci_table}
   catalog/catalog.cpp
   catalog/table.cpp
+  exec/aggregate.cpp
   exec/collation.cpp
   exec/ddl.cpp
   exec/like.cpp

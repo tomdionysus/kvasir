@@ -154,6 +154,9 @@ class Session : private VariableSource {
   Outcome drop_table(const sql::Statement& statement);
   Outcome show_tables(const sql::Statement& statement);
   Outcome select_from_table(const sql::Select& select);
+  // A SELECT with GROUP BY, HAVING or an aggregate, over `table` (none for
+  // a SELECT without FROM: one row).
+  Outcome select_groups(const sql::Select& select, const catalog::Table* table, const std::string& database);
   Outcome insert(const sql::Statement& statement);
   // UPDATE and DELETE.
   Outcome change_rows(const sql::Statement& statement);

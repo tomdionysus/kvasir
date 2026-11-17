@@ -2,6 +2,44 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-17: aggregates, GROUP BY, HAVING and DISTINCT
+
+- Observed on MySQL 8.4.13 first (three probe rounds, then the recording).
+  COUNT, SUM, AVG, MIN, MAX (with DISTINCT), BIT_AND, BIT_OR, BIT_XOR,
+  STD, STDDEV, STDDEV_POP, STDDEV_SAMP, VARIANCE, VAR_POP and VAR_SAMP,
+  with MySQL's result types (SUM of an exact value 22 more digits, AVG
+  div_precision_increment more digits and decimals, a string summed as a
+  DOUBLE with 1292 per value; variance by Welford's recurrence, as MySQL).
+- GROUP BY by column, expression, alias or position; groups in the order
+  first met; HAVING over aliases, grouped columns and aggregates; one group
+  for aggregates without GROUP BY (even of no rows). ONLY_FULL_GROUP_BY:
+  1055 and 1140, a column fixed by a grouped key or by WHERE's
+  `column = constant` allowed; without it, a group's first row. 1111 for an
+  aggregate in WHERE or nested, 1056 for one in GROUP BY, 1054 in 'group
+  statement' and 'having clause'.
+- What a grouped result reports follows MySQL's temporary table: bare
+  columns, bare COUNT/SUM/MIN/MAX and expressions over columns as the
+  table's fields (no BINARY on numbers, 0 decimals on strings, MIN/MAX of a
+  column as the column less NOT NULL and keys, GROUP_FLAG on a nullable
+  grouped column); constants, AVG and expressions over aggregates as
+  themselves; none of that when WHERE fixes the group or an aggregate is
+  DISTINCT. A column beside aggregates without GROUP BY is nullable.
+- SELECT DISTINCT was parsed and never applied: rows came back
+  duplicated. Now each row once, reported through the temporary table
+  unless the list holds a whole key (observed).
+- Test-first: run on node-d with the AST fields and no code behind them;
+  the 5 new tests failed, the 318 before passed. The DISTINCT metadata was
+  found by the recording, after the code was written: its unit test and
+  the differential statements came from MySQL's answers, not watched
+  failing on their own.
+- Gate: release on node-d **323 passed, 0 failed**; the differential
+  gate **519 of 519** (86 new statements; the 433 before recorded
+  unchanged).
+- Correction: an ASan/UBSan run was started as part of this gate and
+  stopped at the maintainer's word. Sanitizers run only before a release or to hunt a
+  bug that cannot be pinned otherwise; the ASan counts recorded as gates for
+  lock waits and UPDATE/DELETE were outside that rule.
+
 ## 2026-11-17: Dannan pinned at 0.9.0
 
 - Dannan 0.9.0 tagged (main 59b7abc); the pin moved from 0.8.5. One

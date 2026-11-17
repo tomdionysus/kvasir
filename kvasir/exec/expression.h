@@ -35,8 +35,11 @@
 // A table's column is read through a ColumnSource and holds its own
 // collation at coercibility 2.
 //
-// Not yet: REGEXP, functions and placeholders, each refused with its MySQL
-// error.
+// An aggregate is read from an AggregateSource; anywhere else it is error
+// 1111.
+//
+// Not yet: REGEXP, functions other than the aggregates (aggregate.h) and the
+// session's, and placeholders, each refused with its MySQL error.
 // Known difference: arithmetic on a bare NULL literal is typed DOUBLE with
 // length 23 and 31 decimals, where MySQL reports smaller lengths; its value
 // is NULL either way.
@@ -74,11 +77,28 @@ class ColumnSource {
   virtual Value column_value(const std::vector<std::string>& path) const = 0;
 };
 
+// Where aggregates are read from: the group at hand's, each call by its
+// node in the statement.
+class AggregateSource {
+ public:
+  virtual ~AggregateSource() = default;
+  // The call's type and its value over the group, or nothing for a call it
+  // did not collect.
+  virtual std::optional<ResultType> aggregate_type(const sql::Expr& call) const = 0;
+  virtual Value aggregate_value(const sql::Expr& call) const = 0;
+};
+
+// Whether a call's name is an aggregate (the manual's "Aggregate Function
+// Descriptions").
+bool is_aggregate(const sql::Expr& e);
+
 struct EvalSettings {
   // Variables; without them a variable is not supported.
   const VariableSource* variables = nullptr;
   // A table's columns; without them a column name is unknown.
   const ColumnSource* columns = nullptr;
+  // The group's aggregates; without them an aggregate is error 1111.
+  const AggregateSource* aggregates = nullptr;
   // div_precision_increment.
   int div_precision_increment = 4;
   // The collation a string result is reported in: character_set_results'.
@@ -102,8 +122,13 @@ class Evaluator {
   // gives warning 1292.
   Value value(const sql::Expr& expr);
 
+  // A value read as a DOUBLE: a string by its longest numeric prefix, with
+  // warning 1292 when anything but trailing space is left.
+  double real(const Value& v, const ResultType& t);
+
   const std::vector<Warning>& warnings() const noexcept { return _warnings; }
   void clear_warnings() { _warnings.clear(); }
+  void add_warnings(const std::vector<Warning>& more) { _warnings.insert(_warnings.end(), more.begin(), more.end()); }
 
  private:
   struct Operand {
@@ -126,6 +151,14 @@ class Evaluator {
   EvalSettings _settings;
   std::vector<Warning> _warnings;
 };
+
+// Computed result types, as MySQL reports them: a BIGINT of `precision`
+// digits, a DECIMAL, a DOUBLE of `length`.
+ResultType integer_type(int precision, bool is_unsigned, bool not_null);
+ResultType decimal_type(int precision, int decimals, bool not_null);
+ResultType double_type(uint32_t length, bool not_null);
+// Whether a type is a string's (any character set, binary included).
+bool is_string_type(const ResultType& t);
 
 // The expression as MySQL writes it in an error message:
 // (9223372036854775807 + 1), (-(9223372036854775808) - 1).

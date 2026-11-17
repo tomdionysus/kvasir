@@ -1173,5 +1173,287 @@ TEST(ExecSessionRows, InsertsKvasirDoesNotYetCarryOut) {
   b.expect_refused("INSERT INTO n (a, b) VALUES (5, a)", 1235, "42000", "This version of Kvasir doesn't yet support 'columns in VALUES'");
 }
 
+using Shapes = std::vector<Shape>;
+constexpr uint16_t group_flag = 32768;  // GROUP_FLAG, NUM's bit
+
+// The tables the aggregate probes ran over (MySQL 8.4.13, 2026-11-17).
+struct GroupBed : TableBed {
+  GroupBed() {
+    run(s, "CREATE TABLE t (id INT PRIMARY KEY, g VARCHAR(10), i INT, u INT UNSIGNED, b BIGINT, d DECIMAL(6,2), f DOUBLE, s VARCHAR(20), ti TINYINT)");
+    run(s,
+        "INSERT INTO t VALUES (1,'a',10,1,100,1.50,1.5,'x',1),(2,'a',20,2,200,2.25,2.5,'y',2),(3,'b',NULL,3,NULL,NULL,NULL,NULL,NULL),"
+        "(4,'b',5,4,5,0.10,0.1,'z',3),(5,NULL,7,5,7,7.00,7,'w',4)");
+    run(s,
+        "CREATE TABLE v (id INT PRIMARY KEY, k INT NOT NULL, n INT, d DECIMAL(6,2), f DOUBLE, c CHAR(3), s VARCHAR(5) NOT NULL DEFAULT '', z INT(4) "
+        "ZEROFILL, bs VARBINARY(4), tx TEXT)");
+    run(s, "INSERT INTO v VALUES (1,1,1,1.00,1,'a','x',1,'p','t'),(2,1,2,2.00,2,'a','y',2,'q','u'),(3,2,3,3.00,3,'b','z',3,'r','v')");
+    run(s, "CREATE TABLE w (id INT PRIMARY KEY, a CHAR(2) NOT NULL, b VARCHAR(3), c VARCHAR(3) NOT NULL, e TEXT, i INT, d DECIMAL(4,1) NOT NULL, x DOUBLE)");
+    run(s, "INSERT INTO w VALUES (1,'p','q','r','s',1,1.0,1),(2,'p','q','r','s',2,2.0,2)");
+  }
+  Rows rows(const std::string& sql) { return rows_of(run(s, sql)); }
+  Shapes shapes_of(const std::string& sql) { return shapes(run(s, sql)); }
+};
+
+// The manual's "Aggregate Function Descriptions": COUNT, SUM, AVG, MIN and
+// MAX, with DISTINCT; NULL skipped; over no rows COUNT is 0 and the others
+// NULL; a query with an aggregate and no GROUP BY is one group. Types as
+// observed: COUNT a BIGINT; SUM of an exact value DECIMAL with 22 more
+// digits, AVG with div_precision_increment more digits and decimals; of a
+// DOUBLE or a string, DOUBLE (a string read as a number, warning 1292); MIN
+// and MAX the argument's own type.
+TEST(ExecSessionGroups, Aggregates) {
+  GroupBed b;
+  auto o = run(b.s, "SELECT COUNT(*), COUNT(i), COUNT(DISTINCT g), SUM(i), SUM(u), SUM(b), SUM(d), SUM(f), SUM(ti) FROM t");
+  EXPECT_EQ(rows_of(o), (Rows{{"5", "4", "2", "42", "15", "312", "10.85", "11.1", "10"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::longlong, bin, 21, 0, nn | binflag | num},
+                               {f::longlong, bin, 21, 0, nn | binflag | num},
+                               {f::longlong, bin, 21, 0, nn | binflag | num},
+                               {f::newdecimal, bin, 33, 0, binflag | num},
+                               {f::newdecimal, bin, 33, 0, binflag | num},
+                               {f::newdecimal, bin, 42, 0, binflag | num},
+                               {f::newdecimal, bin, 30, 2, binflag | num},
+                               {f::double_, bin, 23, 31, binflag | num},
+                               {f::newdecimal, bin, 26, 0, binflag | num}}));
+  o = run(b.s, "SELECT AVG(i), AVG(u), AVG(b), AVG(d), AVG(f), AVG(ti) FROM t");
+  EXPECT_EQ(rows_of(o), (Rows{{"10.5000", "3.0000", "78.0000", "2.712500", "2.775", "2.5000"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::newdecimal, bin, 16, 4, binflag | num},
+                               {f::newdecimal, bin, 16, 4, binflag | num},
+                               {f::newdecimal, bin, 25, 4, binflag | num},
+                               {f::newdecimal, bin, 12, 6, binflag | num},
+                               {f::double_, bin, 23, 31, binflag | num},
+                               {f::newdecimal, bin, 9, 4, binflag | num}}));
+  o = run(b.s, "SELECT MIN(i), MAX(i), MIN(u), MAX(d), MIN(f), MAX(s), MIN(g), MAX(ti), MIN(b) FROM t");
+  EXPECT_EQ(rows_of(o), (Rows{{"5", "20", "1", "7.00", "0.1", "z", "a", "4", "5"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::long_, bin, 11, 0, binflag | num},
+                               {f::long_, bin, 11, 0, binflag | num},
+                               {f::long_, bin, 10, 0, uns | binflag | num},
+                               {f::newdecimal, bin, 8, 2, binflag | num},
+                               {f::double_, bin, 22, 31, binflag | num},
+                               {f::var_string, ai, 80, 31, 0},
+                               {f::var_string, ai, 40, 31, 0},
+                               {f::tiny, bin, 4, 0, binflag | num},
+                               {f::longlong, bin, 20, 0, binflag | num}}));
+  // MIN and MAX of a column: no ZEROFILL, BLOB or key flags, a TEXT's length
+  // counted in characters once more.
+  o = run(b.s, "SELECT MIN(z), MAX(c), MIN(bs), MIN(tx), MAX(f), MIN(n) FROM v");
+  EXPECT_EQ(rows_of(o), (Rows{{"1", "b", "p", "t", "3", "1"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::long_, bin, 10, 0, uns | binflag | num},
+                               {f::string, ai, 12, 31, 0},
+                               {f::var_string, bin, 4, 31, binflag},
+                               {f::blob, ai, 1048560, 31, 0},
+                               {f::double_, bin, 22, 31, binflag | num},
+                               {f::long_, bin, 11, 0, binflag | num}}));
+  EXPECT_EQ(b.rows("SELECT COUNT(*), SUM(i), AVG(i), MIN(i), MAX(s) FROM t WHERE id > 100"), (Rows{{"0", "NULL", "NULL", "NULL", "NULL"}}));
+  o = run(b.s, "SELECT 1 + COUNT(*), SUM(i) / COUNT(i), SUM(i) * 2 FROM t");
+  EXPECT_EQ(rows_of(o), (Rows{{"6", "10.5000", "84"}}));
+  EXPECT_EQ(shapes(o),
+            (Shapes{{f::longlong, bin, 22, 0, nn | binflag | num}, {f::newdecimal, bin, 38, 4, binflag | num}, {f::newdecimal, bin, 34, 0, binflag | num}}));
+  EXPECT_EQ(b.rows("SELECT SUM(DISTINCT i), AVG(DISTINCT u), COUNT(DISTINCT g, s) FROM t"), (Rows{{"42", "3.0000", "3"}}));
+  EXPECT_EQ(b.rows("SELECT COUNT(DISTINCT k), COUNT(DISTINCT c) FROM v"), (Rows{{"2", "2"}}));
+  o = run(b.s, "SELECT SUM(k > 1), COUNT(n = 2), SUM(-n), AVG(n * 1.5) FROM v");
+  EXPECT_EQ(rows_of(o), (Rows{{"1", "3", "-6", "3.00000"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::newdecimal, bin, 24, 0, binflag | num},
+                               {f::longlong, bin, 21, 0, nn | binflag | num},
+                               {f::newdecimal, bin, 33, 0, binflag | num},
+                               {f::newdecimal, bin, 18, 5, binflag | num}}));
+  o = run(b.s, "SELECT SUM(9223372036854775807), SUM(18446744073709551615) FROM v");
+  EXPECT_EQ(rows_of(o), (Rows{{"27670116110564327421", "55340232221128654845"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::newdecimal, bin, 42, 0, binflag | num}, {f::newdecimal, bin, 43, 0, binflag | num}}));
+  // Strings summed as numbers, a warning for each that is not one, row by
+  // row.
+  o = run(b.s, "SELECT SUM(c), SUM(s) FROM v");
+  EXPECT_EQ(rows_of(o), (Rows{{"0", "0"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::double_, bin, 23, 31, binflag | num}, {f::double_, bin, 23, 31, binflag | num}}));
+  b.expect_warnings({{"Warning", 1292, "Truncated incorrect DOUBLE value: 'a'"},
+                     {"Warning", 1292, "Truncated incorrect DOUBLE value: 'x'"},
+                     {"Warning", 1292, "Truncated incorrect DOUBLE value: 'a'"},
+                     {"Warning", 1292, "Truncated incorrect DOUBLE value: 'y'"},
+                     {"Warning", 1292, "Truncated incorrect DOUBLE value: 'b'"},
+                     {"Warning", 1292, "Truncated incorrect DOUBLE value: 'z'"}});
+  EXPECT_EQ(b.rows("SELECT SUM('1x') FROM v"), (Rows{{"3"}}));
+  EXPECT_EQ(b.s.warnings().size(), 3u);
+  // BIT_AND, BIT_OR and BIT_XOR as unsigned BIGINTs; STD and VARIANCE over
+  // the population, as DOUBLE.
+  o = run(b.s, "SELECT BIT_AND(i), BIT_OR(i), BIT_XOR(i), STD(i), VARIANCE(i) FROM t");
+  EXPECT_EQ(rows_of(o), (Rows{{"0", "31", "28", "5.766281297335398", "33.25"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::longlong, bin, 21, 0, nn | uns | binflag | num},
+                               {f::longlong, bin, 21, 0, nn | uns | binflag | num},
+                               {f::longlong, bin, 21, 0, nn | uns | binflag | num},
+                               {f::double_, bin, 23, 31, binflag | num},
+                               {f::double_, bin, 23, 31, binflag | num}}));
+  // Without a table: one row.
+  EXPECT_EQ(b.rows("SELECT COUNT(*)"), (Rows{{"1"}}));
+  o = run(b.s, "SELECT SUM(1), MIN(2), AVG(3)");
+  EXPECT_EQ(rows_of(o), (Rows{{"1", "2", "3.0000"}}));
+  EXPECT_EQ(shapes(o),
+            (Shapes{{f::newdecimal, bin, 24, 0, binflag | num}, {f::longlong, bin, 2, 0, binflag | num}, {f::newdecimal, bin, 7, 4, binflag | num}}));
+  // HAVING without GROUP BY filters the one group.
+  EXPECT_TRUE(b.rows("SELECT COUNT(*) FROM v HAVING COUNT(*) > 5").empty());
+  // A column beside an aggregate needs WHERE to fix it, and then is nullable.
+  o = run(b.s, "SELECT COUNT(*), k FROM v WHERE k = 1");
+  EXPECT_EQ(rows_of(o), (Rows{{"2", "1"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::longlong, bin, 21, 0, nn | binflag | num}, {f::long_, bin, 11, 0, nodef | num}}));
+}
+
+// GROUP BY: groups in the order they are first met, NULL a group of its
+// own; a column, an alias or a position; HAVING over the groups (an alias,
+// a grouped column or an aggregate); ORDER BY and LIMIT after.
+TEST(ExecSessionGroups, GroupBy) {
+  GroupBed b;
+  auto o = run(b.s, "SELECT g, COUNT(*), SUM(i) FROM t GROUP BY g");
+  EXPECT_EQ(rows_of(o), (Rows{{"a", "2", "30"}, {"b", "2", "5"}, {"NULL", "1", "7"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::var_string, ai, 40, 0, group_flag}, {f::longlong, bin, 21, 0, nn | num}, {f::newdecimal, bin, 33, 0, num}}));
+  EXPECT_EQ(b.rows("SELECT g, COUNT(*) AS n FROM t GROUP BY g ORDER BY n DESC, g"), (Rows{{"a", "2"}, {"b", "2"}, {"NULL", "1"}}));
+  EXPECT_EQ(b.rows("SELECT g, SUM(i) FROM t GROUP BY g HAVING SUM(i) > 10"), (Rows{{"a", "30"}}));
+  EXPECT_EQ(b.rows("SELECT g, SUM(i) s FROM t GROUP BY g HAVING s > 10"), (Rows{{"a", "30"}}));
+  EXPECT_EQ(b.rows("SELECT COUNT(*) FROM t GROUP BY g"), (Rows{{"2"}, {"2"}, {"1"}}));
+  EXPECT_EQ(b.rows("SELECT g FROM t GROUP BY 1"), (Rows{{"a"}, {"b"}, {"NULL"}}));
+  EXPECT_EQ(b.rows("SELECT g AS k, COUNT(*) FROM t GROUP BY k"), (Rows{{"a", "2"}, {"b", "2"}, {"NULL", "1"}}));
+  EXPECT_EQ(b.rows("SELECT SUM(id) FROM t GROUP BY g ORDER BY g"), (Rows{{"5"}, {"3"}, {"7"}}));
+  EXPECT_EQ(b.rows("SELECT k FROM v GROUP BY k HAVING COUNT(*) > 1"), (Rows{{"1"}}));
+  EXPECT_EQ(b.rows("SELECT k AS x FROM v GROUP BY k HAVING x > 1"), (Rows{{"2"}}));
+  EXPECT_EQ(b.rows("SELECT k FROM v GROUP BY k HAVING k > 1"), (Rows{{"2"}}));
+  EXPECT_EQ(b.rows("SELECT COUNT(*) AS cnt FROM v GROUP BY k HAVING cnt > 1"), (Rows{{"2"}}));
+  EXPECT_EQ(b.rows("SELECT k FROM v GROUP BY k ORDER BY SUM(n) DESC"), (Rows{{"1"}, {"2"}}));
+  EXPECT_EQ(b.rows("SELECT COUNT(*) FROM v GROUP BY k HAVING SUM(n) > 0 ORDER BY k DESC LIMIT 1"), (Rows{{"1"}}));
+  EXPECT_EQ(b.rows("SELECT k, COUNT(*) FROM v GROUP BY k ORDER BY COUNT(*) DESC, k LIMIT 1 OFFSET 1"), (Rows{{"2", "1"}}));
+  EXPECT_EQ(b.rows("SELECT k + 1 FROM v GROUP BY k + 1"), (Rows{{"2"}, {"3"}}));
+  EXPECT_EQ(b.rows("SELECT k * 2 FROM v GROUP BY k"), (Rows{{"2"}, {"4"}}));
+  EXPECT_EQ(b.rows("SELECT 1 FROM v GROUP BY k"), (Rows{{"1"}, {"1"}}));
+  EXPECT_EQ(b.rows("SELECT k FROM v GROUP BY K"), (Rows{{"1"}, {"2"}}));
+  EXPECT_EQ(b.rows("SELECT v.k FROM v GROUP BY k"), (Rows{{"1"}, {"2"}}));
+  EXPECT_EQ(b.rows("SELECT k FROM v GROUP BY v.k"), (Rows{{"1"}, {"2"}}));
+  EXPECT_EQ(b.rows("SELECT MAX(n), MIN(n) FROM v GROUP BY k ORDER BY MAX(n)"), (Rows{{"2", "1"}, {"3", "3"}}));
+  EXPECT_TRUE(b.rows("SELECT MIN(c), MAX(c) FROM v WHERE id > 99 GROUP BY k").empty());
+  // A column fixed by the group: the primary key, or WHERE.
+  EXPECT_EQ(b.rows("SELECT k, c FROM v GROUP BY id"), (Rows{{"1", "a"}, {"1", "a"}, {"2", "b"}}));
+  EXPECT_EQ(b.rows("SELECT n, COUNT(*) FROM v WHERE n = 2 GROUP BY k"), (Rows{{"2", "1"}}));
+  // SELECT DISTINCT: each row once, through a temporary table as GROUP BY
+  // is, unless the list holds a whole key.
+  EXPECT_EQ(b.rows("SELECT DISTINCT k FROM v"), (Rows{{"1"}, {"2"}}));
+  o = run(b.s, "SELECT DISTINCT c, k FROM v");
+  EXPECT_EQ(rows_of(o), (Rows{{"a", "1"}, {"b", "2"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::string, ai, 12, 0, group_flag}, {f::long_, bin, 11, 0, nn | nodef | num}}));
+  EXPECT_EQ(b.rows("SELECT DISTINCT c FROM v ORDER BY c DESC"), (Rows{{"b"}, {"a"}}));
+  o = run(b.s, "SELECT DISTINCT k + 1 FROM v");
+  EXPECT_EQ(rows_of(o), (Rows{{"2"}, {"3"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::longlong, bin, 12, 0, nn | num}}));
+  o = run(b.s, "SELECT DISTINCT * FROM w");
+  EXPECT_EQ(rows_of(o).size(), 2u);
+  EXPECT_EQ(shapes(o)[2], (Shape{f::var_string, ai, 12, 0, 0}));
+}
+
+// What a grouped result's columns report: MySQL groups through a temporary
+// table, so a bare column, a bare COUNT, SUM, MIN or MAX, or an expression
+// over columns is reported as that table's field (a number without BINARY,
+// a string with 0 decimals, MIN and MAX of a column as the column less NOT
+// NULL and its keys, a nullable GROUP BY column with GROUP_FLAG), while a
+// constant, AVG and an expression over aggregates keep their own. A group
+// WHERE fixes, or a DISTINCT aggregate, needs no such table.
+TEST(ExecSessionGroups, GroupedColumns) {
+  GroupBed b;
+  auto o = run(b.s, "SELECT k, n, d, f, c, s, z, bs, id FROM v GROUP BY id");
+  EXPECT_EQ(shapes(o), (Shapes{{f::long_, bin, 11, 0, nn | nodef | num},
+                               {f::long_, bin, 11, 0, num},
+                               {f::newdecimal, bin, 8, 2, num},
+                               {f::double_, bin, 22, 31, num},
+                               {f::string, ai, 12, 0, 0},
+                               {f::var_string, ai, 20, 0, nn},
+                               {f::long_, bin, 4, 0, uns | zf | num},
+                               {f::var_string, bin, 4, 0, binflag},
+                               {f::long_, bin, 11, 0, nn | pri | nodef | num | part}}));
+  EXPECT_EQ(rows_of(o).front(), (std::vector<std::string>{"1", "1", "1.00", "1", "a", "x", "0001", "p", "1"}));
+  o = run(b.s, "SELECT k, k + 1, 'lit', 5, 2.5, NULL, COUNT(*), SUM(n), MIN(c), MAX(s), MIN(z), MAX(bs), AVG(d) FROM v GROUP BY k");
+  EXPECT_EQ(rows_of(o), (Rows{{"1", "2", "lit", "5", "2.5", "NULL", "2", "3", "a", "y", "0001", "q", "1.500000"},
+                              {"2", "3", "lit", "5", "2.5", "NULL", "1", "3", "b", "z", "0003", "r", "3.000000"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::long_, bin, 11, 0, nn | nodef | num},
+                               {f::longlong, bin, 12, 0, nn | num},
+                               {f::var_string, ai, 12, 31, nn},
+                               {f::longlong, bin, 2, 0, nn | binflag | num},
+                               {f::newdecimal, bin, 4, 1, nn | binflag | num},
+                               {f::null, bin, 0, 0, binflag | num},
+                               {f::longlong, bin, 21, 0, nn | num},
+                               {f::newdecimal, bin, 33, 0, num},
+                               {f::string, ai, 12, 0, 0},
+                               {f::var_string, ai, 20, 0, 0},
+                               {f::long_, bin, 4, 0, uns | zf | num},
+                               {f::var_string, bin, 4, 0, binflag},
+                               {f::newdecimal, bin, 12, 6, binflag | num}}));
+  EXPECT_EQ(b.shapes_of("SELECT k AS kk, MIN(tx), COUNT(n) FROM v GROUP BY kk"),
+            (Shapes{{f::long_, bin, 11, 0, nn | nodef | num}, {f::blob, ai, 262140, 0, blob}, {f::longlong, bin, 21, 0, nn | num}}));
+  EXPECT_EQ(b.shapes_of("SELECT a, b, c FROM w GROUP BY a, b, c"),
+            (Shapes{{f::string, ai, 8, 0, nn | nodef}, {f::var_string, ai, 12, 0, group_flag}, {f::var_string, ai, 12, 0, nn | nodef}}));
+  EXPECT_EQ(b.shapes_of("SELECT e FROM w GROUP BY e"), (Shapes{{f::blob, ai, 262140, 0, blob | group_flag}}));
+  EXPECT_EQ(b.shapes_of("SELECT b AS bb, a FROM w GROUP BY bb, a"), (Shapes{{f::var_string, ai, 12, 0, group_flag}, {f::string, ai, 8, 0, nn | nodef}}));
+  EXPECT_EQ(b.shapes_of("SELECT MIN(id), MAX(a), MIN(c), MIN(e), MIN(i + 1), MAX(d), MIN(x) FROM w GROUP BY b"),
+            (Shapes{{f::long_, bin, 11, 0, nodef | num},
+                    {f::string, ai, 8, 0, nodef},
+                    {f::var_string, ai, 12, 0, nodef},
+                    {f::blob, ai, 262140, 0, blob},
+                    {f::longlong, bin, 12, 0, num},
+                    {f::newdecimal, bin, 6, 1, nodef | num},
+                    {f::double_, bin, 22, 31, num}}));
+  o = run(b.s, "SELECT COUNT(*) + 0.5, -COUNT(*), COUNT(*) * k FROM v GROUP BY k");
+  EXPECT_EQ(rows_of(o), (Rows{{"2.5", "-2", "2"}, {"1.5", "-1", "2"}}));
+  EXPECT_EQ(
+      shapes(o),
+      (Shapes{{f::newdecimal, bin, 24, 1, nn | binflag | num}, {f::longlong, bin, 21, 0, nn | binflag | num}, {f::longlong, bin, 31, 0, nn | binflag | num}}));
+  EXPECT_EQ(b.shapes_of("SELECT 1 + 1, a, 'x' FROM w GROUP BY a"),
+            (Shapes{{f::longlong, bin, 3, 0, nn | binflag | num}, {f::string, ai, 8, 0, nn | nodef}, {f::var_string, ai, 4, 31, nn}}));
+  o = run(b.s, "SELECT MIN(1), MAX('s'), SUM(2), COUNT(3) FROM w GROUP BY a");
+  EXPECT_EQ(rows_of(o), (Rows{{"1", "s", "4", "2"}}));
+  EXPECT_EQ(shapes(o),
+            (Shapes{{f::longlong, bin, 2, 0, num}, {f::var_string, ai, 4, 0, 0}, {f::newdecimal, bin, 24, 0, num}, {f::longlong, bin, 21, 0, nn | num}}));
+  // No temporary table: a group WHERE fixes, or a DISTINCT aggregate.
+  EXPECT_EQ(b.shapes_of("SELECT a, COUNT(*) FROM w WHERE a = 'p' GROUP BY a"),
+            (Shapes{{f::string, ai, 8, 0, nn | nodef}, {f::longlong, bin, 21, 0, nn | binflag | num}}));
+  EXPECT_EQ(b.shapes_of("SELECT b, COUNT(*) FROM w WHERE b = 'q' GROUP BY b"),
+            (Shapes{{f::var_string, ai, 12, 0, 0}, {f::longlong, bin, 21, 0, nn | binflag | num}}));
+  EXPECT_EQ(b.shapes_of("SELECT a, COUNT(*) FROM w WHERE a = 'p' AND id > 0 GROUP BY a, b"),
+            (Shapes{{f::string, ai, 8, 0, nn | nodef}, {f::longlong, bin, 21, 0, nn | num}}));
+  o = run(b.s, "SELECT a, b, i + 1, COUNT(DISTINCT i), SUM(i), MIN(i), MAX(b) FROM w GROUP BY a, b, i + 1");
+  EXPECT_EQ(rows_of(o), (Rows{{"p", "q", "2", "1", "1", "1", "q"}, {"p", "q", "3", "1", "2", "2", "q"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::string, ai, 8, 0, nn | nodef},
+                               {f::var_string, ai, 12, 0, 0},
+                               {f::longlong, bin, 12, 0, binflag | num},
+                               {f::longlong, bin, 21, 0, nn | binflag | num},
+                               {f::newdecimal, bin, 33, 0, binflag | num},
+                               {f::long_, bin, 11, 0, binflag | num},
+                               {f::var_string, ai, 12, 31, 0}}));
+}
+
+// The refusals: ONLY_FULL_GROUP_BY (1055, 1140), an aggregate where none
+// may be (1111, 1056), a name or position not there (1054); without
+// ONLY_FULL_GROUP_BY a column not grouped takes its group's first row.
+TEST(ExecSessionGroups, Refusals) {
+  GroupBed b;
+  const std::string incompatible = "; this is incompatible with sql_mode=only_full_group_by";
+  b.expect_refused("SELECT g, i FROM t GROUP BY g", 1055, "42000",
+                   "Expression #2 of SELECT list is not in GROUP BY clause and contains nonaggregated column 'pt.t.i' which is not functionally dependent on "
+                   "columns in GROUP BY clause" +
+                       incompatible);
+  b.expect_refused("SELECT k FROM v GROUP BY k ORDER BY n", 1055, "42000",
+                   "Expression #1 of ORDER BY clause is not in GROUP BY clause and contains nonaggregated column 'pt.v.n' which is not functionally dependent "
+                   "on columns in GROUP BY clause" +
+                       incompatible);
+  b.expect_refused("SELECT id, COUNT(*) FROM t", 1140, "42000",
+                   "In aggregated query without GROUP BY, expression #1 of SELECT list contains nonaggregated column 'pt.t.id'" + incompatible);
+  b.expect_refused("SELECT COUNT(*) FROM t WHERE COUNT(*) > 1", 1111, "HY000", "Invalid use of group function");
+  b.expect_refused("SELECT COUNT(COUNT(*)) FROM v", 1111, "HY000", "Invalid use of group function");
+  b.expect_refused("SELECT MAX(n) FROM v GROUP BY MAX(n)", 1056, "42000", "Can't group on 'MAX(n)'");
+  b.expect_refused("SELECT k FROM v GROUP BY k HAVING n > 1", 1054, "42S22", "Unknown column 'n' in 'having clause'");
+  b.expect_refused("SELECT SUM(n) FROM v GROUP BY 2", 1054, "42S22", "Unknown column '2' in 'group statement'");
+  b.expect_refused("SELECT k FROM v GROUP BY nope", 1054, "42S22", "Unknown column 'nope' in 'group statement'");
+  b.expect_refused("SELECT k FROM v GROUP BY k WITH ROLLUP", 1235, "42000", "This version of Kvasir doesn't yet support 'WITH ROLLUP'");
+  b.expect_refused("SELECT GROUP_CONCAT(c) FROM v", 1235, "42000", "This version of Kvasir doesn't yet support 'GROUP_CONCAT'");
+  run(b.s, "SET SESSION sql_mode = ''");
+  EXPECT_EQ(b.rows("SELECT k, n FROM v GROUP BY k ORDER BY k"), (Rows{{"1", "1"}, {"2", "3"}}));
+  auto o = run(b.s, "SELECT id, COUNT(*) FROM v");
+  EXPECT_EQ(rows_of(o), (Rows{{"1", "3"}}));
+  EXPECT_EQ(shapes(o).front(), (Shape{f::long_, bin, 11, 0, pri | nodef | num | part}));
+  b.expect_refused("SELECT k FROM v GROUP BY k HAVING n > 1", 1054, "42S22", "Unknown column 'n' in 'having clause'");
+  b.expect_refused("SELECT MAX(n) FROM v WHERE MAX(n) > 1", 1111, "HY000", "Invalid use of group function");
+}
+
 }  // namespace
 }  // namespace kvasir::exec

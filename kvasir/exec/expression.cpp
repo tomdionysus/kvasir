@@ -8,6 +8,7 @@
 #include "kvasir/exec/expression.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <charconv>
 #include <cmath>
@@ -39,6 +40,8 @@ constexpr uint32_t double_length = 23;
 [[noreturn]] void not_yet(const std::string& what) {
   throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support '" + what + "'");
 }
+
+}  // namespace
 
 ResultType integer_type(int precision, bool is_unsigned, bool not_null) {
   ResultType t;
@@ -77,6 +80,8 @@ ResultType double_type(uint32_t length, bool not_null) {
   t.flags = static_cast<uint16_t>(c::binary | c::num | (not_null ? c::not_null : 0));
   return t;
 }
+
+namespace {
 
 bool not_null(const ResultType& t) { return (t.flags & c::not_null) != 0; }
 
@@ -140,6 +145,8 @@ int written_digits(std::string_view text) {
 }
 
 }  // namespace
+
+bool is_string_type(const ResultType& t) { return is_string(t); }
 
 bool ResultType::nullable() const noexcept { return (flags & c::not_null) == 0; }
 bool ResultType::is_unsigned() const noexcept { return (flags & c::unsigned_) != 0; }
@@ -315,6 +322,11 @@ ResultType Evaluator::type(const Expr& e) const {
       throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + name + "' in 'field list'");
     }
     case ExprKind::call:
+      if (is_aggregate(e)) {
+        if (_settings.aggregates)
+          if (const auto t = _settings.aggregates->aggregate_type(e)) return *t;
+        throw SqlError(er_invalid_group_func_use, "HY000", "Invalid use of group function");
+      }
       if (e.args.empty() && !e.star && _settings.variables) {
         ResultType t;
         Value unused;
@@ -367,8 +379,11 @@ std::pair<uint16_t, int> Evaluator::derivation(const Expr& e, const ResultType& 
       return {binary_collation, coercible_coercibility};
     case ExprKind::user_variable:
       return {t.collation, implicit_coercibility};
-    case ExprKind::system_variable:
     case ExprKind::call:
+      // MIN and MAX hold their argument's collation.
+      if (is_aggregate(e) && !e.args.empty()) return derivation(*e.args[0], type(*e.args[0]));
+      return {utf8mb3_general_ci, sysconst_coercibility};
+    case ExprKind::system_variable:
       return {utf8mb3_general_ci, sysconst_coercibility};
     case ExprKind::collate:
       return {explicit_collation(e), explicit_coercibility};
@@ -474,42 +489,50 @@ Decimal as_decimal(const Value& v) {
 
 }  // namespace
 
-Value Evaluator::value(const Expr& e) {
-  // A string read as a number: its longest numeric prefix, with a warning
-  // when anything but trailing space is left.
-  const auto to_double = [&](const Value& v, const ResultType& t) -> double {
-    if (const auto* d = std::get_if<double>(&v)) return *d;
-    if (const auto* d = std::get_if<Decimal>(&v)) return d->to_double();
-    if (const auto* i = std::get_if<int64_t>(&v)) return static_cast<double>(*i);
-    if (const auto* u = std::get_if<uint64_t>(&v)) return static_cast<double>(*u);
-    const auto& s = std::get<std::string>(v);
-    if (!is_text(t)) return static_cast<double>(static_cast<uint64_t>(as_int(v)));
-    size_t i = 0;
-    while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) ++i;
-    const size_t start = i;
-    if (i < s.size() && (s[i] == '+' || s[i] == '-')) ++i;
-    size_t digits = 0;
+bool is_aggregate(const Expr& e) {
+  static constexpr std::array<std::string_view, 18> names{"AVG",           "BIT_AND",        "BIT_OR", "BIT_XOR",  "COUNT",   "GROUP_CONCAT",
+                                                          "JSON_ARRAYAGG", "JSON_OBJECTAGG", "MAX",    "MIN",      "STD",     "STDDEV",
+                                                          "STDDEV_POP",    "STDDEV_SAMP",    "SUM",    "VARIANCE", "VAR_POP", "VAR_SAMP"};
+  return e.kind == ExprKind::call && std::find(names.begin(), names.end(), e.value) != names.end();
+}
+
+double Evaluator::real(const Value& v, const ResultType& t) {
+  if (const auto* d = std::get_if<double>(&v)) return *d;
+  if (const auto* d = std::get_if<Decimal>(&v)) return d->to_double();
+  if (const auto* i = std::get_if<int64_t>(&v)) return static_cast<double>(*i);
+  if (const auto* u = std::get_if<uint64_t>(&v)) return static_cast<double>(*u);
+  if (is_null(v)) return 0;
+  const auto& s = std::get<std::string>(v);
+  if (!is_text(t)) return static_cast<double>(static_cast<uint64_t>(as_int(v)));
+  size_t i = 0;
+  while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) ++i;
+  const size_t start = i;
+  if (i < s.size() && (s[i] == '+' || s[i] == '-')) ++i;
+  size_t digits = 0;
+  while (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i]))) ++i, ++digits;
+  if (i < s.size() && s[i] == '.') {
+    ++i;
     while (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i]))) ++i, ++digits;
-    if (i < s.size() && s[i] == '.') {
-      ++i;
-      while (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i]))) ++i, ++digits;
+  }
+  size_t end = digits ? i : start;
+  if (digits && i < s.size() && (s[i] == 'e' || s[i] == 'E')) {
+    size_t k = i + 1;
+    if (k < s.size() && (s[k] == '+' || s[k] == '-')) ++k;
+    if (k < s.size() && std::isdigit(static_cast<unsigned char>(s[k]))) {
+      while (k < s.size() && std::isdigit(static_cast<unsigned char>(s[k]))) ++k;
+      end = k;
     }
-    size_t end = digits ? i : start;
-    if (digits && i < s.size() && (s[i] == 'e' || s[i] == 'E')) {
-      size_t k = i + 1;
-      if (k < s.size() && (s[k] == '+' || s[k] == '-')) ++k;
-      if (k < s.size() && std::isdigit(static_cast<unsigned char>(s[k]))) {
-        while (k < s.size() && std::isdigit(static_cast<unsigned char>(s[k]))) ++k;
-        end = k;
-      }
-    }
-    size_t rest = end;
-    while (rest < s.size() && s[rest] == ' ') ++rest;
-    if (rest != s.size()) _warnings.push_back({"Warning", er_truncated_wrong_value, "Truncated incorrect DOUBLE value: '" + s + "'"});
-    std::string number(s.substr(start, end - start));
-    if (!number.empty() && number[0] == '+') number.erase(0, 1);
-    return number.empty() ? 0.0 : parse_double(number);
-  };
+  }
+  size_t rest = end;
+  while (rest < s.size() && s[rest] == ' ') ++rest;
+  if (rest != s.size()) _warnings.push_back({"Warning", er_truncated_wrong_value, "Truncated incorrect DOUBLE value: '" + s + "'"});
+  std::string number(s.substr(start, end - start));
+  if (!number.empty() && number[0] == '+') number.erase(0, 1);
+  return number.empty() ? 0.0 : parse_double(number);
+}
+
+Value Evaluator::value(const Expr& e) {
+  const auto to_double = [&](const Value& v, const ResultType& t) -> double { return real(v, t); };
   const auto truth = [&](const Value& v, const ResultType& t) -> std::optional<bool> {
     if (is_null(v)) return std::nullopt;
     if (const auto* d = std::get_if<Decimal>(&v)) return !d->is_zero();
@@ -803,6 +826,7 @@ Value Evaluator::value(const Expr& e) {
     }
     case ExprKind::call: {
       type(e);
+      if (is_aggregate(e)) return _settings.aggregates->aggregate_value(e);
       ResultType t;
       Value v;
       _settings.variables->session_function(e.value, t, v);

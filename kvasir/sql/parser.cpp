@@ -939,6 +939,17 @@ class Parser {
       }
     }
     if (accept_word("WHERE")) select.where = expression();
+    if (accept_word("GROUP")) {
+      expect_word("BY");
+      do select.group_by.push_back(expression());
+      while (symbol(",") && (take(), true));
+      if (word("WITH") && word("ROLLUP", 1)) {
+        take();
+        take();
+        select.with_rollup = true;
+      }
+    }
+    if (accept_word("HAVING")) select.having = expression();
     if (accept_word("ORDER")) {
       expect_word("BY");
       do {

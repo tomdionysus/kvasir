@@ -11,8 +11,11 @@
 #include <cctype>
 #include <charconv>
 #include <cstdlib>
+#include <map>
+#include <set>
 #include <utility>
 
+#include "kvasir/exec/aggregate.h"
 #include "kvasir/exec/collation.h"
 #include "kvasir/exec/ddl.h"
 #include "kvasir/exec/rows.h"
@@ -486,6 +489,14 @@ class TableColumns : public ColumnSource {
 
   void set_row(const txn::Row* row) { _row = row; }
 
+  Value value_at(size_t i) const {
+    if (!_row || !(*_row)[i]) return {};
+    return value_of(_table.columns[i].type, *(*_row)[i]);
+  }
+  // What the column's values compare under: its collation, or 0 for a
+  // number.
+  uint16_t collation_at(size_t i) const { return column_collation_id(_table.columns[i]); }
+
   // A column's value as a client is sent it.
   std::optional<std::string> text(size_t i) const {
     if (!_row || !(*_row)[i]) return std::nullopt;
@@ -597,6 +608,227 @@ uint16_t order_collation(const sql::Expr& e, const ResultType& type, const Table
   return type.collation == protocol::collation::binary ? protocol::collation::binary : results;
 }
 
+// What two values of an expression compare equal under, for grouping and
+// DISTINCT: a string's collation (a column's own), 0 for a number.
+uint16_t key_collation(const sql::Expr& e, const ResultType& type, const TableColumns* columns, uint16_t results) {
+  if (!is_string_type(type)) return 0;
+  if (e.kind == sql::ExprKind::column && columns)
+    if (const auto found = columns->find_column(e.path)) return found->collation;
+  return type.collation == protocol::collation::binary ? protocol::collation::binary : results;
+}
+
+// Rows of values, ordered as GROUP BY and DISTINCT tell them apart.
+struct ValuesLess {
+  const std::vector<uint16_t>* collations;
+  bool operator()(const std::vector<Value>& a, const std::vector<Value>& b) const {
+    for (size_t i = 0; i < a.size(); ++i) {
+      const int order = compare_for_order(a[i], b[i], (*collations)[i]);
+      if (order != 0) return order < 0;
+    }
+    return false;
+  }
+};
+
+bool contains_aggregate(const sql::Expr& e) {
+  if (is_aggregate(e)) return true;
+  for (const auto& a : e.args)
+    if (a && contains_aggregate(*a)) return true;
+  return (e.operand && contains_aggregate(*e.operand)) || (e.otherwise && contains_aggregate(*e.otherwise));
+}
+
+// Whether a SELECT is grouped: GROUP BY, HAVING, or an aggregate in its list
+// or ORDER BY.
+bool is_grouped(const sql::Select& s) {
+  if (!s.group_by.empty() || s.having || s.with_rollup) return true;
+  for (const auto& item : s.items)
+    if (item.expr && contains_aggregate(*item.expr)) return true;
+  for (const auto& o : s.order)
+    if (contains_aggregate(*o.expr)) return true;
+  return false;
+}
+
+// The aggregate calls in an expression, the outermost.
+void collect_aggregates(const sql::Expr& e, std::vector<const sql::Expr*>& out) {
+  if (is_aggregate(e)) {
+    if (std::find(out.begin(), out.end(), &e) == out.end()) out.push_back(&e);
+    return;
+  }
+  for (const auto& a : e.args)
+    if (a) collect_aggregates(*a, out);
+  if (e.operand) collect_aggregates(*e.operand, out);
+  if (e.otherwise) collect_aggregates(*e.otherwise, out);
+}
+
+// The columns an expression reads outside its aggregates.
+void bare_columns(const sql::Expr& e, std::vector<const sql::Expr*>& out) {
+  if (is_aggregate(e)) return;
+  if (e.kind == sql::ExprKind::column) {
+    out.push_back(&e);
+    return;
+  }
+  for (const auto& a : e.args)
+    if (a) bare_columns(*a, out);
+  if (e.operand) bare_columns(*e.operand, out);
+  if (e.otherwise) bare_columns(*e.otherwise, out);
+}
+
+// Whether two expressions are the same, a column by the column it names.
+bool same_expr(const sql::Expr& a, const sql::Expr& b, const TableColumns* columns) {
+  if (a.kind != b.kind) return false;
+  if (a.kind == sql::ExprKind::column) {
+    if (!columns) return false;
+    const auto x = columns->index(a.path), y = columns->index(b.path);
+    return x && y && *x == *y;
+  }
+  if (a.value != b.value || a.charset != b.charset || a.scope != b.scope || a.negated != b.negated || a.distinct != b.distinct || a.star != b.star ||
+      a.args.size() != b.args.size() || !a.operand != !b.operand || !a.otherwise != !b.otherwise)
+    return false;
+  for (size_t i = 0; i < a.args.size(); ++i) {
+    if (!a.args[i] != !b.args[i]) return false;
+    if (a.args[i] && !same_expr(*a.args[i], *b.args[i], columns)) return false;
+  }
+  return (!a.operand || same_expr(*a.operand, *b.operand, columns)) && (!a.otherwise || same_expr(*a.otherwise, *b.otherwise, columns));
+}
+
+// The columns WHERE fixes to one value: `column = constant` in its top-level
+// AND.
+void fixed_columns(const sql::Expr& e, const TableColumns& columns, std::vector<size_t>& out) {
+  if (e.kind != sql::ExprKind::binary) return;
+  if (e.value == "AND") {
+    fixed_columns(*e.args[0], columns, out);
+    fixed_columns(*e.args[1], columns, out);
+    return;
+  }
+  if (e.value != "=") return;
+  for (size_t side = 0; side < 2; ++side) {
+    const auto& column = *e.args[side];
+    const auto& other = *e.args[1 - side];
+    if (column.kind != sql::ExprKind::column || mentions_column(other) || contains_aggregate(other)) continue;
+    if (const auto i = columns.index(column.path)) out.push_back(*i);
+  }
+}
+
+// An expression as 1056 names it: as written.
+std::string written(const sql::Expr& e) {
+  if (e.kind == sql::ExprKind::column) {
+    std::string out;
+    for (size_t i = 0; i < e.path.size(); ++i) out += (i ? "." : "") + e.path[i];
+    return out;
+  }
+  if (e.kind == sql::ExprKind::call) {
+    std::string out = e.value + "(" + (e.distinct ? "DISTINCT " : "") + (e.star ? "*" : "");
+    for (size_t i = 0; i < e.args.size(); ++i) out += (i ? ", " : "") + written(*e.args[i]);
+    return out + ")";
+  }
+  return mysql_text(e);
+}
+
+// GROUP_FLAG, NUM's bit: a nullable column a temporary table groups by.
+constexpr uint16_t group_flag = 32768;
+
+// An expression's type as a temporary table's field reports it: a number
+// without BINARY, a string with 0 decimals.
+ResultType as_field(ResultType t) {
+  if (is_string_type(t))
+    t.decimals = 0;
+  else
+    t.flags = static_cast<uint16_t>(t.flags & ~c::binary);
+  return t;
+}
+
+// Whether `listed` columns hold the whole of a key that tells rows apart:
+// the primary key, or a unique key of NOT NULL columns, without prefixes.
+bool holds_a_key(const catalog::Table& table, const std::vector<size_t>& listed) {
+  for (const auto& key : table.keys) {
+    bool whole = key.kind != catalog::Key::Kind::index;
+    for (const auto& part : key.parts)
+      whole = whole && !part.prefix && !table.columns[part.column].nullable && std::find(listed.begin(), listed.end(), part.column) != listed.end();
+    if (whole) return true;
+  }
+  return false;
+}
+
+// A value's text, with ZEROFILL's zeros when its column says so.
+std::optional<std::string> padded_text(const Value& v, const ResultType& type) {
+  auto text = to_text(v, type);
+  if (text && (type.flags & protocol::column_flag::zerofill) && text->size() < type.length) text->insert(0, type.length - text->size(), '0');
+  return text;
+}
+
+// The aggregates of the group at hand.
+class GroupAggregates : public AggregateSource {
+ public:
+  explicit GroupAggregates(const std::vector<AggregateSpec>& specs) : _specs(specs) {}
+
+  std::optional<ResultType> aggregate_type(const sql::Expr& call) const override {
+    if (const auto i = find(call)) return _specs[*i].type();
+    return std::nullopt;
+  }
+  Value aggregate_value(const sql::Expr& call) const override {
+    const auto i = find(call);
+    if (!i || !_group) return {};
+    return (*_group)[*i].result();
+  }
+  void set_group(const std::vector<Accumulator>* group) { _group = group; }
+
+ private:
+  std::optional<size_t> find(const sql::Expr& call) const {
+    for (size_t i = 0; i < _specs.size(); ++i)
+      if (&_specs[i].call() == &call) return i;
+    return std::nullopt;
+  }
+
+  const std::vector<AggregateSpec>& _specs;
+  const std::vector<Accumulator>* _group = nullptr;
+};
+
+// The names HAVING reads: a grouped column, a column the select list names
+// bare, or a select item's alias (observed: anything else is 1054).
+class HavingColumns : public ColumnSource {
+ public:
+  HavingColumns(const TableColumns* table, const sql::Select& select, const std::vector<const sql::Expr*>& groups, Evaluator& items, uint16_t results)
+      : _table(table), _select(select), _groups(groups), _items(items), _results(results) {}
+
+  std::optional<Found> find_column(const std::vector<std::string>& path) const override {
+    const auto e = resolve(path);
+    if (!e) return std::nullopt;
+    if (!*e) return _table->find_column(path);
+    const auto type = _items.type(**e);
+    return Found{type, key_collation(**e, type, _table, _results)};
+  }
+  Value column_value(const std::vector<std::string>& path) const override {
+    const auto e = resolve(path);
+    if (!e) return {};
+    if (!*e) return _table->column_value(path);
+    return _items.value(**e);
+  }
+
+ private:
+  // Nothing for a name HAVING cannot read; a null expression for a table's
+  // column; else the select item an alias names.
+  std::optional<const sql::Expr*> resolve(const std::vector<std::string>& path) const {
+    const sql::Expr* const table_column = nullptr;
+    if (_table) {
+      if (const auto i = _table->index(path)) {
+        for (const auto* g : _groups)
+          if (g->kind == sql::ExprKind::column && _table->index(g->path) == i) return table_column;
+        for (const auto& item : _select.items)
+          if (item.star || (item.expr->kind == sql::ExprKind::column && _table->index(item.expr->path) == i)) return table_column;
+      }
+    }
+    if (path.size() == 1)
+      for (const auto& item : _select.items)
+        if (item.has_alias && sql::same_word(item.alias, path[0])) return item.expr.get();
+    return std::nullopt;
+  }
+
+  const TableColumns* _table;
+  const sql::Select& _select;
+  const std::vector<const sql::Expr*>& _groups;
+  Evaluator& _items;
+  uint16_t _results;
+};
+
 }  // namespace
 
 void Session::check_isolation() const {
@@ -626,6 +858,7 @@ Outcome Session::select_from_table(const sql::Select& select) {
     if (!_catalog.database(database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
     throw SqlError(1146, "42S02", "Table '" + database + "." + from.name.back() + "' doesn't exist");
   }
+  if (is_grouped(select)) return select_groups(select, &*table, database);
   check_isolation();
   auto settings = eval_settings();
   TableColumns columns(*table, database, from.alias, settings);
@@ -662,6 +895,22 @@ Outcome Session::select_from_table(const sql::Select& select) {
       result.columns.push_back({column_name(item), type});
       outputs.push_back({std::nullopt, item.expr.get(), type});
     }
+  }
+  if (select.distinct) {
+    // DISTINCT goes through a temporary table (observed), unless the list
+    // holds a whole key: its columns are that table's fields, grouped by.
+    std::vector<size_t> listed;
+    for (const auto& o : outputs)
+      if (o.column) listed.push_back(*o.column);
+    if (!holds_a_key(*table, listed))
+      for (size_t k = 0; k < outputs.size(); ++k) {
+        auto& type = result.columns[k].type;
+        if (outputs[k].column) {
+          if (type.nullable()) type.flags = static_cast<uint16_t>(type.flags | group_flag);
+        } else if (mentions_column(*outputs[k].expr)) {
+          type = as_field(type);
+        }
+      }
   }
   if (select.where) in_clause("where clause", [&] { evaluator.type(*select.where); });
   // ORDER BY: a select item by its position or its alias, else an
@@ -710,6 +959,21 @@ Outcome Session::select_from_table(const sql::Select& select) {
       for (const auto& sort : sorts) c.keys.push_back(evaluator.value(*sort.expr));
       chosen.push_back(std::move(c));
     }
+    if (select.distinct) {
+      // Each row once, the first met kept.
+      std::vector<uint16_t> collations;
+      for (const auto& o : outputs)
+        collations.push_back(o.column ? columns.collation_at(*o.column) : key_collation(*o.expr, o.type, &columns, settings.result_collation));
+      std::set<std::vector<Value>, ValuesLess> seen(ValuesLess{&collations});
+      std::vector<Chosen> kept;
+      for (auto& c : chosen) {
+        columns.set_row(c.row);
+        std::vector<Value> values;
+        for (const auto& o : outputs) values.push_back(o.column ? columns.value_at(*o.column) : evaluator.value(*o.expr));
+        if (seen.insert(std::move(values)).second) kept.push_back(std::move(c));
+      }
+      chosen = std::move(kept);
+    }
     if (!sorts.empty()) {
       std::stable_sort(chosen.begin(), chosen.end(), [&](const Chosen& a, const Chosen& b) {
         for (size_t i = 0; i < sorts.size(); ++i) {
@@ -733,6 +997,334 @@ Outcome Session::select_from_table(const sql::Select& select) {
   }
   end_statement(false);
   _warnings = evaluator.warnings();
+  Outcome out;
+  out.result = std::move(result);
+  return out;
+}
+
+// Grouping as MySQL 8.4 does it (the manual's "MySQL Handling of GROUP BY"
+// and "Aggregate Function Descriptions", observed on 8.4.13): rows WHERE
+// keeps are grouped by GROUP BY's values (NULL a group of its own), in the
+// order the groups are first met; with aggregates and no GROUP BY they are
+// one group, even of no rows; with neither, each row is its own. Each
+// group's aggregates are taken over its rows, HAVING filters the groups,
+// then ORDER BY and LIMIT. Under ONLY_FULL_GROUP_BY a column read outside
+// an aggregate must be grouped, fixed by WHERE (column = constant), or
+// follow from a grouped key (1055, 1140); without it, it is the group's
+// first row's.
+Outcome Session::select_groups(const sql::Select& select, const catalog::Table* table, const std::string& database) {
+  if (select.with_rollup) throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'WITH ROLLUP'");
+  if (table) check_isolation();
+  auto settings = eval_settings();
+  std::optional<TableColumns> table_columns;
+  if (table) {
+    table_columns.emplace(*table, database, select.from.front().alias, settings);
+    settings.columns = &*table_columns;
+  }
+  const TableColumns* columns = table_columns ? &*table_columns : nullptr;
+  // Reads each row: WHERE, the group's values, aggregates' arguments. An
+  // aggregate here is 1111.
+  Evaluator rows(settings);
+  if (select.where) in_clause("where clause", [&] { rows.type(*select.where); });
+
+  // The result's columns: a table's column, or an expression.
+  struct Output {
+    std::optional<size_t> column;
+    const sql::Expr* expr = nullptr;
+    std::string name;
+    ResultType type;
+  };
+  std::vector<Output> outputs;
+  for (const auto& item : select.items) {
+    if (item.star) {
+      if (!table) throw SqlError(er_no_tables_used, "HY000", "No tables used");
+      const auto& p = item.star_path;
+      const auto& alias = select.from.front().alias;
+      const bool ours =
+          p.empty() || (p.size() == 1 && p[0] == columns->qualifier()) || (p.size() == 2 && alias.empty() && p[0] == database && p[1] == table->name);
+      if (!ours) throw SqlError(1051, "42S02", "Unknown table '" + p.back() + "'");
+      for (size_t i = 0; i < table->columns.size(); ++i) outputs.push_back({i, nullptr, table->columns[i].name, {}});
+      continue;
+    }
+    std::optional<size_t> column;
+    if (item.expr->kind == sql::ExprKind::column && columns) column = columns->index(item.expr->path);
+    outputs.push_back({column, item.expr.get(), column ? (item.has_alias ? item.alias : item.expr->path.back()) : column_name(item), {}});
+  }
+
+  // GROUP BY: a table's column before an alias; a position.
+  std::vector<const sql::Expr*> groups_by;
+  for (const auto& g : select.group_by) {
+    const sql::Expr* e = g.get();
+    if (e->kind == sql::ExprKind::integer) {
+      const uint64_t position = limit_of(*e);
+      if (position < 1 || position > select.items.size() || select.items[position - 1].star)
+        throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + e->value + "' in 'group statement'");
+      e = select.items[position - 1].expr.get();
+    } else if (e->kind == sql::ExprKind::column && e->path.size() == 1 && !(columns && columns->index(e->path))) {
+      for (const auto& item : select.items)
+        if (item.has_alias && sql::same_word(item.alias, e->path[0])) {
+          e = item.expr.get();
+          break;
+        }
+    }
+    if (contains_aggregate(*e)) throw SqlError(1056, "42000", "Can't group on '" + written(*e) + "'");
+    in_clause("group statement", [&] { rows.type(*e); });
+    groups_by.push_back(e);
+  }
+
+  // ORDER BY: a select item by its position or its alias, else an
+  // expression over the group.
+  std::vector<const sql::Expr*> order_exprs;
+  for (const auto& order : select.order) {
+    const sql::Expr* e = order.expr.get();
+    if (e->kind == sql::ExprKind::integer) {
+      const uint64_t position = limit_of(*e);
+      if (position < 1 || position > select.items.size() || select.items[position - 1].star)
+        throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + e->value + "' in 'order clause'");
+      e = select.items[position - 1].expr.get();
+    } else if (e->kind == sql::ExprKind::column && e->path.size() == 1) {
+      for (const auto& item : select.items)
+        if (item.has_alias && sql::same_word(item.alias, e->path[0])) e = item.expr.get();
+    }
+    order_exprs.push_back(e);
+  }
+
+  // The aggregate calls, each typed over the rows.
+  std::vector<const sql::Expr*> calls;
+  for (const auto& o : outputs)
+    if (o.expr) collect_aggregates(*o.expr, calls);
+  if (select.having) collect_aggregates(*select.having, calls);
+  for (const auto* e : order_exprs) collect_aggregates(*e, calls);
+  std::vector<AggregateSpec> specs;
+  specs.reserve(calls.size());
+  for (const auto* call : calls) {
+    std::vector<ResultType> types;
+    std::vector<uint16_t> collations;
+    for (const auto& arg : call->args) {
+      types.push_back(rows.type(*arg));
+      collations.push_back(key_collation(*arg, types.back(), columns, settings.result_collation));
+    }
+    const bool of_column = call->args.size() == 1 && call->args[0]->kind == sql::ExprKind::column;
+    specs.emplace_back(*call, std::move(types), std::move(collations), of_column, settings);
+  }
+
+  // Reads each group: the select list, ORDER BY, and through an alias,
+  // HAVING.
+  GroupAggregates aggregates(specs);
+  auto group_settings = settings;
+  group_settings.aggregates = &aggregates;
+  Evaluator items(group_settings);
+  for (auto& o : outputs) o.type = o.column ? columns->column(*o.column, o.name).type : items.type(*o.expr);
+  HavingColumns having_columns(columns, select, groups_by, items, settings.result_collation);
+  auto having_settings = group_settings;
+  having_settings.columns = &having_columns;
+  Evaluator having(having_settings);
+  if (select.having) in_clause("having clause", [&] { having.type(*select.having); });
+  struct Sort {
+    const sql::Expr* expr = nullptr;
+    uint16_t collation = 0;
+    bool descending = false;
+  };
+  std::vector<Sort> sorts;
+  for (size_t i = 0; i < order_exprs.size(); ++i) {
+    ResultType type;
+    in_clause("order clause", [&] { type = items.type(*order_exprs[i]); });
+    sorts.push_back({order_exprs[i], key_collation(*order_exprs[i], type, columns, settings.result_collation), select.order[i].descending});
+  }
+
+  const bool implicit = groups_by.empty() && !specs.empty();
+  const bool per_row = groups_by.empty() && specs.empty();
+  std::vector<size_t> fixed, grouped;
+  if (columns) {
+    if (select.where) fixed_columns(*select.where, *columns, fixed);
+    for (const auto* g : groups_by)
+      if (g->kind == sql::ExprKind::column) grouped.push_back(*columns->index(g->path));
+  }
+  const auto has = [](const std::vector<size_t>& v, size_t i) { return std::find(v.begin(), v.end(), i) != v.end(); };
+
+  if (columns && has_mode(_variables.text("sql_mode"), "ONLY_FULL_GROUP_BY") && !per_row) {
+    // A key every column of which is grouped or fixed fixes the row.
+    auto known = grouped;
+    known.insert(known.end(), fixed.begin(), fixed.end());
+    const bool whole_row = !groups_by.empty() && holds_a_key(*table, known);
+    const auto dependent = [&](size_t i) { return whole_row || has(grouped, i) || has(fixed, i); };
+    const auto named = [&](size_t i) { return database + "." + columns->qualifier() + "." + table->columns[i].name; };
+    const std::string incompatible = "; this is incompatible with sql_mode=only_full_group_by";
+    const auto check = [&](const sql::Expr* e, std::optional<size_t> column, size_t number, const char* clause) {
+      for (const auto* g : groups_by)
+        if (e && same_expr(*e, *g, columns)) return;
+      std::vector<size_t> read;
+      if (!e && column) read.push_back(*column);
+      std::vector<const sql::Expr*> bare;
+      if (e) bare_columns(*e, bare);
+      for (const auto* b : bare)
+        if (const auto i = columns->index(b->path)) read.push_back(*i);
+      for (const auto i : read) {
+        if (dependent(i)) continue;
+        if (groups_by.empty())
+          throw SqlError(1140, "42000",
+                         "In aggregated query without GROUP BY, expression #" + std::to_string(number) + " of SELECT list contains nonaggregated column '" +
+                             named(i) + "'" + incompatible);
+        throw SqlError(1055, "42000",
+                       "Expression #" + std::to_string(number) + " of " + clause + " is not in GROUP BY clause and contains nonaggregated column '" + named(i) +
+                           "' which is not functionally dependent on columns in GROUP BY clause" + incompatible);
+      }
+    };
+    for (size_t k = 0; k < outputs.size(); ++k) check(outputs[k].expr, outputs[k].column, k + 1, "SELECT list");
+    if (!groups_by.empty())
+      for (size_t k = 0; k < order_exprs.size(); ++k) {
+        bool an_item = false;
+        for (const auto& item : select.items) an_item = an_item || item.expr.get() == order_exprs[k];
+        if (!an_item) check(order_exprs[k], std::nullopt, k + 1, "ORDER BY clause");
+      }
+  }
+
+  // What the columns report. Grouping through a temporary table (the usual
+  // way) reports what it holds as that table's fields; a group WHERE fixes,
+  // or a DISTINCT aggregate, needs none.
+  bool temporary = !groups_by.empty();
+  if (temporary) {
+    bool all_fixed = true;
+    for (const auto* g : groups_by) all_fixed = all_fixed && g->kind == sql::ExprKind::column && has(fixed, *columns->index(g->path));
+    bool distinct = false;
+    for (const auto& spec : specs) distinct = distinct || spec.call().distinct;
+    temporary = !all_fixed && !distinct;
+  }
+  ResultSet result;
+  for (const auto& o : outputs) {
+    if (o.column) {
+      auto column = columns->column(*o.column, o.name);
+      if (implicit) column.type.flags = static_cast<uint16_t>(column.type.flags & ~c::not_null);
+      if (temporary && column.type.nullable() && has(grouped, *o.column)) column.type.flags = static_cast<uint16_t>(column.type.flags | group_flag);
+      result.columns.push_back(std::move(column));
+      continue;
+    }
+    auto type = o.type;
+    if (temporary) {
+      const auto& e = *o.expr;
+      if (is_aggregate(e)) {
+        const bool min_max = e.value == "MIN" || e.value == "MAX";
+        const auto argument = min_max && e.args[0]->kind == sql::ExprKind::column ? columns->index(e.args[0]->path) : std::nullopt;
+        if (argument) {
+          type = columns->column(*argument, "").type;
+          type.flags = static_cast<uint16_t>(type.flags & ~(c::not_null | c::primary_key | c::unique_key | c::multiple_key | c::part_key | c::auto_increment));
+        } else if (e.value != "AVG") {
+          type = as_field(type);
+        }
+      } else if (!contains_aggregate(e) && mentions_column(e)) {
+        type = as_field(type);
+      }
+    }
+    result.columns.push_back({o.name, type});
+  }
+
+  const uint64_t limit = select.limit ? limit_of(*select.limit) : _variables.number("sql_select_limit");
+  const uint64_t offset = select.offset ? limit_of(*select.offset) : 0;
+  std::vector<uint16_t> key_collations;
+  for (const auto* g : groups_by) key_collations.push_back(key_collation(*g, rows.type(*g), columns, settings.result_collation));
+  struct Group {
+    const txn::Row* row = nullptr;
+    std::vector<Accumulator> sums;
+  };
+  std::vector<Group> groups;
+  std::map<std::vector<Value>, size_t, ValuesLess> found(ValuesLess{&key_collations});
+  const auto new_group = [&](const txn::Row* row) {
+    Group g{row, {}};
+    for (const auto& spec : specs) g.sums.emplace_back(spec);
+    groups.push_back(std::move(g));
+    return groups.size() - 1;
+  };
+  if (implicit) new_group(nullptr);
+
+  txn::Transaction* t = table ? &transaction() : nullptr;
+  try {
+    std::vector<txn::Row> table_rows;
+    if (t) {
+      begin_reading(*t);
+      table_rows = _rows.rows(*t, table->id);
+    } else {
+      // A SELECT without FROM reads one row of nothing.
+      table_rows.emplace_back();
+    }
+    for (const auto& row : table_rows) {
+      if (columns) table_columns->set_row(&row);
+      if (select.where && !truth(rows.value(*select.where))) continue;
+      size_t g = 0;
+      if (per_row) {
+        g = new_group(&row);
+      } else if (!implicit) {
+        std::vector<Value> keys;
+        for (const auto* e : groups_by) keys.push_back(rows.value(*e));
+        const auto at = found.find(keys);
+        if (at == found.end()) {
+          g = new_group(&row);
+          found.emplace(std::move(keys), g);
+        } else {
+          g = at->second;
+        }
+      } else if (!groups[0].row) {
+        groups[0].row = &row;
+      }
+      for (size_t s = 0; s < specs.size(); ++s) {
+        std::vector<Value> args;
+        for (const auto& arg : specs[s].call().args) args.push_back(rows.value(*arg));
+        groups[g].sums[s].add(args, rows);
+      }
+    }
+
+    struct Chosen {
+      std::vector<Value> keys;
+      std::vector<Value> values;
+      std::vector<std::optional<std::string>> texts;
+    };
+    std::vector<Chosen> chosen;
+    for (const auto& g : groups) {
+      if (columns) table_columns->set_row(g.row);
+      aggregates.set_group(&g.sums);
+      if (select.having && !truth(having.value(*select.having))) continue;
+      Chosen ch;
+      for (const auto& sort : sorts) ch.keys.push_back(items.value(*sort.expr));
+      for (size_t k = 0; k < outputs.size(); ++k) {
+        const auto& o = outputs[k];
+        if (o.column) {
+          ch.values.push_back(columns->value_at(*o.column));
+          ch.texts.push_back(columns->text(*o.column));
+        } else {
+          ch.values.push_back(items.value(*o.expr));
+          ch.texts.push_back(padded_text(ch.values.back(), result.columns[k].type));
+        }
+      }
+      chosen.push_back(std::move(ch));
+    }
+    if (select.distinct) {
+      std::vector<uint16_t> collations;
+      for (const auto& o : outputs)
+        collations.push_back(o.column ? columns->collation_at(*o.column) : key_collation(*o.expr, o.type, columns, settings.result_collation));
+      std::set<std::vector<Value>, ValuesLess> seen(ValuesLess{&collations});
+      std::vector<Chosen> kept;
+      for (auto& ch : chosen)
+        if (seen.insert(ch.values).second) kept.push_back(std::move(ch));
+      chosen = std::move(kept);
+    }
+    if (!sorts.empty()) {
+      std::stable_sort(chosen.begin(), chosen.end(), [&](const Chosen& a, const Chosen& b) {
+        for (size_t i = 0; i < sorts.size(); ++i) {
+          const int order = compare_for_order(a.keys[i], b.keys[i], sorts[i].collation);
+          if (order != 0) return sorts[i].descending ? order > 0 : order < 0;
+        }
+        return false;
+      });
+    }
+    for (size_t i = 0; i < chosen.size(); ++i)
+      if (i >= offset && i - offset < limit) result.rows.push_back(std::move(chosen[i].texts));
+    if (columns) table_columns->set_row(nullptr);
+  } catch (...) {
+    if (t) end_statement(true);
+    throw;
+  }
+  if (t) end_statement(false);
+  _warnings = rows.warnings();
+  for (const auto* e : {&items, &having}) _warnings.insert(_warnings.end(), e->warnings().begin(), e->warnings().end());
   Outcome out;
   out.result = std::move(result);
   return out;
@@ -1002,6 +1594,7 @@ Outcome Session::change_rows(const sql::Statement& statement) {
 
 Outcome Session::select(const sql::Select& select) {
   if (!select.from.empty()) return select_from_table(select);
+  if (is_grouped(select)) return select_groups(select, nullptr, "");
   Evaluator evaluator(eval_settings());
   ResultSet result;
   for (const auto& item : select.items) {

@@ -254,6 +254,27 @@ TEST(SqlParser, SelectFromDualAndDistinct) {
   EXPECT_TRUE(one("SELECT DISTINCTROW a FROM t").select.distinct);
 }
 
+// The manual's SELECT: [GROUP BY {col_name | expr | position}, ... [WITH
+// ROLLUP]] [HAVING where_condition], between WHERE and ORDER BY; GROUP BY
+// takes no ASC or DESC since 8.0.
+TEST(SqlParser, GroupByAndHaving) {
+  auto s = one("SELECT g, COUNT(*) FROM t WHERE a > 1 GROUP BY g, 2, a + 1 HAVING COUNT(*) > 1 ORDER BY g LIMIT 3");
+  ASSERT_EQ(s.select.group_by.size(), 3u);
+  EXPECT_EQ(to_string(*s.select.group_by[0]), "g");
+  EXPECT_EQ(to_string(*s.select.group_by[1]), "2");
+  EXPECT_EQ(to_string(*s.select.group_by[2]), "(+ a 1)");
+  EXPECT_FALSE(s.select.with_rollup);
+  EXPECT_EQ(to_string(*s.select.having), "(> (COUNT *) 1)");
+  EXPECT_EQ(to_string(*s.select.where), "(> a 1)");
+  EXPECT_EQ(s.select.order.size(), 1u);
+  EXPECT_TRUE(one("SELECT g FROM t GROUP BY g WITH ROLLUP").select.with_rollup);
+  s = one("SELECT COUNT(*) FROM t HAVING COUNT(*) > 0");
+  EXPECT_TRUE(s.select.group_by.empty());
+  EXPECT_EQ(to_string(*s.select.having), "(> (COUNT *) 0)");
+  EXPECT_EQ(error_at("SELECT g FROM t GROUP BY g DESC"), 27u);
+  EXPECT_EQ(error_at("SELECT g FROM t GROUP g"), 22u);
+}
+
 TEST(SqlParser, SelectHint) { EXPECT_EQ(one("SELECT /*+ MAX_EXECUTION_TIME(1000) */ 1").select.hint, " MAX_EXECUTION_TIME(1000) "); }
 
 TEST(SqlParser, SetVariables) {
