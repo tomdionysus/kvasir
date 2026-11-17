@@ -299,6 +299,11 @@ builds on node-d (4 GB).
     across replica sets, the peer-witnessed high-water mark, the exported
     fuzz harness, loader promotion) or are not used (DTLS/UDP). After the
     tag: move the pin from 0.8.5 to 0.9.0 and report what breaks.
+    Confirmed on Dannan's develop (df4b2d8; the tag waits on the maintainer): all of
+    it there; Backoff, StreamListener, start_tls_unanswered and ClassGates
+    unchanged; WorkerPoolConfig gains `schedule`, empty by default. Using
+    SimNodes means linking `dannan::sim_checkers` and defining
+    DANNAN_TEST_TEMP_ROOT. Changes from 0.8.x: Dannan's CHANGELOG.md.
   Dannan has also taken Kvasir's
   ask to export its fuzz harness with the test fixtures (a 0.9 item, not
   started). Dannan's working tree may be on a feature branch: read
