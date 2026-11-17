@@ -277,6 +277,16 @@ builds on node-d (4 GB).
     Merged on Dannan's develop (ea84a31, unpushed until the maintainer says): a
     repeatable change is always run on the retry's own base; change(),
     change_deltas() and forget() take one name until item 7.
+  - The simulation's transport seam (Dannan, 2026-11-17, reviewed by
+    Kvasir): whole nodes in the world through a call-level
+    `net::Transport`, the node's loops on an injected schedule; sessions,
+    TLS and the scheduler outside. Kvasir's simulations drive sessions
+    directly (statements as values), the MySQL listener staying outside.
+    Asked: the hosted system's Context to give the node's time source and
+    a schedule, so Kvasir's timers (lock-wait timeout, the proposer's
+    batching window, catch-up retries) run on the world's time. Kvasir's
+    connection timer is Asio's today; it moves to that schedule when the
+    node does.
   Dannan has also taken Kvasir's
   ask to export its fuzz harness with the test fixtures (a 0.9 item, not
   started). Dannan's working tree may be on a feature branch: read
