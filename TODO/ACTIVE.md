@@ -262,6 +262,18 @@ builds on node-d (4 GB).
     runs on the agreement's strand and never waits on a store (Kvasir's
     row checks come before the call); a need_whole acceptor is caught up by
     an identity change(), or by Kvasir's own copy first.
+  - Dannan's review against the CASPaxos paper (2026-11-17, branch
+    feature/attempt-timeout, Kvasir reviewed): a retry could apply a
+    change twice, and a change of several names could be half taken.
+    Fixes: each accepted state carries its ancestry (at most 16 ballots,
+    which Kvasir's range store persists with its state); a change whose
+    retry cannot tell ends `Outcome::unknown` unless repeatable. Kvasir's
+    batches are repeatable by their own marks: every commit in a range
+    keeps its transaction id, and the DeltaChange (run only when `local`)
+    returns no delta when its batch is already in the base. Multi-name
+    changes go through plan item 7's atomic commit (a transaction record),
+    which is Kvasir's design for commits across ranges; Kvasir will use
+    Dannan's item 7 and never names more than one range per change.
   Dannan has also taken Kvasir's
   ask to export its fuzz harness with the test fixtures (a 0.9 item, not
   started). Dannan's working tree may be on a feature branch: read
