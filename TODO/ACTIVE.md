@@ -287,6 +287,11 @@ builds on node-d (4 GB).
     2a routes through the world's schedule when one is set (Dannan,
     answered). Kvasir's connection lock timer is Asio's today; it moves to
     `Context::time().after()` when the node runs inside a Dannan node.
+    Built (Dannan develop d50bb67): `dannan/test/fixtures/sim/nodes.h`,
+    `SimNodes`, real nodes on the world's transport, time and schedule,
+    with restarts keeping or wiping state, partitions and heals, and
+    per-node clock skew; tests in `dannan/test/sim_nodes_test.cpp`. This
+    is where step 3's simulation of Kvasir's commit protocol will run.
   Dannan has also taken Kvasir's
   ask to export its fuzz harness with the test fixtures (a 0.9 item, not
   started). Dannan's working tree may be on a feature branch: read
