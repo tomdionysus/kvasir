@@ -2464,5 +2464,69 @@ column CONCAT(vb, vb)|VAR_STRING|63|600|31|BINARY
 column CONCAT(mt)|LONG_BLOB|255|67108864|31|
 column CONCAT(x,x,x,x,x)|MEDIUM_BLOB|255|5242800|31|
 end
+statement SELECT SUBSTRING(v,2), SUBSTRING(v,i), SUBSTRING(v,1,i), LEFT(v,2), RIGHT(c,1), LEFT(x,3), SUBSTRING(i,1,1), LEFT(vb,1), SUBSTRING(v,-1), LEFT(d, 2), MID(v FROM 2 FOR 1) FROM f
+column SUBSTRING(v,2)|VAR_STRING|255|36|31|
+column SUBSTRING(v,i)|VAR_STRING|255|40|31|
+column SUBSTRING(v,1,i)|VAR_STRING|255|40|31|
+column LEFT(v,2)|VAR_STRING|255|8|31|
+column RIGHT(c,1)|VAR_STRING|255|4|31|BINARY
+column LEFT(x,3)|VAR_STRING|255|12|31|
+column SUBSTRING(i,1,1)|VAR_STRING|255|4|31|
+column LEFT(vb,1)|VAR_STRING|63|1|31|BINARY
+column SUBSTRING(v,-1)|VAR_STRING|255|4|31|
+column LEFT(d, 2)|VAR_STRING|255|8|31|
+column MID(v FROM 2 FOR 1)|VAR_STRING|255|4|31|
+row bc	abc	a	ab	x	tt	1	z	c	4.	b
+row \N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
+end
 statement DROP DATABASE kv_strings
+end
+statement SELECT SUBSTRING('abcdef',2), SUBSTRING('abcdef',2,3), SUBSTRING('abcdef',-2), SUBSTRING('abcdef',0), SUBSTRING('abcdef',2,-1), SUBSTRING('abcdef',-10), SUBSTRING('abcdef',7), SUBSTRING('abcdef',3,100)
+column SUBSTRING('abcdef',2)|VAR_STRING|255|20|31|
+column SUBSTRING('abcdef',2,3)|VAR_STRING|255|12|31|
+column SUBSTRING('abcdef',-2)|VAR_STRING|255|8|31|
+column SUBSTRING('abcdef',0)|VAR_STRING|255|0|31|
+column SUBSTRING('abcdef',2,-1)|VAR_STRING|255|0|31|
+column SUBSTRING('abcdef',-10)|VAR_STRING|255|0|31|
+column SUBSTRING('abcdef',7)|VAR_STRING|255|0|31|
+column SUBSTRING('abcdef',3,100)|VAR_STRING|255|16|31|
+row bcdef	bcd	ef					cdef
+end
+statement SELECT SUBSTRING('abcdef',2.5), SUBSTRING('abcdef',1.5e0), SUBSTR('héllo',2,2), MID('abc',2,1), SUBSTRING('abcdef' FROM 3), SUBSTRING('abcdef' FROM 2 FOR 2), SUBSTRING(12345,2,2), SUBSTRING(NULL,1)
+column SUBSTRING('abcdef',2.5)|VAR_STRING|255|16|31|
+column SUBSTRING('abcdef',1.5e0)|VAR_STRING|255|20|31|
+column SUBSTR('héllo',2,2)|VAR_STRING|255|8|31|
+column MID('abc',2,1)|VAR_STRING|255|4|31|
+column SUBSTRING('abcdef' FROM 3)|VAR_STRING|255|16|31|
+column SUBSTRING('abcdef' FROM 2 FOR 2)|VAR_STRING|255|8|31|
+column SUBSTRING(12345,2,2)|VAR_STRING|255|8|31|
+column SUBSTRING(NULL,1)|VAR_STRING|63|0|31|BINARY
+row cdef	bcdef	él	b	cdef	bc	23	\N
+end
+statement SELECT SUBSTRING('abc',NULL), SUBSTRING('abc',1,NULL), SUBSTRING(_binary'héllo',2,2), LEFT('abcdef',2), RIGHT('abcdef',2), LEFT('abc',-1), RIGHT('abc',-1), LEFT('abc',10), LEFT(NULL,1)
+column SUBSTRING('abc',NULL)|VAR_STRING|255|12|31|
+column SUBSTRING('abc',1,NULL)|VAR_STRING|255|12|31|
+column SUBSTRING(_binary'héllo',2,2)|VAR_STRING|63|2|31|BINARY
+column LEFT('abcdef',2)|VAR_STRING|255|8|31|
+column RIGHT('abcdef',2)|VAR_STRING|255|8|31|
+column LEFT('abc',-1)|VAR_STRING|255|0|31|
+column RIGHT('abc',-1)|VAR_STRING|255|0|31|
+column LEFT('abc',10)|VAR_STRING|255|12|31|
+column LEFT(NULL,1)|VAR_STRING|63|0|31|BINARY
+row \N	\N	é	ab	ef			abc	\N
+end
+statement SELECT LEFT('abc',NULL), LEFT(12345,2), RIGHT('héllo',3), LEFT('abc',1.5), RIGHT(_binary'héllo',2), LEFT(_binary'ab',1)
+column LEFT('abc',NULL)|VAR_STRING|255|12|31|
+column LEFT(12345,2)|VAR_STRING|255|8|31|
+column RIGHT('héllo',3)|VAR_STRING|255|12|31|
+column LEFT('abc',1.5)|VAR_STRING|255|8|31|
+column RIGHT(_binary'héllo',2)|VAR_STRING|63|2|31|BINARY
+column LEFT(_binary'ab',1)|VAR_STRING|63|1|31|BINARY
+row \N	12	llo	ab	lo	a
+end
+statement SELECT SUBSTRING('a')
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near ')' at line 1
+end
+statement SELECT LEFT('a')
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near ')' at line 1
 end

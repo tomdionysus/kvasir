@@ -534,6 +534,56 @@ TEST(ExecExpression, ConcatAndLength) {
   expect_error("LENGTH(1,2)", 1582, "42000", "Incorrect parameter count in the call to native function 'LENGTH'");
 }
 
+// SUBSTRING (SUBSTR, MID), LEFT and RIGHT, observed on MySQL 8.4.13,
+// 2026-11-17: in characters (bytes of a binary string), a position from 1,
+// or from the end when negative, 0 giving nothing; a number rounded to an
+// integer. Never NOT NULL; as long as the string, less what a constant
+// position or length takes away.
+TEST(ExecExpression, SubstringLeftAndRight) {
+  check({
+      {"SUBSTRING('abcdef',2)", "VAR_STRING", 255, 20, 31, "", "bcdef"},
+      {"SUBSTRING('abcdef',2,3)", "VAR_STRING", 255, 12, 31, "", "bcd"},
+      {"SUBSTRING('abcdef',-2)", "VAR_STRING", 255, 8, 31, "", "ef"},
+      {"SUBSTRING('abcdef',0)", "VAR_STRING", 255, 0, 31, "", ""},
+      {"SUBSTRING('abcdef',2,-1)", "VAR_STRING", 255, 0, 31, "", ""},
+      {"SUBSTRING('abcdef',-10)", "VAR_STRING", 255, 0, 31, "", ""},
+      {"SUBSTRING('abcdef',7)", "VAR_STRING", 255, 0, 31, "", ""},
+      {"SUBSTRING('abcdef',3,100)", "VAR_STRING", 255, 16, 31, "", "cdef"},
+      {"SUBSTRING('abcdef',2.5)", "VAR_STRING", 255, 16, 31, "", "cdef"},
+      {"SUBSTRING('abcdef',1.5e0)", "VAR_STRING", 255, 20, 31, "", "bcdef"},
+      {"SUBSTR('h\xC3\xA9llo',2,2)", "VAR_STRING", 255, 8, 31, "", "\xC3\xA9l"},
+      {"MID('abc',2,1)", "VAR_STRING", 255, 4, 31, "", "b"},
+      {"MID('a',1)", "VAR_STRING", 255, 4, 31, "", "a"},
+      {"SUBSTRING('abcdef' FROM 3)", "VAR_STRING", 255, 16, 31, "", "cdef"},
+      {"SUBSTRING('abcdef' FROM 2 FOR 2)", "VAR_STRING", 255, 8, 31, "", "bc"},
+      {"SUBSTR('abc' FROM 2)", "VAR_STRING", 255, 8, 31, "", "bc"},
+      {"SUBSTRING(12345,2,2)", "VAR_STRING", 255, 8, 31, "", "23"},
+      {"SUBSTRING(NULL,1)", "VAR_STRING", 63, 0, 31, "BINARY", "NULL"},
+      {"SUBSTRING('abc',NULL)", "VAR_STRING", 255, 12, 31, "", "NULL"},
+      {"SUBSTRING('abc',1,NULL)", "VAR_STRING", 255, 12, 31, "", "NULL"},
+      {"SUBSTRING(_binary'h\xC3\xA9llo',2,2)", "VAR_STRING", 63, 2, 31, "BINARY", "\xC3\xA9"},
+      {"LEFT('abcdef',2)", "VAR_STRING", 255, 8, 31, "", "ab"},
+      {"RIGHT('abcdef',2)", "VAR_STRING", 255, 8, 31, "", "ef"},
+      {"LEFT('abc',-1)", "VAR_STRING", 255, 0, 31, "", ""},
+      {"RIGHT('abc',-1)", "VAR_STRING", 255, 0, 31, "", ""},
+      {"LEFT('abc',10)", "VAR_STRING", 255, 12, 31, "", "abc"},
+      {"LEFT(NULL,1)", "VAR_STRING", 63, 0, 31, "BINARY", "NULL"},
+      {"LEFT('abc',NULL)", "VAR_STRING", 255, 12, 31, "", "NULL"},
+      {"LEFT(12345,2)", "VAR_STRING", 255, 8, 31, "", "12"},
+      {"RIGHT('h\xC3\xA9llo',3)", "VAR_STRING", 255, 12, 31, "", "llo"},
+      {"LEFT('abc',1.5)", "VAR_STRING", 255, 8, 31, "", "ab"},
+      {"LEFT('abc','2x')", "VAR_STRING", 255, 8, 31, "", "ab"},
+      {"RIGHT(_binary'h\xC3\xA9llo',2)", "VAR_STRING", 63, 2, 31, "BINARY", "lo"},
+      {"LEFT(_binary'ab',1)", "VAR_STRING", 63, 1, 31, "BINARY", "a"},
+  });
+  // A string read as an integer warns of what is left over.
+  Evaluator evaluator;
+  evaluator.value(*select("LEFT('abc','2x')").select.items[0].expr);
+  ASSERT_FALSE(evaluator.warnings().empty());
+  EXPECT_EQ(evaluator.warnings().back().code, 1292);
+  EXPECT_EQ(evaluator.warnings().back().message, "Truncated incorrect INTEGER value: '2x'");
+}
+
 TEST(ExecExpression, ColumnNames) {
   const auto names = [](const std::string& sql) {
     std::vector<std::string> out;

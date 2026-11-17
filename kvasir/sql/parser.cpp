@@ -1427,6 +1427,30 @@ class Parser {
       expect_symbol(")");
       return;
     }
+    // SUBSTRING (SUBSTR, MID): (str, pos[, len]) or (str FROM pos [FOR len]).
+    if (call.value == "SUBSTRING" || call.value == "SUBSTR" || call.value == "MID") {
+      call.args.push_back(expression());
+      if (accept_word("FROM")) {
+        call.args.push_back(expression());
+        if (accept_word("FOR")) call.args.push_back(expression());
+      } else {
+        expect_symbol(",");
+        call.args.push_back(expression());
+        if (symbol(",")) {
+          take();
+          call.args.push_back(expression());
+        }
+      }
+      expect_symbol(")");
+      return;
+    }
+    if (call.value == "LEFT" || call.value == "RIGHT") {
+      call.args.push_back(expression());
+      expect_symbol(",");
+      call.args.push_back(expression());
+      expect_symbol(")");
+      return;
+    }
     if (call.value == "COALESCE" && symbol(")")) fail(peek());
     if (symbol(")")) {
       take();

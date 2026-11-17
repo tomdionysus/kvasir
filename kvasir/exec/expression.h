@@ -174,6 +174,10 @@ class Evaluator {
   // its result holds, or nothing for a name that is not one of them.
   std::optional<Merged> string_function(const sql::Expr& e) const;
   Value string_function_value(const sql::Expr& e);
+  // An argument read as an integer (a position, a length): a number
+  // rounded, a string by its leading digits with warning 1292 for what is
+  // left; nothing for NULL.
+  std::optional<int64_t> integer_argument(const sql::Expr& e);
   // A string operand's collation and coercibility.
   std::pair<uint16_t, int> derivation(const sql::Expr& e, const ResultType& t) const;
   // The character set an operand's value is in.

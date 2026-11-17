@@ -287,6 +287,21 @@ TEST(SqlParser, IfAndCoalesceArguments) {
   EXPECT_EQ(error_at("SELECT IF(1,2,3,4)"), 15u);
 }
 
+// SUBSTRING (SUBSTR, MID) takes (str, pos[, len]) or (str FROM pos [FOR
+// len]), LEFT and RIGHT (str, len); anything else is not SQL (observed on
+// MySQL 8.4.13, 2026-11-17).
+TEST(SqlParser, SubstringLeftAndRightArguments) {
+  EXPECT_EQ(to_string(*one("SELECT SUBSTRING('abc' FROM 2 FOR 1)").select.items[0].expr), "(SUBSTRING 'abc' 2 1)");
+  EXPECT_EQ(to_string(*one("SELECT SUBSTR(a FROM 2)").select.items[0].expr), "(SUBSTR a 2)");
+  EXPECT_EQ(to_string(*one("SELECT MID(a, 2, 3)").select.items[0].expr), "(MID a 2 3)");
+  EXPECT_EQ(to_string(*one("SELECT LEFT(a, 2)").select.items[0].expr), "(LEFT a 2)");
+  EXPECT_EQ(error_at("SELECT SUBSTRING('a')"), 20u);
+  EXPECT_EQ(error_at("SELECT SUBSTRING('a',1,2,3)"), 24u);
+  EXPECT_EQ(error_at("SELECT MID('a')"), 14u);
+  EXPECT_EQ(error_at("SELECT LEFT('a')"), 15u);
+  EXPECT_EQ(error_at("SELECT RIGHT('a',1,2)"), 18u);
+}
+
 TEST(SqlParser, SelectHint) { EXPECT_EQ(one("SELECT /*+ MAX_EXECUTION_TIME(1000) */ 1").select.hint, " MAX_EXECUTION_TIME(1000) "); }
 
 TEST(SqlParser, SetVariables) {

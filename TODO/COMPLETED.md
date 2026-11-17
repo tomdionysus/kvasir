@@ -2,6 +2,25 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-17: SUBSTRING, SUBSTR, MID, LEFT and RIGHT
+
+- Observed on MySQL 8.4.13 first. In characters (bytes of a binary
+  string); a position from 1, from the end when negative, 0 or past either
+  end giving ''; a length of 0 or less ''. Arguments read as integers: a
+  DECIMAL rounded half away from zero, a DOUBLE to nearest, a string by its
+  leading digits with 1292 "Truncated incorrect INTEGER value". Never NOT
+  NULL; as long as the string less what a constant position or length
+  takes away (a column's takes nothing), sized as CONCAT's (a short piece
+  of a TEXT is a VARCHAR). The parser takes `(str FROM pos [FOR len])` and
+  refuses other argument counts with 1064, as MySQL's grammar does, MID
+  included.
+- Known difference: a constant string position such as '2x' warns once;
+  MySQL warns twice (once typing, once evaluating).
+- Test-first on node-d: the 3 new tests failed before any code.
+- Gate: release on node-d **331 passed, 0 failed**; the differential
+  gate **569 of 569** (7 new statements; the 562 before recorded
+  unchanged).
+
 ## 2026-11-17: CONCAT, CONCAT_WS, LENGTH and CHAR_LENGTH
 
 - Observed on MySQL 8.4.13 first. CONCAT is NULL when any argument is;

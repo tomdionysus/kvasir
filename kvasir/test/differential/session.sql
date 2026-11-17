@@ -589,4 +589,11 @@ INSERT INTO f VALUES (1, 2, 4.5, 'abc', 'x', 'tt', 1.25, 'zz'), (NULL, 3, NULL, 
 SELECT CONCAT(v,c), CONCAT(i,v), CONCAT(u), CONCAT(x,'a'), CONCAT(vb,v), CONCAT(c), CONCAT(d), CONCAT(db), CONCAT_WS(v,c,i), LENGTH(v), CHAR_LENGTH(x), LENGTH(u), CONCAT(v, v, v, v) FROM f
 CREATE TABLE g (a VARCHAR(100), m VARCHAR(8000), t TINYTEXT, bl BLOB, vb VARBINARY(300), mt MEDIUMTEXT, x TEXT)
 SELECT CONCAT(a,a), CONCAT(m,m), CONCAT(m,m,m,m,m), CONCAT(t), CONCAT(bl), CONCAT(x), CONCAT(vb, vb), CONCAT(mt), CONCAT(x,x,x,x,x) FROM g
+SELECT SUBSTRING(v,2), SUBSTRING(v,i), SUBSTRING(v,1,i), LEFT(v,2), RIGHT(c,1), LEFT(x,3), SUBSTRING(i,1,1), LEFT(vb,1), SUBSTRING(v,-1), LEFT(d, 2), MID(v FROM 2 FOR 1) FROM f
 DROP DATABASE kv_strings
+SELECT SUBSTRING('abcdef',2), SUBSTRING('abcdef',2,3), SUBSTRING('abcdef',-2), SUBSTRING('abcdef',0), SUBSTRING('abcdef',2,-1), SUBSTRING('abcdef',-10), SUBSTRING('abcdef',7), SUBSTRING('abcdef',3,100)
+SELECT SUBSTRING('abcdef',2.5), SUBSTRING('abcdef',1.5e0), SUBSTR('héllo',2,2), MID('abc',2,1), SUBSTRING('abcdef' FROM 3), SUBSTRING('abcdef' FROM 2 FOR 2), SUBSTRING(12345,2,2), SUBSTRING(NULL,1)
+SELECT SUBSTRING('abc',NULL), SUBSTRING('abc',1,NULL), SUBSTRING(_binary'héllo',2,2), LEFT('abcdef',2), RIGHT('abcdef',2), LEFT('abc',-1), RIGHT('abc',-1), LEFT('abc',10), LEFT(NULL,1)
+SELECT LEFT('abc',NULL), LEFT(12345,2), RIGHT('héllo',3), LEFT('abc',1.5), RIGHT(_binary'héllo',2), LEFT(_binary'ab',1)
+SELECT SUBSTRING('a')
+SELECT LEFT('a')

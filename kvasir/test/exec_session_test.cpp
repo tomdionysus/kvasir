@@ -1575,5 +1575,28 @@ TEST(ExecSessionFunctions, ConcatAndLengthOverColumns) {
                                {f::var_string, bin, 2400, 31, binflag}}));
 }
 
+// SUBSTRING, LEFT and RIGHT over columns, observed on MySQL 8.4.13,
+// 2026-11-17: a position or length from a column takes nothing from the
+// length; a short enough piece of a TEXT is a VARCHAR.
+TEST(ExecSessionFunctions, SubstringOverColumns) {
+  TableBed b;
+  run(b.s, "CREATE TABLE f (i INT, d DECIMAL(6,2), v VARCHAR(10), c CHAR(3) COLLATE utf8mb4_bin, x TEXT, vb VARBINARY(5))");
+  run(b.s, "INSERT INTO f VALUES (1, 4.5, 'abc', 'x', 'tt', 'zz')");
+  auto o = run(b.s,
+               "SELECT SUBSTRING(v,2), SUBSTRING(v,i), SUBSTRING(v,1,i), LEFT(v,2), RIGHT(c,1), LEFT(x,3), SUBSTRING(i,1,1), LEFT(vb,1), "
+               "SUBSTRING(v,-1), LEFT(d, 2) FROM f");
+  EXPECT_EQ(rows_of(o), (Rows{{"bc", "abc", "a", "ab", "x", "tt", "1", "z", "c", "4."}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::var_string, ai, 36, 31, 0},
+                               {f::var_string, ai, 40, 31, 0},
+                               {f::var_string, ai, 40, 31, 0},
+                               {f::var_string, ai, 8, 31, 0},
+                               {f::var_string, ai, 4, 31, binflag},
+                               {f::var_string, ai, 12, 31, 0},
+                               {f::var_string, ai, 4, 31, 0},
+                               {f::var_string, bin, 1, 31, binflag},
+                               {f::var_string, ai, 4, 31, 0},
+                               {f::var_string, ai, 8, 31, 0}}));
+}
+
 }  // namespace
 }  // namespace kvasir::exec
