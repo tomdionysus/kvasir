@@ -196,6 +196,13 @@ ResultType Evaluator::type(const Expr& e) const {
     case ExprKind::string: {
       ResultType t;
       t.field_type = f::var_string;
+      if (sql::same_word(e.charset, "binary")) {
+        t.collation = binary_collation;
+        t.length = static_cast<uint32_t>(e.value.size());
+        t.decimals = any_decimals;
+        t.flags = c::not_null | c::binary;
+        return t;
+      }
       t.collation = _settings.result_collation;
       t.length = static_cast<uint32_t>(characters(e.value)) * _settings.result_max_bytes;
       t.decimals = any_decimals;
@@ -503,7 +510,7 @@ double Evaluator::real(const Value& v, const ResultType& t) {
   if (const auto* u = std::get_if<uint64_t>(&v)) return static_cast<double>(*u);
   if (is_null(v)) return 0;
   const auto& s = std::get<std::string>(v);
-  if (!is_text(t)) return static_cast<double>(static_cast<uint64_t>(as_int(v)));
+  if (t.number_string) return static_cast<double>(static_cast<uint64_t>(as_int(v)));
   size_t i = 0;
   while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) ++i;
   const size_t start = i;

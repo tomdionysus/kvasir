@@ -127,6 +127,8 @@ TEST(ExecExpression, StringHexBitAndNullLiterals) {
       {"''", "VAR_STRING", 255, 0, 31, "NOT_NULL", ""},
       {"_latin1'x'", "VAR_STRING", 255, 4, 31, "NOT_NULL", "x"},
       {"N'n'", "VAR_STRING", 255, 4, 31, "NOT_NULL", "n"},
+      // Observed 2026-11-17: a binary string stays one.
+      {"_binary'ab'", "VAR_STRING", 63, 2, 31, "NOT_NULL BINARY", "ab"},
       {"0x41", "VAR_STRING", 63, 1, 0, "NOT_NULL UNSIGNED BINARY", "A"},
       {"X'4142'", "VAR_STRING", 63, 2, 0, "NOT_NULL UNSIGNED BINARY", "AB"},
       {"b'1'", "VAR_STRING", 63, 1, 0, "NOT_NULL BINARY", "\x01"},
@@ -235,6 +237,9 @@ TEST(ExecExpression, StringsReadAsNumbers) {
       {"'1'+1", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "2"},
       {"'1.5x'+0", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "1.5"},
       {"'abc'*2", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "0"},
+      // A binary string by its text, unlike a hex literal (observed
+      // 2026-11-17).
+      {"_binary'12'+1", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "13"},
   });
   Evaluator evaluator;
   evaluator.value(*select("'1.5x'+0").select.items[0].expr);
