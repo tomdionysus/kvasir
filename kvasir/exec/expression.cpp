@@ -147,6 +147,7 @@ int written_digits(std::string_view text) {
 }  // namespace
 
 bool is_string_type(const ResultType& t) { return is_string(t); }
+bool is_bin_collation(uint16_t collation) { return is_bin(collation); }
 
 namespace {
 
@@ -381,6 +382,7 @@ ResultType Evaluator::type(const Expr& e) const {
         throw SqlError(er_invalid_group_func_use, "HY000", "Invalid use of group function");
       }
       if (is_flow_control(e)) return flow_type(e).type;
+      if (const auto m = string_function(e)) return m->type;
       if (e.args.empty() && !e.star && _settings.variables) {
         ResultType t;
         Value unused;
@@ -402,9 +404,6 @@ ResultType Evaluator::type(const Expr& e) const {
 
 namespace {
 
-// How strongly an operand holds its collation: the lower wins (the manual's
-// "Collation Coercibility in Expressions").
-constexpr int explicit_coercibility = 0, implicit_coercibility = 2, sysconst_coercibility = 3, coercible_coercibility = 4;
 // What system variables and session functions compare under (observed).
 constexpr uint16_t utf8mb3_general_ci = 33;
 
@@ -439,6 +438,7 @@ std::pair<uint16_t, int> Evaluator::derivation(const Expr& e, const ResultType& 
       // MIN and MAX hold their argument's collation.
       if (is_aggregate(e) && !e.args.empty()) return derivation(*e.args[0], type(*e.args[0]));
       if (is_flow_control(e)) return flow_type(e).derivation;
+      if (const auto m = string_function(e)) return m->derivation;
       return {utf8mb3_general_ci, sysconst_coercibility};
     case ExprKind::case_when:
       return flow_type(e).derivation;
@@ -891,6 +891,7 @@ Value Evaluator::value(const Expr& e) {
       return flow_value(e);
     case ExprKind::call: {
       if (is_flow_control(e)) return flow_value(e);
+      if (string_function(e)) return string_function_value(e);
       type(e);
       if (is_aggregate(e)) return _settings.aggregates->aggregate_value(e);
       ResultType t;

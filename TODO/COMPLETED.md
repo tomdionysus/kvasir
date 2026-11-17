@@ -2,6 +2,25 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-17: CONCAT, CONCAT_WS, LENGTH and CHAR_LENGTH
+
+- Observed on MySQL 8.4.13 first. CONCAT is NULL when any argument is;
+  CONCAT_WS skips NULL arguments and is NULL only for a NULL separator;
+  both are never NOT NULL, in the arguments' aggregated collation (a
+  number's the connection's at NUMERIC, NULL's binary at IGNORABLE; 1267
+  for 'concat'), as long as their arguments' text together (a separator
+  between each two, NULL or not). Past 65535 bytes the result is a MEDIUM
+  or LONG BLOB whose text length is counted in characters once more, at
+  most max_allowed_packet's default. LENGTH and OCTET_LENGTH count bytes,
+  CHAR_LENGTH and CHARACTER_LENGTH characters (a binary string's bytes),
+  BIGINT of 10. 1582 for a wrong argument count. In the new
+  `kvasir/exec/functions.cpp`; the coercibility levels moved to
+  expression.h.
+- Test-first on node-d: the 2 new tests failed before any code.
+- Gate: release on node-d **328 passed, 0 failed**; the differential
+  gate **562 of 562** (15 new statements; the 547 before recorded
+  unchanged).
+
 ## 2026-11-17: IFNULL, COALESCE, NULLIF, IF and CASE
 
 - Observed on MySQL 8.4.13 first (four probe rounds, then the recording).

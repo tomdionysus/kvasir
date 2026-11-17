@@ -127,9 +127,9 @@ and the reference server first, and watched to fail:
    MySQL picks for an index, which Kvasir has none of, may differ). The
    flow control functions (IFNULL, COALESCE, NULLIF, IF, CASE) are done
    (see COMPLETED); not yet checked against MySQL: FLOAT operands, which
-   Kvasir merges as DOUBLE. Next:
-   the string functions clients use most (CONCAT, CONCAT_WS, LENGTH,
-   CHAR_LENGTH, SUBSTRING, LEFT, RIGHT, TRIM, REPLACE, LOCATE, LPAD, RPAD,
+   Kvasir merges as DOUBLE. CONCAT, CONCAT_WS, LENGTH and CHAR_LENGTH are
+   done (see COMPLETED). Next: the other string functions clients use most
+   (SUBSTRING, LEFT, RIGHT, TRIM, REPLACE, LOCATE, LPAD, RPAD,
    REPEAT, REVERSE; UPPER and LOWER need Unicode's case mapping), then the
    number functions (ABS, ROUND, TRUNCATE, FLOOR, CEILING, MOD, SIGN), then
    SHOW STATUS and the other statements a client's `status` command and

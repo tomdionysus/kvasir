@@ -300,7 +300,7 @@ TEST(ExecExpression, WhatIsNotBuiltIsRefused) {
     return uint16_t{0};
   };
   EXPECT_EQ(refused("'a' REGEXP 'A'"), 1235);
-  EXPECT_EQ(refused("CONCAT('a', 'b')"), 1235);
+  EXPECT_EQ(refused("SOUNDEX('a')"), 1235);
   EXPECT_EQ(refused("a"), 1054);
   // A character set Kvasir does not yet compare in.
   EXPECT_EQ(refused("_latin1'a' = 'A'"), 1235);
@@ -490,6 +490,48 @@ TEST(ExecExpression, FlowControlFunctions) {
   expect_error("NULLIF(1)", 1582, "42000", "Incorrect parameter count in the call to native function 'NULLIF'");
   expect_error("IFNULL(1)", 1582, "42000", "Incorrect parameter count in the call to native function 'IFNULL'");
   expect_error("IFNULL(1, 2, 3)", 1582, "42000", "Incorrect parameter count in the call to native function 'IFNULL'");
+}
+
+// The manual's "String Functions and Operators": CONCAT, CONCAT_WS, LENGTH
+// (OCTET_LENGTH) and CHAR_LENGTH (CHARACTER_LENGTH), observed on MySQL
+// 8.4.13, 2026-11-17. CONCAT is NULL when any argument is, CONCAT_WS skips
+// NULL arguments (NULL only for a NULL separator); both are as long as
+// their arguments' text together, in the arguments' aggregated collation (a
+// number's at NUMERIC coercibility, NULL's IGNORABLE), and never NOT NULL.
+// LENGTH counts bytes, CHAR_LENGTH characters (bytes of a binary string).
+TEST(ExecExpression, ConcatAndLength) {
+  check({
+      {"CONCAT('a','bc')", "VAR_STRING", 255, 12, 31, "", "abc"},
+      {"CONCAT('a',1)", "VAR_STRING", 255, 12, 31, "", "a1"},
+      {"CONCAT('a',NULL)", "VAR_STRING", 255, 4, 31, "", "NULL"},
+      {"CONCAT(1,2.5)", "VAR_STRING", 255, 24, 31, "", "12.5"},
+      {"CONCAT(0x41,'b')", "VAR_STRING", 63, 5, 31, "BINARY", "Ab"},
+      {"CONCAT('a' COLLATE utf8mb4_bin,'b')", "VAR_STRING", 255, 8, 31, "BINARY", "ab"},
+      {"CONCAT(1.5e0)", "VAR_STRING", 255, 88, 31, "", "1.5"},
+      {"CONCAT(NULL)", "VAR_STRING", 63, 0, 31, "BINARY", "NULL"},
+      {"CONCAT(-12)", "VAR_STRING", 255, 12, 31, "", "-12"},
+      {"CONCAT(_binary'a','\xC3\xA9')", "VAR_STRING", 63, 5, 31, "BINARY", "a\xC3\xA9"},
+      {"CONCAT_WS(',','a','b')", "VAR_STRING", 255, 12, 31, "", "a,b"},
+      {"CONCAT_WS(',','a',NULL,'b')", "VAR_STRING", 255, 16, 31, "", "a,b"},
+      {"CONCAT_WS(NULL,'a')", "VAR_STRING", 255, 4, 31, "", "NULL"},
+      {"CONCAT_WS(',',1,2)", "VAR_STRING", 255, 20, 31, "", "1,2"},
+      {"CONCAT_WS('--','a')", "VAR_STRING", 255, 4, 31, "", "a"},
+      {"LENGTH('abc')", "LONGLONG", 63, 10, 0, "NOT_NULL BINARY NUM", "3"},
+      {"LENGTH('\xC3\xA9')", "LONGLONG", 63, 10, 0, "NOT_NULL BINARY NUM", "2"},
+      {"LENGTH(NULL)", "LONGLONG", 63, 10, 0, "BINARY NUM", "NULL"},
+      {"LENGTH(123)", "LONGLONG", 63, 10, 0, "NOT_NULL BINARY NUM", "3"},
+      {"LENGTH(1.5e0)", "LONGLONG", 63, 10, 0, "NOT_NULL BINARY NUM", "3"},
+      {"OCTET_LENGTH('\xC3\xA9')", "LONGLONG", 63, 10, 0, "NOT_NULL BINARY NUM", "2"},
+      {"CHAR_LENGTH('\xC3\xA9')", "LONGLONG", 63, 10, 0, "NOT_NULL BINARY NUM", "1"},
+      {"CHARACTER_LENGTH('abc')", "LONGLONG", 63, 10, 0, "NOT_NULL BINARY NUM", "3"},
+      {"CHAR_LENGTH(0x4142)", "LONGLONG", 63, 10, 0, "NOT_NULL BINARY NUM", "2"},
+  });
+  expect_error("CONCAT('a' COLLATE utf8mb4_bin, 'b' COLLATE utf8mb4_0900_as_cs)", 1267, "HY000",
+               "Illegal mix of collations (utf8mb4_bin,EXPLICIT) and (utf8mb4_0900_as_cs,EXPLICIT) for operation 'concat'");
+  expect_error("CONCAT()", 1582, "42000", "Incorrect parameter count in the call to native function 'CONCAT'");
+  expect_error("CONCAT_WS(',')", 1582, "42000", "Incorrect parameter count in the call to native function 'CONCAT_WS'");
+  expect_error("LENGTH()", 1582, "42000", "Incorrect parameter count in the call to native function 'LENGTH'");
+  expect_error("LENGTH(1,2)", 1582, "42000", "Incorrect parameter count in the call to native function 'LENGTH'");
 }
 
 TEST(ExecExpression, ColumnNames) {

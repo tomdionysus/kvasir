@@ -169,6 +169,11 @@ class Evaluator {
   Value flow_value(const sql::Expr& e);
   // A value of one type as another's, as a merged result shows it.
   Value converted(const Value& v, const ResultType& from, const ResultType& to);
+
+  // The string functions (functions.cpp): a call's type and the collation
+  // its result holds, or nothing for a name that is not one of them.
+  std::optional<Merged> string_function(const sql::Expr& e) const;
+  Value string_function_value(const sql::Expr& e);
   // A string operand's collation and coercibility.
   std::pair<uint16_t, int> derivation(const sql::Expr& e, const ResultType& t) const;
   // The character set an operand's value is in.
@@ -188,6 +193,14 @@ ResultType decimal_type(int precision, int decimals, bool not_null);
 ResultType double_type(uint32_t length, bool not_null);
 // Whether a type is a string's (any character set, binary included).
 bool is_string_type(const ResultType& t);
+// Whether a collation is utf8mb4_bin or utf8mb4_0900_bin, whose string
+// results MySQL flags BINARY.
+bool is_bin_collation(uint16_t collation);
+
+// How strongly an operand holds its collation (the manual's "Collation
+// Coercibility in Expressions"): the lower wins.
+inline constexpr int explicit_coercibility = 0, implicit_coercibility = 2, sysconst_coercibility = 3, coercible_coercibility = 4, numeric_coercibility = 5,
+                     ignorable_coercibility = 6;
 // A table column's type as an expression over it reports it (MIN, MAX,
 // NULLIF, IFNULL): an integer as long as its type's digits, a TEXT's length
 // counted in characters once more, and no key, ZEROFILL, BLOB or NOT NULL

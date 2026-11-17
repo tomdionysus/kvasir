@@ -2382,3 +2382,87 @@ row 3	none
 end
 statement DROP DATABASE kv_flow
 end
+statement SELECT CONCAT('a','bc'), CONCAT('a',1), CONCAT('a',NULL), CONCAT(1,2.5), CONCAT(0x41,'b'), CONCAT('a' COLLATE utf8mb4_bin,'b'), CONCAT(1.5e0), CONCAT(NULL), CONCAT(-12)
+column CONCAT('a','bc')|VAR_STRING|255|12|31|
+column CONCAT('a',1)|VAR_STRING|255|12|31|
+column CONCAT('a',NULL)|VAR_STRING|255|4|31|
+column CONCAT(1,2.5)|VAR_STRING|255|24|31|
+column CONCAT(0x41,'b')|VAR_STRING|63|5|31|BINARY
+column CONCAT('a' COLLATE utf8mb4_bin,'b')|VAR_STRING|255|8|31|BINARY
+column CONCAT(1.5e0)|VAR_STRING|255|88|31|
+column CONCAT(NULL)|VAR_STRING|63|0|31|BINARY
+column CONCAT(-12)|VAR_STRING|255|12|31|
+row abc	a1	\N	12.5	Ab	ab	1.5	\N	-12
+end
+statement SELECT CONCAT_WS(',','a','b'), CONCAT_WS(',','a',NULL,'b'), CONCAT_WS(NULL,'a'), CONCAT_WS(',',1,2), CONCAT_WS('--','a')
+column CONCAT_WS(',','a','b')|VAR_STRING|255|12|31|
+column CONCAT_WS(',','a',NULL,'b')|VAR_STRING|255|16|31|
+column CONCAT_WS(NULL,'a')|VAR_STRING|255|4|31|
+column CONCAT_WS(',',1,2)|VAR_STRING|255|20|31|
+column CONCAT_WS('--','a')|VAR_STRING|255|4|31|
+row a,b	a,b	\N	1,2	a
+end
+statement SELECT LENGTH('abc'), LENGTH('é'), LENGTH(NULL), LENGTH(123), OCTET_LENGTH('é'), CHAR_LENGTH('é'), CHARACTER_LENGTH('abc'), CHAR_LENGTH(0x4142), LENGTH(1.5e0)
+column LENGTH('abc')|LONGLONG|63|10|0|NOT_NULL BINARY NUM
+column LENGTH('é')|LONGLONG|63|10|0|NOT_NULL BINARY NUM
+column LENGTH(NULL)|LONGLONG|63|10|0|BINARY NUM
+column LENGTH(123)|LONGLONG|63|10|0|NOT_NULL BINARY NUM
+column OCTET_LENGTH('é')|LONGLONG|63|10|0|NOT_NULL BINARY NUM
+column CHAR_LENGTH('é')|LONGLONG|63|10|0|NOT_NULL BINARY NUM
+column CHARACTER_LENGTH('abc')|LONGLONG|63|10|0|NOT_NULL BINARY NUM
+column CHAR_LENGTH(0x4142)|LONGLONG|63|10|0|NOT_NULL BINARY NUM
+column LENGTH(1.5e0)|LONGLONG|63|10|0|NOT_NULL BINARY NUM
+row 3	2	\N	3	2	1	3	2	3
+end
+statement SELECT CONCAT('a' COLLATE utf8mb4_bin, 'b' COLLATE utf8mb4_0900_as_cs)
+error 1267|HY000|Illegal mix of collations (utf8mb4_bin,EXPLICIT) and (utf8mb4_0900_as_cs,EXPLICIT) for operation 'concat'
+end
+statement SELECT CONCAT()
+error 1582|42000|Incorrect parameter count in the call to native function 'CONCAT'
+end
+statement SELECT CONCAT_WS(',')
+error 1582|42000|Incorrect parameter count in the call to native function 'CONCAT_WS'
+end
+statement SELECT LENGTH(1,2)
+error 1582|42000|Incorrect parameter count in the call to native function 'LENGTH'
+end
+statement CREATE DATABASE kv_strings
+end
+statement USE kv_strings
+end
+statement CREATE TABLE f (i INT, u INT UNSIGNED NOT NULL, d DECIMAL(6,2), v VARCHAR(10), c CHAR(3) COLLATE utf8mb4_bin, x TEXT, db DOUBLE, vb VARBINARY(5))
+end
+statement INSERT INTO f VALUES (1, 2, 4.5, 'abc', 'x', 'tt', 1.25, 'zz'), (NULL, 3, NULL, NULL, NULL, NULL, NULL, NULL)
+end
+statement SELECT CONCAT(v,c), CONCAT(i,v), CONCAT(u), CONCAT(x,'a'), CONCAT(vb,v), CONCAT(c), CONCAT(d), CONCAT(db), CONCAT_WS(v,c,i), LENGTH(v), CHAR_LENGTH(x), LENGTH(u), CONCAT(v, v, v, v) FROM f
+column CONCAT(v,c)|VAR_STRING|255|52|31|BINARY
+column CONCAT(i,v)|VAR_STRING|255|84|31|
+column CONCAT(u)|VAR_STRING|255|40|31|
+column CONCAT(x,'a')|MEDIUM_BLOB|255|1048576|31|
+column CONCAT(vb,v)|VAR_STRING|63|45|31|BINARY
+column CONCAT(c)|VAR_STRING|255|12|31|BINARY
+column CONCAT(d)|VAR_STRING|255|32|31|
+column CONCAT(db)|VAR_STRING|255|88|31|
+column CONCAT_WS(v,c,i)|VAR_STRING|255|96|31|BINARY
+column LENGTH(v)|LONGLONG|63|10|0|BINARY NUM
+column CHAR_LENGTH(x)|LONGLONG|63|10|0|BINARY NUM
+column LENGTH(u)|LONGLONG|63|10|0|NOT_NULL BINARY NUM
+column CONCAT(v, v, v, v)|VAR_STRING|255|160|31|
+row abcx	1abc	2	tta	zzabc	x	4.50	1.25	xabc1	3	2	1	abcabcabcabc
+row \N	\N	3	\N	\N	\N	\N	\N	\N	\N	\N	1	\N
+end
+statement CREATE TABLE g (a VARCHAR(100), m VARCHAR(8000), t TINYTEXT, bl BLOB, vb VARBINARY(300), mt MEDIUMTEXT, x TEXT)
+end
+statement SELECT CONCAT(a,a), CONCAT(m,m), CONCAT(m,m,m,m,m), CONCAT(t), CONCAT(bl), CONCAT(x), CONCAT(vb, vb), CONCAT(mt), CONCAT(x,x,x,x,x) FROM g
+column CONCAT(a,a)|VAR_STRING|255|800|31|
+column CONCAT(m,m)|VAR_STRING|255|64000|31|
+column CONCAT(m,m,m,m,m)|MEDIUM_BLOB|255|640000|31|
+column CONCAT(t)|VAR_STRING|255|1020|31|
+column CONCAT(bl)|VAR_STRING|63|65535|31|BINARY
+column CONCAT(x)|MEDIUM_BLOB|255|1048560|31|
+column CONCAT(vb, vb)|VAR_STRING|63|600|31|BINARY
+column CONCAT(mt)|LONG_BLOB|255|67108864|31|
+column CONCAT(x,x,x,x,x)|MEDIUM_BLOB|255|5242800|31|
+end
+statement DROP DATABASE kv_strings
+end

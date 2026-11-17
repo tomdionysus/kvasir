@@ -1528,5 +1528,52 @@ TEST(ExecSessionFunctions, FlowControlOverColumns) {
                                {f::newdecimal, bin, 9, 3, nn | binflag | num}}));
 }
 
+// CONCAT, CONCAT_WS, LENGTH and CHAR_LENGTH over columns, observed on MySQL
+// 8.4.13, 2026-11-17: a column counts by its own length; past 65535 bytes
+// the result is a MEDIUM or LONG BLOB, whose text length is counted in
+// characters once more, and at most max_allowed_packet.
+TEST(ExecSessionFunctions, ConcatAndLengthOverColumns) {
+  TableBed b;
+  run(b.s,
+      "CREATE TABLE f (i INT, u INT UNSIGNED NOT NULL, b BIGINT, d DECIMAL(6,2), v VARCHAR(10), c CHAR(3) COLLATE utf8mb4_bin, t TINYINT, x TEXT, "
+      "db DOUBLE, vb VARBINARY(5))");
+  run(b.s, "INSERT INTO f VALUES (1, 2, 3, 4.5, 'abc', 'x', 7, 'tt', 1.25, 'zz')");
+  auto o = run(b.s,
+               "SELECT CONCAT(v,c), CONCAT(i,v), CONCAT(u), CONCAT(x,'a'), CONCAT(vb,v), CONCAT(c), CONCAT(d), CONCAT(db), CONCAT_WS(v,c,i), LENGTH(v), "
+               "CHAR_LENGTH(x), LENGTH(u), CONCAT(v, v, v, v) FROM f");
+  EXPECT_EQ(rows_of(o), (Rows{{"abcx", "1abc", "2", "tta", "zzabc", "x", "4.50", "1.25", "xabc1", "3", "2", "1", "abcabcabcabc"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::var_string, ai, 52, 31, binflag},
+                               {f::var_string, ai, 84, 31, 0},
+                               {f::var_string, ai, 40, 31, 0},
+                               {f::medium_blob, ai, 1048576, 31, 0},
+                               {f::var_string, bin, 45, 31, binflag},
+                               {f::var_string, ai, 12, 31, binflag},
+                               {f::var_string, ai, 32, 31, 0},
+                               {f::var_string, ai, 88, 31, 0},
+                               {f::var_string, ai, 96, 31, binflag},
+                               {f::longlong, bin, 10, 0, binflag | num},
+                               {f::longlong, bin, 10, 0, binflag | num},
+                               {f::longlong, bin, 10, 0, nn | binflag | num},
+                               {f::var_string, ai, 160, 31, 0}}));
+  run(b.s, "CREATE TABLE g (a VARCHAR(100), b VARCHAR(200), m VARCHAR(8000), t TINYTEXT, bl BLOB, vb VARBINARY(300), mt MEDIUMTEXT, x TEXT)");
+  o = run(b.s,
+          "SELECT CONCAT(a,a), CONCAT(b,b), CONCAT(b,b,b), CONCAT(m), CONCAT(m,m), CONCAT(m,m,m,m,m), CONCAT(t), CONCAT(bl), CONCAT(x), "
+          "CONCAT(vb, vb), CONCAT(mt), CONCAT(x,x,x,x,x), CONCAT(vb,vb,vb,vb,vb,vb,vb,vb) FROM g");
+  EXPECT_EQ(rows_of(o), Rows{});
+  EXPECT_EQ(shapes(o), (Shapes{{f::var_string, ai, 800, 31, 0},
+                               {f::var_string, ai, 1600, 31, 0},
+                               {f::var_string, ai, 2400, 31, 0},
+                               {f::var_string, ai, 32000, 31, 0},
+                               {f::var_string, ai, 64000, 31, 0},
+                               {f::medium_blob, ai, 640000, 31, 0},
+                               {f::var_string, ai, 1020, 31, 0},
+                               {f::var_string, bin, 65535, 31, binflag},
+                               {f::medium_blob, ai, 1048560, 31, 0},
+                               {f::var_string, bin, 600, 31, binflag},
+                               {f::long_blob, ai, 67108864, 31, 0},
+                               {f::medium_blob, ai, 5242800, 31, 0},
+                               {f::var_string, bin, 2400, 31, binflag}}));
+}
+
 }  // namespace
 }  // namespace kvasir::exec
