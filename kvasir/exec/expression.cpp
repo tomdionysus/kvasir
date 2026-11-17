@@ -383,6 +383,7 @@ ResultType Evaluator::type(const Expr& e) const {
       }
       if (is_flow_control(e)) return flow_type(e).type;
       if (const auto m = string_function(e)) return m->type;
+      if (const auto t = number_function(e)) return *t;
       if (e.args.empty() && !e.star && _settings.variables) {
         ResultType t;
         Value unused;
@@ -892,6 +893,7 @@ Value Evaluator::value(const Expr& e) {
     case ExprKind::call: {
       if (is_flow_control(e)) return flow_value(e);
       if (string_function(e)) return string_function_value(e);
+      if (number_function(e)) return number_function_value(e);
       type(e);
       if (is_aggregate(e)) return _settings.aggregates->aggregate_value(e);
       ResultType t;
@@ -1161,6 +1163,14 @@ std::string mysql_text(const Expr& e) {
       if (op == "OR") op = "or";
       if (op == "XOR") op = "xor";
       return "(" + mysql_text(*e.args[0]) + " " + op + " " + mysql_text(*e.args[1]) + ")";
+    }
+    case ExprKind::call: {
+      // abs(-(9223372036854775808)): the name in lower case.
+      std::string out;
+      for (const char ch : e.value) out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+      out += "(";
+      for (size_t i = 0; i < e.args.size(); ++i) out += (i ? "," : "") + mysql_text(*e.args[i]);
+      return out + ")";
     }
     default:
       return sql::to_string(e);

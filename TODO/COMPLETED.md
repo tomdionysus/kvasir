@@ -2,6 +2,25 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-17: ABS, SIGN, FLOOR, CEILING, ROUND, TRUNCATE and MOD
+
+- Observed on MySQL 8.4.13 first. An exact argument gives an exact
+  result: ABS keeps an integer's length (as a BIGINT) or a DECIMAL's type
+  (1690 naming 'abs(...)' for the least BIGINT); FLOOR and CEILING a BIGINT
+  of 21 while 18 digits hold the result, else a DECIMAL; ROUND and
+  TRUNCATE of an integer a BIGINT of 21, of a DECIMAL a DECIMAL at the
+  constant decimals asked for (ROUND one digit wider when it drops any; the
+  argument's own scale when the decimals are not a constant), half away
+  from zero, negative decimals rounding to tens. Anything else is a DOUBLE,
+  rounded half to even; NULL and a hex literal under ABS a DOUBLE of 17 and
+  no decimals (observed). SIGN a BIGINT of 21. MOD(a, b) is parsed as
+  a % b (1064 for other counts).
+- Test-first on node-c: the 3 new tests failed before any code;
+  one type (ROUND(1.234,5)) then corrected to the observed rule.
+- Gate: release on node-c **337 passed, 0 failed**; the
+  differential gate **605 of 605** (17 new statements; the 588 before
+  recorded unchanged).
+
 ## 2026-11-17: TRIM, LTRIM, RTRIM, REPLACE, LOCATE, INSTR, POSITION, LPAD, RPAD, REPEAT and REVERSE
 
 - Observed on MySQL 8.4.13 first. The string results hold their first

@@ -322,6 +322,12 @@ TEST(SqlParser, TrimPositionReplaceAndRepeatArguments) {
   EXPECT_EQ(error_at("SELECT POSITION('a')"), 19u);
 }
 
+// MOD(a, b) is the % operator, with exactly two arguments (MySQL's grammar).
+TEST(SqlParser, ModFunction) {
+  EXPECT_EQ(to_string(*one("SELECT MOD(a, 3)").select.items[0].expr), "(% a 3)");
+  EXPECT_EQ(error_at("SELECT MOD(1)"), 12u);
+}
+
 TEST(SqlParser, SelectHint) { EXPECT_EQ(one("SELECT /*+ MAX_EXECUTION_TIME(1000) */ 1").select.hint, " MAX_EXECUTION_TIME(1000) "); }
 
 TEST(SqlParser, SetVariables) {

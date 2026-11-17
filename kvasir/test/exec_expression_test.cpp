@@ -678,6 +678,81 @@ TEST(ExecExpression, MoreStringFunctions) {
   expect_error("LTRIM('a','b')", 1582, "42000", "Incorrect parameter count in the call to native function 'LTRIM'");
 }
 
+// The manual's "Mathematical Functions": ABS, SIGN, FLOOR, CEILING (CEIL),
+// ROUND, TRUNCATE and MOD, observed on MySQL 8.4.13, 2026-11-17. An exact
+// argument gives an exact result: an integer's, or a DECIMAL rounded half
+// away from zero (FLOOR and CEILING a BIGINT while 18 digits hold it; ROUND
+// one digit wider for the carry, TRUNCATE not); anything else a DOUBLE,
+// rounded half to even. MOD is the % operator.
+TEST(ExecExpression, NumberFunctions) {
+  check({
+      {"ABS(-5)", "LONGLONG", 63, 2, 0, "NOT_NULL BINARY NUM", "5"},
+      {"ABS(-2.50)", "NEWDECIMAL", 63, 5, 2, "NOT_NULL BINARY NUM", "2.50"},
+      {"ABS(-1.5e0)", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "1.5"},
+      {"ABS(NULL)", "DOUBLE", 63, 17, 0, "BINARY NUM", "NULL"},
+      {"ABS('-3')", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "3"},
+      {"ABS(18446744073709551615)", "LONGLONG", 63, 20, 0, "NOT_NULL UNSIGNED BINARY NUM", "18446744073709551615"},
+      {"ABS(0x41)", "DOUBLE", 63, 17, 0, "NOT_NULL UNSIGNED BINARY NUM", "65"},
+      {"ABS(-9223372036854775807)", "LONGLONG", 63, 20, 0, "NOT_NULL BINARY NUM", "9223372036854775807"},
+      {"SIGN(-5)", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "-1"},
+      {"SIGN(0)", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "0"},
+      {"SIGN(2.5)", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "1"},
+      {"SIGN(-1e0)", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "-1"},
+      {"SIGN(NULL)", "LONGLONG", 63, 21, 0, "BINARY NUM", "NULL"},
+      {"SIGN('x')", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "0"},
+      {"FLOOR(1.5)", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "1"},
+      {"FLOOR(-1.5)", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "-2"},
+      {"FLOOR(1.5e0)", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "1"},
+      {"FLOOR(7)", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "7"},
+      {"FLOOR(NULL)", "DOUBLE", 63, 23, 31, "BINARY NUM", "NULL"},
+      {"FLOOR('2.7')", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "2"},
+      {"FLOOR(12345678901234567.5)", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "12345678901234567"},
+      {"FLOOR(-12345678901234567.5)", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "-12345678901234568"},
+      {"FLOOR(123456789012345678.5)", "NEWDECIMAL", 63, 20, 0, "NOT_NULL BINARY NUM", "123456789012345678"},
+      {"FLOOR(123456789012345678901.5)", "NEWDECIMAL", 63, 23, 0, "NOT_NULL BINARY NUM", "123456789012345678901"},
+      {"FLOOR(18446744073709551615)", "LONGLONG", 63, 21, 0, "NOT_NULL UNSIGNED BINARY NUM", "18446744073709551615"},
+      {"CEILING(1.2)", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "2"},
+      {"CEIL(-1.2)", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "-1"},
+      {"CEILING(1.2e0)", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "2"},
+      {"CEILING(5)", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "5"},
+      {"CEILING(99.99)", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "100"},
+      {"CEILING(0x41)", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "65"},
+      {"ROUND(1.5)", "NEWDECIMAL", 63, 3, 0, "NOT_NULL BINARY NUM", "2"},
+      {"ROUND(2.5)", "NEWDECIMAL", 63, 3, 0, "NOT_NULL BINARY NUM", "3"},
+      {"ROUND(-1.5)", "NEWDECIMAL", 63, 3, 0, "NOT_NULL BINARY NUM", "-2"},
+      {"ROUND(-0.4)", "NEWDECIMAL", 63, 3, 0, "NOT_NULL BINARY NUM", "0"},
+      {"ROUND(1.25,1)", "NEWDECIMAL", 63, 5, 1, "NOT_NULL BINARY NUM", "1.3"},
+      {"ROUND(123.456,-1)", "NEWDECIMAL", 63, 5, 0, "NOT_NULL BINARY NUM", "120"},
+      {"ROUND(1.234,5)", "NEWDECIMAL", 63, 6, 3, "NOT_NULL BINARY NUM", "1.234"},
+      {"ROUND(9999999999999999.5)", "NEWDECIMAL", 63, 18, 0, "NOT_NULL BINARY NUM", "10000000000000000"},
+      {"ROUND(1.5,NULL)", "NEWDECIMAL", 63, 3, 0, "BINARY NUM", "NULL"},
+      {"ROUND(1.5e0)", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "2"},
+      {"ROUND(2.5e0)", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "2"},
+      {"ROUND(1.2345e0, 2)", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "1.23"},
+      {"ROUND('1.5')", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "2"},
+      {"ROUND(NULL)", "DOUBLE", 63, 23, 31, "BINARY NUM", "NULL"},
+      {"ROUND(15)", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "15"},
+      {"ROUND(-15)", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "-15"},
+      {"ROUND(15,-1)", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "20"},
+      {"ROUND(18446744073709551615)", "LONGLONG", 63, 21, 0, "NOT_NULL UNSIGNED BINARY NUM", "18446744073709551615"},
+      {"TRUNCATE(1.99,1)", "NEWDECIMAL", 63, 4, 1, "NOT_NULL BINARY NUM", "1.9"},
+      {"TRUNCATE(-1.99,1)", "NEWDECIMAL", 63, 4, 1, "NOT_NULL BINARY NUM", "-1.9"},
+      {"TRUNCATE(1.99e0,1)", "DOUBLE", 63, 23, 31, "NOT_NULL BINARY NUM", "1.9"},
+      {"TRUNCATE(199,-2)", "LONGLONG", 63, 21, 0, "NOT_NULL BINARY NUM", "100"},
+      {"TRUNCATE(1.5,0)", "NEWDECIMAL", 63, 2, 0, "NOT_NULL BINARY NUM", "1"},
+      {"TRUNCATE(1.5,3)", "NEWDECIMAL", 63, 4, 1, "NOT_NULL BINARY NUM", "1.5"},
+      {"TRUNCATE(NULL,1)", "DOUBLE", 63, 23, 31, "BINARY NUM", "NULL"},
+      {"TRUNCATE(1.5,NULL)", "NEWDECIMAL", 63, 2, 0, "BINARY NUM", "NULL"},
+      {"MOD(7,3)", "LONGLONG", 63, 2, 0, "BINARY NUM", "1"},
+      {"MOD(-7,3)", "LONGLONG", 63, 2, 0, "BINARY NUM", "-1"},
+      {"MOD(7.5,2)", "NEWDECIMAL", 63, 4, 1, "BINARY NUM", "1.5"},
+      {"MOD(7,0)", "LONGLONG", 63, 2, 0, "BINARY NUM", "NULL"},
+      {"MOD(7e0,2)", "DOUBLE", 63, 23, 31, "BINARY NUM", "1"},
+      {"7 MOD 3", "LONGLONG", 63, 2, 0, "BINARY NUM", "1"},
+  });
+  expect_error("ABS(-9223372036854775808)", 1690, "22003", "BIGINT value is out of range in 'abs(-(9223372036854775808))'");
+}
+
 TEST(ExecExpression, ColumnNames) {
   const auto names = [](const std::string& sql) {
     std::vector<std::string> out;

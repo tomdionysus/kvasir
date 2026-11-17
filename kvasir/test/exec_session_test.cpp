@@ -1610,6 +1610,36 @@ TEST(ExecSessionFunctions, MoreStringFunctionsOverColumns) {
                                {f::var_string, ai, 40, 31, 0}}));
 }
 
+// ABS, FLOOR, ROUND, TRUNCATE, SIGN and CEILING over columns, observed on
+// MySQL 8.4.13, 2026-11-17: ABS keeps an integer column's length as a
+// BIGINT; ROUND with a decimals count that is not a constant keeps the
+// column's scale.
+TEST(ExecSessionFunctions, NumberFunctionsOverColumns) {
+  TableBed b;
+  run(b.s, "CREATE TABLE f (i INT, u INT UNSIGNED NOT NULL, d DECIMAL(6,2), t TINYINT, db DOUBLE)");
+  run(b.s, "INSERT INTO f VALUES (1, 2, 4.5, 7, 1.25)");
+  auto o = run(b.s,
+               "SELECT ABS(i), ABS(u), ABS(d), ABS(t), FLOOR(d), FLOOR(i), FLOOR(db), ROUND(d), ROUND(d, 1), ROUND(d, i), ROUND(i, i), "
+               "TRUNCATE(d, 1), SIGN(d), CEILING(u), ROUND(i, -1), ROUND(u) FROM f");
+  EXPECT_EQ(rows_of(o), (Rows{{"1", "2", "4.50", "7", "4", "1", "1", "5", "4.5", "4.50", "1", "4.5", "1", "2", "0", "2"}}));
+  EXPECT_EQ(shapes(o), (Shapes{{f::longlong, bin, 11, 0, binflag | num},
+                               {f::longlong, bin, 10, 0, nn | uns | binflag | num},
+                               {f::newdecimal, bin, 8, 2, binflag | num},
+                               {f::longlong, bin, 4, 0, binflag | num},
+                               {f::longlong, bin, 21, 0, binflag | num},
+                               {f::longlong, bin, 21, 0, binflag | num},
+                               {f::double_, bin, 23, 31, binflag | num},
+                               {f::newdecimal, bin, 6, 0, binflag | num},
+                               {f::newdecimal, bin, 8, 1, binflag | num},
+                               {f::newdecimal, bin, 8, 2, binflag | num},
+                               {f::longlong, bin, 21, 0, binflag | num},
+                               {f::newdecimal, bin, 7, 1, binflag | num},
+                               {f::longlong, bin, 21, 0, binflag | num},
+                               {f::longlong, bin, 21, 0, nn | uns | binflag | num},
+                               {f::longlong, bin, 21, 0, binflag | num},
+                               {f::longlong, bin, 21, 0, nn | uns | binflag | num}}));
+}
+
 // SUBSTRING, LEFT and RIGHT over columns, observed on MySQL 8.4.13,
 // 2026-11-17: a position or length from a column takes nothing from the
 // length; a short enough piece of a TEXT is a VARCHAR.

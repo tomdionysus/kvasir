@@ -178,6 +178,14 @@ class Evaluator {
   // rounded, a string by its leading digits with warning 1292 for what is
   // left; nothing for NULL.
   std::optional<int64_t> integer_argument(const sql::Expr& e);
+  // A constant argument read as an integer when typing (nothing inside for
+  // NULL), or nothing for one that is not a constant.
+  std::optional<std::optional<int64_t>> constant_integer(const sql::Expr& e) const;
+
+  // The mathematical functions (functions.cpp): ABS, SIGN, FLOOR, CEILING,
+  // ROUND and TRUNCATE; nothing for a name that is not one of them.
+  std::optional<ResultType> number_function(const sql::Expr& e) const;
+  Value number_function_value(const sql::Expr& e);
   // A string operand's collation and coercibility.
   std::pair<uint16_t, int> derivation(const sql::Expr& e, const ResultType& t) const;
   // The character set an operand's value is in.

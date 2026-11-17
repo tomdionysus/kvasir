@@ -131,10 +131,10 @@ and the reference server first, and watched to fail:
    SUBSTRING, LEFT and RIGHT are done (see COMPLETED); known difference: a
    constant string argument read as an integer warns once where MySQL
    warns twice. TRIM, REPLACE, LOCATE, INSTR, POSITION, LPAD, RPAD,
-   REPEAT and REVERSE are done too. Next: the number functions (ABS,
-   ROUND, TRUNCATE, FLOOR, CEILING, MOD, SIGN), then SHOW STATUS and the
-   other statements a client's `status` command and connectors send; UPPER
-   and LOWER after, as they need Unicode's case mapping.
+   REPEAT and REVERSE are done too, and ABS, SIGN, FLOOR, CEILING, ROUND,
+   TRUNCATE and MOD. Next: SHOW STATUS and the other statements a client's
+   `status` command and connectors send; UPPER and LOWER after, as they
+   need Unicode's case mapping.
    Old versions are never
    folded away yet (memory grows with every change; folding older than
    every open snapshot is the design's, to come before long runs).

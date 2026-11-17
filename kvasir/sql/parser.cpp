@@ -1488,6 +1488,16 @@ class Parser {
       return;
     }
     if (call.value == "REVERSE" && symbol(")")) fail(peek());
+    // MOD(a, b) is a % b.
+    if (call.value == "MOD") {
+      call.args.push_back(expression());
+      expect_symbol(",");
+      call.args.push_back(expression());
+      expect_symbol(")");
+      call.kind = ExprKind::binary;
+      call.value = "%";
+      return;
+    }
     if (call.value == "COALESCE" && symbol(")")) fail(peek());
     if (symbol(")")) {
       take();

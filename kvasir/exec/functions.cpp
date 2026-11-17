@@ -135,6 +135,12 @@ std::optional<int64_t> Evaluator::integer_argument(const Expr& x) {
   return overflow || magnitude > static_cast<uint64_t>(most) ? most : static_cast<int64_t>(magnitude);
 }
 
+std::optional<std::optional<int64_t>> Evaluator::constant_integer(const Expr& x) const {
+  if (!is_constant(x)) return std::nullopt;
+  Evaluator scratch(_settings);
+  return scratch.integer_argument(x);
+}
+
 std::optional<Evaluator::Merged> Evaluator::string_function(const Expr& e) const {
   if (e.kind != sql::ExprKind::call) return std::nullopt;
   const auto& name = e.value;
@@ -194,13 +200,7 @@ std::optional<Evaluator::Merged> Evaluator::string_function(const Expr& e) const
     if ((t.field_type == f::double_ || t.field_type == f::float_) && t.decimals == protocol::not_fixed_decimals) return double_text_length;
     return t.length;
   };
-  // The value of a constant integer argument (nothing inside for NULL), or
-  // nothing for one that is not constant.
-  const auto constant = [&](size_t i) -> std::optional<std::optional<int64_t>> {
-    if (!is_constant(*e.args[i])) return std::nullopt;
-    Evaluator scratch(_settings);
-    return scratch.integer_argument(*e.args[i]);
-  };
+  const auto constant = [&](size_t i) { return constant_integer(*e.args[i]); };
   // Past max_allowed_packet a length is as long as anything can be.
   constexpr uint64_t past_packet = max_allowed_packet + 1;
   uint64_t total = 0;
@@ -481,6 +481,183 @@ Value Evaluator::string_function_value(const Expr& e) {
     first = false;
   }
   return out;
+}
+
+namespace {
+
+bool is_integer_field(const ResultType& t) {
+  return !t.number_string &&
+         (t.field_type == f::longlong || t.field_type == f::long_ || t.field_type == f::int24 || t.field_type == f::short_ || t.field_type == f::tiny);
+}
+
+// A DECIMAL rounded (half away from zero) or truncated to a multiple of
+// 10^k, k > 0.
+Decimal to_tens(const Decimal& x, int64_t k, bool round) {
+  std::string digits = x.truncated(0).to_string();
+  const bool negative = !digits.empty() && digits[0] == '-';
+  if (negative) digits.erase(0, 1);
+  if (k > static_cast<int64_t>(digits.size())) return Decimal::from_int(0);
+  const auto keep_length = digits.size() - static_cast<size_t>(k);
+  std::string keep = digits.substr(0, keep_length);
+  if (round && digits[keep_length] >= '5') {
+    // Add one to the kept digits.
+    size_t i = keep.size();
+    while (i > 0 && keep[i - 1] == '9') keep[--i] = '0';
+    if (i == 0) {
+      keep.insert(keep.begin(), '1');
+    } else {
+      ++keep[i - 1];
+    }
+  }
+  if (keep.empty()) return Decimal::from_int(0);
+  return *Decimal::parse((negative ? "-" : "") + keep + std::string(static_cast<size_t>(k), '0'));
+}
+
+// No negative zero.
+Decimal unsigned_zero(const Decimal& d) { return d.is_zero() && d.negative() ? d.negated() : d; }
+
+}  // namespace
+
+std::optional<ResultType> Evaluator::number_function(const Expr& e) const {
+  if (e.kind != sql::ExprKind::call) return std::nullopt;
+  const auto& name = e.value;
+  size_t least = 1, most = 1;
+  if (name == "ROUND") {
+    most = 2;
+  } else if (name == "TRUNCATE") {
+    least = most = 2;
+  } else if (name != "ABS" && name != "SIGN" && name != "FLOOR" && name != "CEILING" && name != "CEIL") {
+    return std::nullopt;
+  }
+  if (e.args.size() < least || e.args.size() > most) wrong_count(name);
+  const auto a = type(*e.args[0]);
+  const bool not_null = std::all_of(e.args.begin(), e.args.end(), [&](const sql::ExprPtr& x) { return !type(*x).nullable(); });
+  const bool integer = is_integer_field(a), decimal = a.field_type == f::newdecimal;
+  // A BIGINT of 20 digits, whether signed or not (observed).
+  const auto bigint = [&](bool is_unsigned) {
+    auto t = integer_type(20, is_unsigned, not_null);
+    t.length = 21;
+    return t;
+  };
+  if (name == "SIGN") return integer_type(20, false, not_null);
+  if (name == "ABS") {
+    if (integer) {
+      auto t = integer_type(a.precision, a.is_unsigned(), not_null);
+      t.length = a.length;
+      return t;
+    }
+    if (decimal) return decimal_type(a.precision, a.decimals, not_null);
+    // NULL and a hex literal: a DOUBLE of 17, no decimals (observed).
+    if (a.field_type == f::null || a.number_string) {
+      auto t = double_type(17, not_null);
+      t.decimals = 0;
+      if (a.number_string) t.flags = static_cast<uint16_t>(t.flags | c::unsigned_);
+      return t;
+    }
+    return double_type(23, not_null);
+  }
+  if (name == "FLOOR" || name == "CEILING" || name == "CEIL") {
+    if (integer) return bigint(a.is_unsigned());
+    if (decimal) {
+      // A BIGINT while 18 digits hold the result (one more for a carry).
+      const int digits = a.precision - a.decimals + 1;
+      if (digits <= 18) return bigint(false);
+      return decimal_type(std::min(digits, static_cast<int>(decimal_max_precision)), 0, not_null);
+    }
+    return double_type(23, not_null);
+  }
+  // ROUND and TRUNCATE.
+  if (integer) return bigint(a.is_unsigned());
+  if (!decimal) return double_type(23, not_null);
+  const auto places = e.args.size() == 2 ? constant_integer(*e.args[1]) : std::optional<std::optional<int64_t>>(int64_t{0});
+  // Decimals that are not a constant: the argument's own scale.
+  if (!places) return decimal_type(a.precision, a.decimals, not_null);
+  const int scale = *places ? static_cast<int>(std::clamp<int64_t>(**places, 0, a.decimals)) : 0;
+  // ROUND keeps a digit for its carry, when it drops any (observed).
+  const bool drops = !*places || **places < a.decimals;
+  const int whole = a.precision - a.decimals + (name == "ROUND" && drops ? 1 : 0);
+  return decimal_type(std::min(whole + scale, static_cast<int>(decimal_max_precision)), scale, not_null);
+}
+
+Value Evaluator::number_function_value(const Expr& e) {
+  const auto t = *number_function(e);
+  const auto& name = e.value;
+  const auto at = type(*e.args[0]);
+  const auto v = value(*e.args[0]);
+  if (is_null(v)) return {};
+  const auto* signed_ = std::get_if<int64_t>(&v);
+  const auto* unsigned_ = std::get_if<uint64_t>(&v);
+  const auto* exact = std::get_if<Decimal>(&v);
+  const bool integer = is_integer_field(at);
+  if (name == "SIGN") {
+    if (signed_) return int64_t{*signed_ > 0 ? 1 : *signed_ < 0 ? -1 : 0};
+    if (unsigned_) return int64_t{*unsigned_ > 0 ? 1 : 0};
+    if (exact) return int64_t{exact->is_zero() ? 0 : exact->negative() ? -1 : 1};
+    const double r = real(v, at);
+    return int64_t{r > 0 ? 1 : r < 0 ? -1 : 0};
+  }
+  if (name == "ABS") {
+    if (t.field_type == f::double_) return std::fabs(real(v, at));
+    if (exact) return exact->negative() ? exact->negated() : *exact;
+    if (signed_) {
+      if (*signed_ == std::numeric_limits<int64_t>::min())
+        throw SqlError(er_data_out_of_range, "22003", "BIGINT value is out of range in '" + mysql_text(e) + "'");
+      return *signed_ < 0 ? -*signed_ : *signed_;
+    }
+    return v;
+  }
+  if (name == "FLOOR" || name == "CEILING" || name == "CEIL") {
+    const bool floor = name == "FLOOR";
+    if (t.field_type == f::double_) return floor ? std::floor(real(v, at)) : std::ceil(real(v, at));
+    if (!exact) return v;
+    auto whole = exact->truncated(0);
+    if (!(whole == *exact)) {
+      if (floor && exact->negative()) whole = whole - Decimal::from_int(1);
+      if (!floor && !exact->negative()) whole = whole + Decimal::from_int(1);
+    }
+    whole = unsigned_zero(whole);
+    if (t.field_type == f::newdecimal) return whole;
+    return whole.to_int().value_or(0);
+  }
+  // ROUND and TRUNCATE.
+  const bool round = name == "ROUND";
+  int64_t places = 0;
+  if (e.args.size() == 2) {
+    const auto p = integer_argument(*e.args[1]);
+    if (!p) return {};
+    places = *p;
+  }
+  if (t.field_type == f::double_) {
+    const double x = real(v, at);
+    // Half to even, as MySQL's doubles round.
+    const auto apply = [&](double y) { return round ? std::nearbyint(y) : std::trunc(y); };
+    if (places > 308 || places < -308) return places > 0 ? x : 0.0;
+    const double scale = std::pow(10.0, static_cast<double>(places < 0 ? -places : places));
+    const double r = places >= 0 ? apply(x * scale) / scale : apply(x / scale) * scale;
+    return std::isfinite(r) ? r : x;
+  }
+  if (integer) {
+    if (places >= 0) return v;
+    // To a multiple of 10^-places, half away from zero.
+    if (places <= -20) return signed_ ? Value(int64_t{0}) : Value(uint64_t{0});
+    uint64_t p = 1;
+    for (int64_t i = 0; i < -places; ++i) p *= 10;
+    if (unsigned_) {
+      uint64_t q = *unsigned_ / p;
+      if (round && *unsigned_ % p >= (p + 1) / 2) ++q;
+      return q * p;
+    }
+    const int64_t x = *signed_;
+    const auto ip = static_cast<int64_t>(p);
+    int64_t q = x / ip;
+    const int64_t r = x % ip;
+    if (round && (r < 0 ? -r : r) * 2 >= ip) q += x < 0 ? -1 : 1;
+    return q * ip;
+  }
+  const Decimal x = exact ? *exact : Decimal::from_int(0);
+  if (places < 0) return unsigned_zero(to_tens(x, -places, round));
+  const int scale = static_cast<int>(std::min<int64_t>(places, decimal_max_scale));
+  return unsigned_zero(round ? x.rounded(scale) : x.truncated(scale));
 }
 
 }  // namespace kvasir::exec
