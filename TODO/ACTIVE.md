@@ -292,6 +292,13 @@ builds on node-d (4 GB).
     with restarts keeping or wiping state, partitions and heals, and
     per-node clock skew; tests in `dannan/test/sim_nodes_test.cpp`. This
     is where step 3's simulation of Kvasir's commit protocol will run.
+  - Dannan 0.9.0 is being cut (2026-11-17, the maintainer). Kvasir told Dannan the
+    tag needs only what is on Dannan's develop (agreement with
+    change_deltas, the simulation harness, Context::time().after() on the
+    schedule), and that the open items can wait for 0.10.0 (atomic commit
+    across replica sets, the peer-witnessed high-water mark, the exported
+    fuzz harness, loader promotion) or are not used (DTLS/UDP). After the
+    tag: move the pin from 0.8.5 to 0.9.0 and report what breaks.
   Dannan has also taken Kvasir's
   ask to export its fuzz harness with the test fixtures (a 0.9 item, not
   started). Dannan's working tree may be on a feature branch: read
