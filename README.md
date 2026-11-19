@@ -242,8 +242,9 @@ tried with MySQL 8.4's own `mysql` client, whose `status` command it answers in 
   Dannan's listener, the Argon2id check on a worker pool, with a back-off on failed
   sign-ins.
 
-The differential gate replays 634 statements and compares every column's type, length,
-flags, value and error with what a MySQL 8.4.13 server answered: 634 of 634 match.
+The differential gate replays 655 statements, among them what Connector/J, Python's and
+Go's drivers send as they connect, and compares every column's type, length, flags,
+value and error with what a MySQL 8.4.13 server answered: 655 of 655 match.
 
 Next, in order (`TODO/ACTIVE.md`):
 

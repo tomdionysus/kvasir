@@ -2891,3 +2891,74 @@ column @@character_set_database|VAR_STRING|255|87380|31|
 column @@collation_database|VAR_STRING|255|87380|31|
 row utf8mb4	utf8mb4_0900_ai_ci
 end
+statement /* mysql-connector-j-9.1.0 (Revision: cf2917ea44ae2e43a4514a33771035aa99de73bf) */SELECT  @@session.auto_increment_increment AS auto_increment_increment, @@character_set_client AS character_set_client, @@character_set_connection AS character_set_connection, @@character_set_results AS character_set_results, @@character_set_server AS character_set_server, @@collation_server AS collation_server, @@collation_connection AS collation_connection, @@init_connect AS init_connect, @@interactive_timeout AS interactive_timeout, @@license AS license, @@lower_case_table_names AS lower_case_table_names, @@max_allowed_packet AS max_allowed_packet, @@net_write_timeout AS net_write_timeout, @@sql_mode AS sql_mode, @@system_time_zone AS system_time_zone, @@time_zone AS time_zone, @@transaction_isolation AS transaction_isolation, @@wait_timeout AS wait_timeout
+column auto_increment_increment|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+column character_set_client|VAR_STRING|255|87380|31|
+column character_set_connection|VAR_STRING|255|87380|31|
+column character_set_results|VAR_STRING|255|87380|31|
+column character_set_server|VAR_STRING|255|87380|31|
+column collation_server|VAR_STRING|255|87380|31|
+column collation_connection|VAR_STRING|255|87380|31|
+column init_connect|VAR_STRING|255|87380|31|
+column interactive_timeout|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+column license|VAR_STRING|255|87380|31|
+column lower_case_table_names|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+column max_allowed_packet|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+column net_write_timeout|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+column sql_mode|VAR_STRING|255|87380|31|
+column system_time_zone|VAR_STRING|255|87380|31|
+column time_zone|VAR_STRING|255|87380|31|
+column transaction_isolation|VAR_STRING|255|87380|31|
+column wait_timeout|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+row 1	utf8mb4	utf8mb4	utf8mb4	utf8mb4	utf8mb4_0900_ai_ci	utf8mb4_0900_ai_ci		28800	GPL	0	67108864	60	ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION	UTC	SYSTEM	READ-COMMITTED	28800
+end
+statement SET character_set_results = NULL
+end
+statement SET autocommit=1
+end
+statement SELECT 1
+column 1|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+row 1
+end
+statement SET autocommit=0
+end
+statement COMMIT
+end
+statement SET autocommit=1
+end
+statement SET NAMES 'utf8mb4' COLLATE 'utf8mb4_0900_ai_ci'
+end
+statement set autocommit=0
+end
+statement SELECT @@autocommit, @@character_set_results, @@collation_connection
+column @@autocommit|LONGLONG|63|1|0|BINARY NUM
+column @@character_set_results|VAR_STRING|255|87380|31|
+column @@collation_connection|VAR_STRING|255|87380|31|
+row 0	utf8mb4	utf8mb4_0900_ai_ci
+end
+statement commit
+end
+statement SET @@session.autocommit = OFF
+end
+statement COMMIT
+end
+statement SET NAMES utf8mb4
+end
+statement SET AUTOCOMMIT = 0
+end
+statement SELECT @@autocommit
+column @@autocommit|LONGLONG|63|1|0|BINARY NUM
+row 0
+end
+statement COMMIT
+end
+statement START TRANSACTION
+end
+statement COMMIT
+end
+statement SET autocommit = 1
+end
+statement SELECT @@autocommit
+column @@autocommit|LONGLONG|63|1|0|BINARY NUM
+row 1
+end

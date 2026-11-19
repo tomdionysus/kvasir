@@ -22,7 +22,7 @@ it.
 
 Step 2a, one node speaking the MySQL protocol, is in hand. Last gate
 (2026-11-19, node-d): release **341 passed, 0 failed**, the
-differential gate **634 of 634**. No claim is held and no wait is queued.
+differential gate **655 of 655**. No claim is held and no wait is queued.
 
 **Before any work: the build cluster was wiped on 2026-11-18** (the maintainer, relayed
 by the coordinating session). Checked on 2026-11-19, all four Pis:
@@ -145,11 +145,27 @@ outside that rule (the maintainer, 2026-11-17).
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 and the reference server first, and watched to fail:
 
-1. What connectors send as they connect (the `mysql` client's `status`
-   works since 2026-11-19): JDBC (Connector/J), Python's and Go's,
-   recorded with the reference server's general log, each statement then
-   probed and tested. They need a connector run somewhere; none is
-   installed yet (a Pi under a claim, or a container on the Mac).
+1. Result metadata in character_set_results. Connector/J sends `SET
+   character_set_results = NULL` on every connection. Observed on MySQL
+   8.4.13: each string column is reported in character_set_results,
+   converting its length; with NULL nothing is converted, so a column
+   shows its own character set; binary strings are never converted. With
+   results NULL: @@sql_mode, @@time_zone, @@character_set_results and
+   @@collation_connection 33 (utf8mb3_general_ci) / 65535, DATABASE()
+   33/192, USER() 33/864, VERSION() 33/18, CONCAT('a', @@sql_mode)
+   MEDIUM_BLOB 33/65538; 'a' stays 255/4 (46 and BINARY under a _bin
+   connection). With results binary (connection utf8mb4): everything 63,
+   lengths in characters (@@sql_mode 21845, DATABASE() 64, 'a' 1,
+   CONCAT 65538). Kvasir reports all of these in the connection's
+   collation. The evaluator's derivation already knows each expression's
+   own collation (system variables and session functions utf8mb3); the
+   reported type would follow from it at the end, for SELECT's columns
+   and SHOW's. Probe SHOW WARNINGS and a table's columns under NULL and
+   binary results first.
+2. The connectors' sessions with real traffic: what Connector/J, Python's
+   and Go's drivers send for prepared statements (COM_STMT_PREPARE and
+   its kin, which Kvasir refuses with 1047), and for their metadata
+   calls. Scripts in `build/connectors/`.
 2. UPPER and LOWER, which need Unicode's case mapping.
 3. Folding old row versions away (memory grows with every change today;
    folding what is older than every open snapshot is the design's, and

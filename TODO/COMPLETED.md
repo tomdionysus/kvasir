@@ -2,6 +2,31 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-19: what connectors send as they connect
+
+- Logged on the reference server's general log, each connector run in a
+  throwaway container on the Mac (Docker network `kvasir-probe`, account
+  `probe`@'%', password in `build/mysql84/probe-user.pw`, scripts in
+  `build/connectors/`): Connector/J 9.1.0 (its first query of 19
+  variables behind a version comment, `SET character_set_results = NULL`,
+  `SET autocommit=1/0`, COMMIT), mysql-connector-python 26.10.0, C and
+  pure (`SET NAMES 'utf8mb4' COLLATE 'utf8mb4_0900_ai_ci'`, `set
+  autocommit=0` or `SET @@session.autocommit = OFF`, commit), PyMySQL
+  1.2.4 (`SET NAMES utf8mb4`, `SET AUTOCOMMIT = 0`), go-sql-driver/mysql
+  1.8.1 (nothing of its own; START TRANSACTION, COMMIT).
+- Every one of those statements already answered as MySQL does: 21 added
+  to the differential gate (Connector/J's less @@performance_schema, an
+  allowed difference), no code changed.
+- Found by probing after `SET character_set_results = NULL`: MySQL
+  reports each string column in character_set_results, converting the
+  length; with NULL nothing is converted, so system variables and session
+  functions show their own utf8mb3_general_ci (@@sql_mode 33/65535,
+  DATABASE() 33/192). Kvasir reports them in the connection's collation.
+  Not in the gate yet; the next step (ACTIVE.md).
+- Gate: release on node-d **341 passed, 0 failed**; the
+  differential gate **655 of 655** (21 new statements; the 634 before
+  recorded unchanged).
+
 ## 2026-11-19: COM_STATISTICS, and the `mysql` client's `status` works
 
 - Observed on MySQL 8.4.13 first: the reply is one string with no header,

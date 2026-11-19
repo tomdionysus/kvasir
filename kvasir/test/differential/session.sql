@@ -662,3 +662,29 @@ DROP DATABASE kv_dbcs2
 SELECT @@character_set_database, @@collation_database
 DROP DATABASE kv_dbcs
 SELECT @@character_set_database, @@collation_database
+# What connectors send as they connect, logged on the reference server
+# (2026-11-19). Connector/J 9.1.0's first query, less @@performance_schema
+# (an allowed difference):
+/* mysql-connector-j-9.1.0 (Revision: cf2917ea44ae2e43a4514a33771035aa99de73bf) */SELECT  @@session.auto_increment_increment AS auto_increment_increment, @@character_set_client AS character_set_client, @@character_set_connection AS character_set_connection, @@character_set_results AS character_set_results, @@character_set_server AS character_set_server, @@collation_server AS collation_server, @@collation_connection AS collation_connection, @@init_connect AS init_connect, @@interactive_timeout AS interactive_timeout, @@license AS license, @@lower_case_table_names AS lower_case_table_names, @@max_allowed_packet AS max_allowed_packet, @@net_write_timeout AS net_write_timeout, @@sql_mode AS sql_mode, @@system_time_zone AS system_time_zone, @@time_zone AS time_zone, @@transaction_isolation AS transaction_isolation, @@wait_timeout AS wait_timeout
+SET character_set_results = NULL
+SET autocommit=1
+SELECT 1
+SET autocommit=0
+COMMIT
+SET autocommit=1
+# mysql-connector-python 26.10.0 (C and pure), and PyMySQL 1.2.4.
+SET NAMES 'utf8mb4' COLLATE 'utf8mb4_0900_ai_ci'
+set autocommit=0
+SELECT @@autocommit, @@character_set_results, @@collation_connection
+commit
+SET @@session.autocommit = OFF
+COMMIT
+SET NAMES utf8mb4
+SET AUTOCOMMIT = 0
+SELECT @@autocommit
+COMMIT
+# go-sql-driver/mysql 1.8.1.
+START TRANSACTION
+COMMIT
+SET autocommit = 1
+SELECT @@autocommit
