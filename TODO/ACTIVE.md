@@ -189,11 +189,34 @@ and the reference server first, and watched to fail:
      Kvasir reports in collation_connection, so the first is a second gap
      this step closes. The session must keep the results' collation beside
      @@character_set_results (which shows only the character set).
-   The shape: the evaluator's type() becomes native inside (its derivation
-   already knows each expression's own collation), and one conversion
-   makes the reported type, for SELECT's columns and SHOW's. Every
-   expected type in the tests today is the converted one under utf8mb4
-   results, so they hold as they are.
+   The shape (decided 2026-11-19): reporting must not be folded into the
+   evaluator's types, since they carry meaning (CHAR_LENGTH counts bytes
+   of a binary type, comparisons use the collation), and under binary
+   results CHAR_LENGTH('é') must still count characters. So:
+   - Evaluator::type() is native: EvalSettings' result_collation and
+     result_max_bytes become the connection's (a literal's, a number's as
+     text); a system variable and a session function 33 with lengths in
+     3 bytes; a table column its own collation and its own widest
+     character; CONCAT, the string functions and the flow functions the
+     aggregated derivation's collation, lengths in its widest character;
+     a BLOB's length its bytes, never multiplied (that moves to the
+     report); characters(t) divides by t's own widest character.
+   - One free function, `reported(native, results)`, makes what is sent:
+     not a string, binary, or results NULL: as it is; else the results'
+     collation, the length characters times the results' widest
+     character, a BLOB's bytes times it. The session applies it to every
+     result's columns in execute(), SHOW's included (SHOW WARNINGS'
+     Level and Message native 33/21 and 33/1536; SHOW TABLES and SHOW
+     DATABASES 83/192).
+   - The session keeps the results' collation: SET NAMES x [COLLATE c]
+     sets it to c or x's default, SET CHARACTER SET x and SET
+     character_set_results = x to x's default (NULL to none), reset() to
+     255.
+   - The evaluator tests' type helpers report under 255, so their
+     expected (observed, reported) types stay as they are.
+   Red evidence: the 27 statements at the end of `session.sql` (kv_meta),
+   uncommitted in the working tree while the step is built, 671 of 682
+   with the superset rule in.
 2. The connectors' sessions with real traffic: what Connector/J, Python's
    and Go's drivers send for prepared statements (COM_STMT_PREPARE and
    its kin, which Kvasir refuses with 1047), and for their metadata
