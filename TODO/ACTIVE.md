@@ -179,12 +179,16 @@ and the reference server first, and watched to fail:
      under binary; SHOW TABLES and SHOW DATABASES utf8mb3_bin 83/192
      under NULL (BINARY NO_DEFAULT_VALUE), 63/64 under binary, 255/256
      under utf8mb4.
-   - Which collation "the results'" is: Kvasir's SetNames test observed
-     'a' and @@sql_mode both 46 after SET NAMES utf8mb4 COLLATE
-     utf8mb4_bin, so SET NAMES ... COLLATE appears to set the results'
-     collation too, while SET character_set_results = X takes X's
-     default. Probe SET collation_connection = 'utf8mb4_bin' alone before
-     relying on it.
+   - The results' collation (probed): SET NAMES x COLLATE c sets it to c,
+     SET NAMES x and SET character_set_results = x to x's default;
+     SET collation_connection alone leaves it. The BINARY flag follows the
+     native collation. So after SET collation_connection =
+     'utf8mb4_bin', MySQL reports 'a' 255 with BINARY and @@sql_mode 255;
+     after SET NAMES utf8mb4 COLLATE utf8mb4_bin, then SET
+     collation_connection = 'utf8mb4_0900_ai_ci', 'a' 46 without BINARY.
+     Kvasir reports in collation_connection, so the first is a second gap
+     this step closes. The session must keep the results' collation beside
+     @@character_set_results (which shows only the character set).
    The shape: the evaluator's type() becomes native inside (its derivation
    already knows each expression's own collation), and one conversion
    makes the reported type, for SELECT's columns and SHOW's. Every
