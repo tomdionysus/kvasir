@@ -157,11 +157,39 @@ and the reference server first, and watched to fail:
    connection). With results binary (connection utf8mb4): everything 63,
    lengths in characters (@@sql_mode 21845, DATABASE() 64, 'a' 1,
    CONCAT 65538). Kvasir reports all of these in the connection's
-   collation. The evaluator's derivation already knows each expression's
-   own collation (system variables and session functions utf8mb3); the
-   reported type would follow from it at the end, for SELECT's columns
-   and SHOW's. Probe SHOW WARNINGS and a table's columns under NULL and
-   binary results first.
+   collation. Probed further (2026-11-19, a table `t (v VARCHAR(10), b
+   VARCHAR(5) COLLATE utf8mb4_bin, c CHAR(3), x TEXT, vb VARBINARY(4), m
+   VARCHAR(4) CHARACTER SET utf8mb3, i INT)`), the rule is: every string
+   column has a native type (its own collation, its length in its own
+   character set: a literal the connection's, a system variable or
+   session function utf8mb3_general_ci, a table column its own, CONCAT
+   and the flow functions the aggregated derivation's), and is reported
+   converted to the results' collation, except binary strings and when
+   results is NULL:
+   - Converted, the collation is the results' (utf8mb4 results: b is 255,
+     keeping BINARY; m is 255/16), the length its characters times the
+     results' widest character (binary results: v 10, b 5, c 3, m 4,
+     CONCAT(v, m) 14, 'é' 1), but a BLOB's length is its bytes times it
+     (x TEXT: 65535 native, 262140 under utf8mb4, 65535 under binary).
+   - Results NULL: native (v 255/40, b 46/20 BINARY, m 33/12, x 65535,
+     CONCAT(v, m) 255/56, CONCAT(v, @@sql_mode) 255/87420 since the
+     column's IMPLICIT outranks the variable's SYSCONST, UPPER(m) 33/12).
+   - SHOW's columns are utf8mb3 natively and converted the same way: SHOW
+     WARNINGS Level 33/21 and Message 33/1536 under NULL, 63/7 and 63/512
+     under binary; SHOW TABLES and SHOW DATABASES utf8mb3_bin 83/192
+     under NULL (BINARY NO_DEFAULT_VALUE), 63/64 under binary, 255/256
+     under utf8mb4.
+   - Which collation "the results'" is: Kvasir's SetNames test observed
+     'a' and @@sql_mode both 46 after SET NAMES utf8mb4 COLLATE
+     utf8mb4_bin, so SET NAMES ... COLLATE appears to set the results'
+     collation too, while SET character_set_results = X takes X's
+     default. Probe SET collation_connection = 'utf8mb4_bin' alone before
+     relying on it.
+   The shape: the evaluator's type() becomes native inside (its derivation
+   already knows each expression's own collation), and one conversion
+   makes the reported type, for SELECT's columns and SHOW's. Every
+   expected type in the tests today is the converted one under utf8mb4
+   results, so they hold as they are.
 2. The connectors' sessions with real traffic: what Connector/J, Python's
    and Go's drivers send for prepared statements (COM_STMT_PREPARE and
    its kin, which Kvasir refuses with 1047), and for their metadata
