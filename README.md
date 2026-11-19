@@ -207,7 +207,7 @@ Conventions, shared with the stack: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Status
 
-Version 0.1.0, in development; no release is cut yet. Built and tested (341 tests), and
+Version 0.1.0, in development; no release is cut yet. Built and tested (342 tests), and
 tried with MySQL 8.4's own `mysql` client, whose `status` command it answers in full:
 
 - The MySQL client/server protocol's codec: its integer and string encodings, packet
@@ -242,9 +242,9 @@ tried with MySQL 8.4's own `mysql` client, whose `status` command it answers in 
   Dannan's listener, the Argon2id check on a worker pool, with a back-off on failed
   sign-ins.
 
-The differential gate replays 655 statements, among them what Connector/J, Python's and
+The differential gate replays 682 statements, among them what Connector/J, Python's and
 Go's drivers send as they connect, and compares every column's type, length, flags,
-value and error with what a MySQL 8.4.13 server answered: 655 of 655 match.
+value and error with what a MySQL 8.4.13 server answered: 682 of 682 match.
 
 Next, in order (`TODO/ACTIVE.md`):
 

@@ -193,10 +193,13 @@ std::optional<Evaluator::Merged> Evaluator::string_function(const Expr& e) const
   m.derivation = aggregate_collations(collations, concat ? "concat" : "concat_ws");
   const bool binary = m.derivation.first == binary_collation;
   // Each argument's text at its longest: characters, or bytes when the
-  // result is binary.
+  // result is binary; a BLOB's length as it is.
   const auto longest = [&](const ResultType& t) -> uint64_t {
     if (t.field_type == f::null) return 0;
-    if (is_string_type(t)) return binary || t.collation == binary_collation ? t.length : t.length / std::max<uint32_t>(_settings.result_max_bytes, 1);
+    if (is_string_type(t)) {
+      const bool blob = t.field_type == f::blob || t.field_type == f::tiny_blob || t.field_type == f::medium_blob || t.field_type == f::long_blob;
+      return binary || blob || t.collation == binary_collation ? t.length : t.length / widest_character(t.collation);
+    }
     if ((t.field_type == f::double_ || t.field_type == f::float_) && t.decimals == protocol::not_fixed_decimals) return double_text_length;
     return t.length;
   };
@@ -262,20 +265,22 @@ std::optional<Evaluator::Merged> Evaluator::string_function(const Expr& e) const
         if (const auto n = constant(2); n && *n) at_most(**n);
     }();
   }
-  const uint64_t per_character = binary ? 1 : _settings.result_max_bytes;
+  // In the aggregated collation, its own character set's bytes.
+  const uint64_t per_character = binary ? 1 : widest_character(m.derivation.first);
   const uint64_t bytes = std::min(total, past_packet) * per_character;
   ResultType& t = m.type;
-  t.collation = binary ? binary_collation : _settings.result_collation;
+  t.collation = binary ? binary_collation : m.derivation.first;
   t.decimals = protocol::not_fixed_decimals;
   t.flags = static_cast<uint16_t>(binary || is_bin_collation(m.derivation.first) ? c::binary : 0);
   if (unbounded) {
     t.field_type = f::long_blob;
-    t.length = static_cast<uint32_t>(std::min<uint64_t>(max_allowed_packet * per_character, UINT32_MAX));
+    t.length = static_cast<uint32_t>(max_allowed_packet);
   } else if (bytes > max_varchar_bytes) {
-    // A BLOB, whose text length is counted in characters once more
-    // (observed), and at most max_allowed_packet.
+    // A BLOB, whose length is its bytes, at most max_allowed_packet's worth
+    // of characters (observed: reported as max_allowed_packet under
+    // utf8mb4 results, a quarter of it under NULL or binary results).
     t.field_type = bytes > max_medium_blob_bytes ? f::long_blob : f::medium_blob;
-    t.length = static_cast<uint32_t>(std::min(bytes * per_character, max_allowed_packet));
+    t.length = static_cast<uint32_t>(std::min(bytes, max_allowed_packet / per_character));
   } else {
     t.field_type = f::var_string;
     t.length = static_cast<uint32_t>(bytes);

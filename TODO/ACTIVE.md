@@ -21,8 +21,10 @@ it.
 ## Resume here
 
 Step 2a, one node speaking the MySQL protocol, is in hand. Last gate
-(2026-11-19, node-d): release **341 passed, 0 failed**, the
-differential gate **655 of 655**. No claim is held and no wait is queued.
+(2026-11-19, node-d): release **342 passed, 0 failed**, the
+differential gate **682 of 682**. No claim is held and no wait is queued.
+The evaluator's types are each expression's own; what a client is told is
+`reported()`'s, in character_set_results (COMPLETED, 2026-11-19).
 
 **Before any work: the build cluster was wiped on 2026-11-18** (the maintainer, relayed
 by the coordinating session). Checked on 2026-11-19, all four Pis:
@@ -145,82 +147,12 @@ outside that rule (the maintainer, 2026-11-17).
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 and the reference server first, and watched to fail:
 
-1. Result metadata in character_set_results. Connector/J sends `SET
-   character_set_results = NULL` on every connection. Observed on MySQL
-   8.4.13: each string column is reported in character_set_results,
-   converting its length; with NULL nothing is converted, so a column
-   shows its own character set; binary strings are never converted. With
-   results NULL: @@sql_mode, @@time_zone, @@character_set_results and
-   @@collation_connection 33 (utf8mb3_general_ci) / 65535, DATABASE()
-   33/192, USER() 33/864, VERSION() 33/18, CONCAT('a', @@sql_mode)
-   MEDIUM_BLOB 33/65538; 'a' stays 255/4 (46 and BINARY under a _bin
-   connection). With results binary (connection utf8mb4): everything 63,
-   lengths in characters (@@sql_mode 21845, DATABASE() 64, 'a' 1,
-   CONCAT 65538). Kvasir reports all of these in the connection's
-   collation. Probed further (2026-11-19, a table `t (v VARCHAR(10), b
-   VARCHAR(5) COLLATE utf8mb4_bin, c CHAR(3), x TEXT, vb VARBINARY(4), m
-   VARCHAR(4) CHARACTER SET utf8mb3, i INT)`), the rule is: every string
-   column has a native type (its own collation, its length in its own
-   character set: a literal the connection's, a system variable or
-   session function utf8mb3_general_ci, a table column its own, CONCAT
-   and the flow functions the aggregated derivation's), and is reported
-   converted to the results' collation, except binary strings and when
-   results is NULL:
-   - Converted, the collation is the results' (utf8mb4 results: b is 255,
-     keeping BINARY; m is 255/16), the length its characters times the
-     results' widest character (binary results: v 10, b 5, c 3, m 4,
-     CONCAT(v, m) 14, 'é' 1), but a BLOB's length is its bytes times it
-     (x TEXT: 65535 native, 262140 under utf8mb4, 65535 under binary).
-   - Results NULL: native (v 255/40, b 46/20 BINARY, m 33/12, x 65535,
-     CONCAT(v, m) 255/56, CONCAT(v, @@sql_mode) 255/87420 since the
-     column's IMPLICIT outranks the variable's SYSCONST, UPPER(m) 33/12).
-   - SHOW's columns are utf8mb3 natively and converted the same way: SHOW
-     WARNINGS Level 33/21 and Message 33/1536 under NULL, 63/7 and 63/512
-     under binary; SHOW TABLES and SHOW DATABASES utf8mb3_bin 83/192
-     under NULL (BINARY NO_DEFAULT_VALUE), 63/64 under binary, 255/256
-     under utf8mb4.
-   - The results' collation (probed): SET NAMES x COLLATE c sets it to c,
-     SET NAMES x and SET character_set_results = x to x's default;
-     SET collation_connection alone leaves it. The BINARY flag follows the
-     native collation. So after SET collation_connection =
-     'utf8mb4_bin', MySQL reports 'a' 255 with BINARY and @@sql_mode 255;
-     after SET NAMES utf8mb4 COLLATE utf8mb4_bin, then SET
-     collation_connection = 'utf8mb4_0900_ai_ci', 'a' 46 without BINARY.
-     Kvasir reports in collation_connection, so the first is a second gap
-     this step closes. The session must keep the results' collation beside
-     @@character_set_results (which shows only the character set).
-   The shape (decided 2026-11-19): reporting must not be folded into the
-   evaluator's types, since they carry meaning (CHAR_LENGTH counts bytes
-   of a binary type, comparisons use the collation), and under binary
-   results CHAR_LENGTH('é') must still count characters. So:
-   - Evaluator::type() is native: EvalSettings' result_collation and
-     result_max_bytes become the connection's (a literal's, a number's as
-     text); a system variable and a session function 33 with lengths in
-     3 bytes; a table column its own collation and its own widest
-     character; CONCAT, the string functions and the flow functions the
-     aggregated derivation's collation, lengths in its widest character;
-     a BLOB's length its bytes, never multiplied (that moves to the
-     report); characters(t) divides by t's own widest character.
-   - One free function, `reported(native, results)`, makes what is sent:
-     not a string, binary, or results NULL: as it is; else the results'
-     collation, the length characters times the results' widest
-     character, a BLOB's bytes times it. The session applies it to every
-     result's columns in execute(), SHOW's included (SHOW WARNINGS'
-     Level and Message native 33/21 and 33/1536; SHOW TABLES and SHOW
-     DATABASES 83/192).
-   - The session keeps the results' collation: SET NAMES x [COLLATE c]
-     sets it to c or x's default, SET CHARACTER SET x and SET
-     character_set_results = x to x's default (NULL to none), reset() to
-     255.
-   - The evaluator tests' type helpers report under 255, so their
-     expected (observed, reported) types stay as they are.
-   Red evidence: the 27 statements at the end of `session.sql` (kv_meta),
-   uncommitted in the working tree while the step is built, 671 of 682
-   with the superset rule in.
-2. The connectors' sessions with real traffic: what Connector/J, Python's
+1. The connectors' sessions with real traffic: what Connector/J, Python's
    and Go's drivers send for prepared statements (COM_STMT_PREPARE and
    its kin, which Kvasir refuses with 1047), and for their metadata
-   calls. Scripts in `build/connectors/`.
+   calls. Scripts in `build/connectors/`; they run in throwaway
+   containers on the Mac against the reference server (Docker network
+   `kvasir-probe`, account `probe`).
 2. UPPER and LOWER, which need Unicode's case mapping.
 3. Folding old row versions away (memory grows with every change today;
    folding what is older than every open snapshot is the design's, and
@@ -237,6 +169,8 @@ decision:
   control functions (Kvasir merges them as DOUBLE); the type of LPAD or
   RPAD with a NULL length (Kvasir: a LONG BLOB, as REPEAT with a NULL
   count).
+- REPEAT of a utf8mb3 system variable past 16 MB is a LONG_BLOB; MySQL
+  reports a MEDIUM_BLOB of 16777215.
 - A constant string argument read as an integer ('2x' as a position)
   warns once; MySQL warns twice.
 - Arithmetic on a bare NULL literal is typed DOUBLE 23/31; MySQL reports

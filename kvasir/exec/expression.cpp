@@ -180,13 +180,31 @@ bool is_flow_control(const Expr& e) {
 
 }  // namespace
 
-ResultType column_as_expression(const ResultType& column, uint32_t result_max_bytes) {
+uint32_t widest_character(uint16_t collation) {
+  if (collation == binary_collation) return 1;
+  const auto* info = find_collation(collation);
+  return info && info->charset == "utf8mb3" ? 3 : 4;
+}
+
+ResultType reported(const ResultType& type, std::optional<uint16_t> results) {
+  if (!results || !is_string(type) || type.collation == binary_collation) return type;
+  ResultType t = type;
+  const uint64_t to = widest_character(*results);
+  const uint64_t length = is_blob(type.field_type) ? uint64_t{type.length} * to : uint64_t{type.length} / widest_character(type.collation) * to;
+  t.length = static_cast<uint32_t>(std::min<uint64_t>(length, UINT32_MAX));
+  t.collation = *results;
+  return t;
+}
+
+ResultType column_as_expression(const ResultType& column) {
   ResultType t = column;
   const bool unsigned_ = column.is_unsigned();
   if (is_string(column)) {
     t.decimals = any_decimals;
+    // A TEXT's length counted in characters once more (observed: a TEXT
+    // column is 262140 under utf8mb4 results, MIN of it 1048560).
     if (column.field_type == f::blob && column.collation != binary_collation)
-      t.length = static_cast<uint32_t>(std::min<uint64_t>(uint64_t{column.length} * result_max_bytes, UINT32_MAX));
+      t.length = static_cast<uint32_t>(std::min<uint64_t>(uint64_t{column.length} * widest_character(column.collation), UINT32_MAX));
     t.flags = static_cast<uint16_t>(column.collation == binary_collation || (column.flags & c::binary) ? c::binary : 0);
     return t;
   }
@@ -354,13 +372,13 @@ ResultType Evaluator::type(const Expr& e) const {
       return boolean_type(not_null(a) && not_null(b));
     }
     case ExprKind::collate: {
-      // Reported in the results character set, flagged BINARY for a _bin
-      // collation, and never NOT NULL (observed).
+      // In the collation named, flagged BINARY for a _bin collation, and
+      // never NOT NULL (observed).
       const auto operand = type(*e.args[0]);
       const uint16_t collation = explicit_collation(e);
       ResultType t;
       t.field_type = f::var_string;
-      t.collation = _settings.result_collation;
+      t.collation = collation;
       t.length = is_string(operand) ? operand.length : operand.length * _settings.result_max_bytes;
       t.decimals = any_decimals;
       t.flags = static_cast<uint16_t>(is_bin(collation) ? c::binary : 0);
@@ -940,7 +958,7 @@ Evaluator::Merged Evaluator::merged(const std::vector<Operand>& operands, const 
   bool any_real = false, any_decimal = false;
   for (const auto& o : operands) {
     if (o.type.field_type == f::null) continue;
-    types.push_back(o.expr->kind == ExprKind::column ? column_as_expression(o.type, _settings.result_max_bytes) : o.type);
+    types.push_back(o.expr->kind == ExprKind::column ? column_as_expression(o.type) : o.type);
     const auto& a = types.back();
     if (is_string(a)) strings.push_back(derivation(*o.expr, o.type));
     any_real = any_real || a.field_type == f::double_ || a.field_type == f::float_;
@@ -959,20 +977,21 @@ Evaluator::Merged Evaluator::merged(const std::vector<Operand>& operands, const 
     const bool binary = out.derivation.first == binary_collation;
     bool blob = false, all_char = true;
     uint64_t longest = 0;
+    for (const auto& a : types) blob = blob || (is_string(a) && is_blob(a.field_type));
     for (const auto& a : types) {
       uint64_t n = a.length;
       if (is_string(a)) {
-        blob = blob || is_blob(a.field_type);
         all_char = all_char && a.field_type == f::string;
-        if (!binary && a.collation != binary_collation) n = a.length / std::max<uint32_t>(_settings.result_max_bytes, 1);
+        // A BLOB's length is as it is; another string's, in characters.
+        if (!binary && !is_blob(a.field_type) && a.collation != binary_collation) n = a.length / widest_character(a.collation);
       } else if ((a.field_type == f::double_ || a.field_type == f::float_) && a.decimals == any_decimals) {
         n = 22;
       }
       longest = std::max(longest, n);
     }
     t.field_type = blob ? f::blob : all_char ? f::string : f::var_string;
-    t.collation = binary ? binary_collation : _settings.result_collation;
-    t.length = static_cast<uint32_t>(std::min<uint64_t>(binary ? longest : longest * _settings.result_max_bytes, UINT32_MAX));
+    t.collation = binary ? binary_collation : out.derivation.first;
+    t.length = static_cast<uint32_t>(std::min<uint64_t>(binary || blob ? longest : longest * widest_character(out.derivation.first), UINT32_MAX));
     t.decimals = any_decimals;
     t.flags = static_cast<uint16_t>(binary || is_bin(out.derivation.first) ? c::binary : 0);
     return out;
@@ -1075,7 +1094,7 @@ Evaluator::Merged Evaluator::flow_type(const Expr& e) const {
     string_collation(args, "nullif");
     const auto& first = args[0];
     Merged m;
-    m.type = first.expr->kind == ExprKind::column ? column_as_expression(first.type, _settings.result_max_bytes) : first.type;
+    m.type = first.expr->kind == ExprKind::column ? column_as_expression(first.type) : first.type;
     m.type.flags = static_cast<uint16_t>(m.type.flags & ~c::not_null);
     m.derivation = is_string(first.type) ? derivation(*first.expr, first.type) : Derivation{binary_collation, coercible_coercibility};
     return m;

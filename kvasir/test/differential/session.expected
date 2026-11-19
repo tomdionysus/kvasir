@@ -2962,3 +2962,126 @@ statement SELECT @@autocommit
 column @@autocommit|LONGLONG|63|1|0|BINARY NUM
 row 1
 end
+statement CREATE DATABASE kv_meta
+end
+statement USE kv_meta
+end
+statement CREATE TABLE t (v VARCHAR(10), b VARCHAR(5) COLLATE utf8mb4_bin, c CHAR(3), x TEXT, vb VARBINARY(4), m VARCHAR(4) CHARACTER SET utf8mb3, i INT)
+end
+statement INSERT INTO t VALUES ('a', 'b', 'c', 'x', 'y', 'm', 1)
+end
+statement SET character_set_results = NULL
+end
+statement SELECT v, b, c, x, vb, m, i, CONCAT(v, m), CONCAT(v, @@sql_mode), 'é' FROM t
+column v|VAR_STRING|255|40|0|
+column b|VAR_STRING|46|20|0|BINARY
+column c|STRING|255|12|0|
+column x|BLOB|255|65535|0|BLOB
+column vb|VAR_STRING|63|4|0|BINARY
+column m|VAR_STRING|33|12|0|
+column i|LONG|63|11|0|NUM
+column CONCAT(v, m)|VAR_STRING|255|56|31|
+column CONCAT(v, @@sql_mode)|MEDIUM_BLOB|255|87420|31|
+column é|VAR_STRING|255|4|31|NOT_NULL
+row a	b	c	x	y	m	1	am	aONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION	é
+end
+statement SELECT 'a', @@sql_mode, @@character_set_results, @@collation_connection, DATABASE(), CONCAT('a', @@sql_mode)
+column a|VAR_STRING|255|4|31|NOT_NULL
+column @@sql_mode|VAR_STRING|33|65535|31|
+column @@character_set_results|VAR_STRING|33|65535|31|
+column @@collation_connection|VAR_STRING|33|65535|31|
+column DATABASE()|VAR_STRING|33|192|31|
+column CONCAT('a', @@sql_mode)|MEDIUM_BLOB|33|65538|31|
+row a	ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION	\N	utf8mb4_0900_ai_ci	kv_meta	aONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+end
+statement SELECT 1/0
+column 1/0|NEWDECIMAL|63|7|4|BINARY NUM
+row \N
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|33|21|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|33|1536|31|NOT_NULL
+row Warning	1365	Division by 0
+end
+statement SHOW TABLES
+column Tables_in_kv_meta|VAR_STRING|83|192|0|NOT_NULL BINARY NO_DEFAULT_VALUE
+row t
+end
+statement SHOW DATABASES LIKE 'kv_meta'
+column Database (kv_meta)|VAR_STRING|83|192|0|NOT_NULL BINARY NO_DEFAULT_VALUE
+row kv_meta
+end
+statement SET character_set_results = binary
+end
+statement SELECT v, b, c, x, vb, m, i, CONCAT(v, m), 'é' FROM t
+column v|VAR_STRING|63|10|0|
+column b|VAR_STRING|63|5|0|BINARY
+column c|STRING|63|3|0|
+column x|BLOB|63|65535|0|BLOB
+column vb|VAR_STRING|63|4|0|BINARY
+column m|VAR_STRING|63|4|0|
+column i|LONG|63|11|0|NUM
+column CONCAT(v, m)|VAR_STRING|63|14|31|
+column é|VAR_STRING|63|1|31|NOT_NULL
+row a	b	c	x	y	m	1	am	é
+end
+statement SELECT 'a', @@sql_mode, DATABASE(), CONCAT('a', @@sql_mode)
+column a|VAR_STRING|63|1|31|NOT_NULL
+column @@sql_mode|VAR_STRING|63|21845|31|
+column DATABASE()|VAR_STRING|63|64|31|
+column CONCAT('a', @@sql_mode)|MEDIUM_BLOB|63|65538|31|
+row a	ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION	kv_meta	aONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+end
+statement SELECT 1/0
+column 1/0|NEWDECIMAL|63|7|4|BINARY NUM
+row \N
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|63|7|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|63|512|31|NOT_NULL
+row Warning	1365	Division by 0
+end
+statement SHOW TABLES
+column Tables_in_kv_meta|VAR_STRING|63|64|0|NOT_NULL BINARY NO_DEFAULT_VALUE
+row t
+end
+statement SET character_set_results = utf8mb4
+end
+statement SELECT v, b, c, x, vb, m, i, CONCAT(v, m), 'é' FROM t
+column v|VAR_STRING|255|40|0|
+column b|VAR_STRING|255|20|0|BINARY
+column c|STRING|255|12|0|
+column x|BLOB|255|262140|0|BLOB
+column vb|VAR_STRING|63|4|0|BINARY
+column m|VAR_STRING|255|16|0|
+column i|LONG|63|11|0|NUM
+column CONCAT(v, m)|VAR_STRING|255|56|31|
+column é|VAR_STRING|255|4|31|NOT_NULL
+row a	b	c	x	y	m	1	am	é
+end
+statement SHOW TABLES
+column Tables_in_kv_meta|VAR_STRING|255|256|0|NOT_NULL BINARY NO_DEFAULT_VALUE
+row t
+end
+statement SET collation_connection = 'utf8mb4_bin'
+end
+statement SELECT 'a', @@sql_mode
+column a|VAR_STRING|255|4|31|NOT_NULL BINARY
+column @@sql_mode|VAR_STRING|255|87380|31|
+row a	ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+end
+statement SET NAMES utf8mb4 COLLATE utf8mb4_bin
+end
+statement SET collation_connection = 'utf8mb4_0900_ai_ci'
+end
+statement SELECT 'a', @@sql_mode
+column a|VAR_STRING|46|4|31|NOT_NULL
+column @@sql_mode|VAR_STRING|46|87380|31|
+row a	ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+end
+statement SET NAMES utf8mb4
+end
+statement DROP DATABASE kv_meta
+end

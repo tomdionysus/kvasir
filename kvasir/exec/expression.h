@@ -105,7 +105,9 @@ struct EvalSettings {
   const AggregateSource* aggregates = nullptr;
   // div_precision_increment.
   int div_precision_increment = 4;
-  // The collation a string result is reported in: character_set_results'.
+  // The connection's collation: a string literal's own, and a number's as
+  // text. Types are each expression's own; what is reported to the client
+  // is `reported()`'s.
   uint16_t result_collation = 255;
   // Its widest character, in bytes.
   uint32_t result_max_bytes = 4;
@@ -217,7 +219,18 @@ inline constexpr int explicit_coercibility = 0, implicit_coercibility = 2, sysco
 // NULLIF, IFNULL): an integer as long as its type's digits, a TEXT's length
 // counted in characters once more, and no key, ZEROFILL, BLOB or NOT NULL
 // flags.
-ResultType column_as_expression(const ResultType& column, uint32_t result_max_bytes);
+ResultType column_as_expression(const ResultType& column);
+
+// The widest character of a collation's character set, in bytes.
+uint32_t widest_character(uint16_t collation);
+
+// What a result column reports (observed on MySQL 8.4.13): a string is
+// converted from its own type to `results`, the collation of the client's
+// character_set_results, its length its characters times the results'
+// widest character (a BLOB's length times it); a binary string is never
+// converted, and nothing is when character_set_results is NULL (no
+// `results`). Anything else is as it is.
+ResultType reported(const ResultType& type, std::optional<uint16_t> results);
 
 // The expression as MySQL writes it in an error message:
 // (9223372036854775807 + 1), (-(9223372036854775808) - 1).

@@ -182,6 +182,9 @@ class Session : private VariableSource {
   // character_set_database and collation_database: the current database's
   // defaults, else the server's.
   void follow_database();
+  // The collation results are reported in: character_set_results' default,
+  // or the one SET NAMES ... COLLATE named; nothing when it is NULL.
+  std::optional<uint16_t> results_collation() const;
 
   struct UserVariable {
     Value value;
@@ -201,6 +204,9 @@ class Session : private VariableSource {
   SessionVariables _variables;
   std::map<std::string, UserVariable> _user;
   std::optional<std::string> _database;
+  // The collation SET NAMES ... COLLATE named, which results are reported in
+  // while character_set_results is its character set; empty otherwise.
+  std::string _results_collation;
   bool _in_transaction = false;
   bool _read_only_transaction = false;
   std::vector<Warning> _warnings;

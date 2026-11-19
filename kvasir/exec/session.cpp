@@ -31,6 +31,11 @@ namespace {
 namespace f = protocol::field_type;
 namespace c = protocol::column_flag;
 
+// What MySQL holds its own text in: system variables, session functions and
+// SHOW's columns in utf8mb3_general_ci, names in utf8mb3_bin (observed).
+constexpr uint16_t system_collation = 33;
+constexpr uint16_t name_collation = 83;
+
 std::string lower(std::string_view s) {
   std::string out(s);
   for (auto& ch : out) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
@@ -85,9 +90,10 @@ ResultType user_variable_type(const ResultType& t) {
     out.precision = 22;
     out.flags = c::binary | c::num;
   } else if (t.collation != protocol::collation::binary && t.field_type != f::null) {
+    // Reported as 268435440 under utf8mb4 results (observed).
     out.field_type = f::long_blob;
     out.collation = t.collation;
-    out.length = 268435440;
+    out.length = 67108860;
   } else {
     out.field_type = f::medium_blob;
     out.collation = protocol::collation::binary;
@@ -147,6 +153,7 @@ void Session::reset() {
   _variables.reset();
   _user.clear();
   _database.reset();
+  _results_collation.clear();
   _read_only_transaction = false;
   _warnings.clear();
   _last_insert_id = 0;
@@ -208,8 +215,18 @@ ResultType Session::system_type(const std::string& scope, const std::string& nam
     t.flags = c::unsigned_ | c::binary | c::num;
     return t;
   }
-  const auto e = eval_settings();
-  return _variables.type_of(scope, name, e.result_collation, e.result_max_bytes);
+  // Held in utf8mb3_general_ci, as MySQL's are.
+  return _variables.type_of(scope, name, system_collation, 3);
+}
+
+std::optional<uint16_t> Session::results_collation() const {
+  const auto results = _variables.get("", "character_set_results");
+  if (is_null(results)) return std::nullopt;
+  const auto charset = _variables.text("character_set_results");
+  // SET NAMES ... COLLATE names the results' collation too (observed).
+  if (const auto* named = find_collation(_results_collation); named && sql::same_word(named->charset, charset)) return named->id;
+  const auto* d = default_collation(charset);
+  return d ? d->id : protocol::collation::utf8mb4_0900_ai_ci;
 }
 
 Value Session::system_value(const std::string& scope, const std::string& name) const {
@@ -269,11 +286,13 @@ void Session::record_error(uint16_t code, const std::string& message) {
 
 namespace {
 
+// A session function's or SHOW's text, held in utf8mb3_general_ci as MySQL's
+// is.
 ResultType text_type(const EvalSettings& e, uint32_t characters, bool not_null) {
   ResultType t;
   t.field_type = f::var_string;
-  t.collation = e.result_collation;
-  t.length = characters * e.result_max_bytes;
+  t.collation = system_collation;
+  t.length = characters * 3;
   t.decimals = protocol::not_fixed_decimals;
   t.flags = static_cast<uint16_t>((not_null ? c::not_null : 0) | (not_null && e.result_collation_binary ? c::binary : 0));
   return t;
@@ -378,6 +397,9 @@ Outcome Session::execute(const sql::Statement& statement) {
     if (outcome.result) {
       _row_count = -1;
       _found_rows = outcome.result->rows.size();
+      // Each column as the client is told it: in character_set_results.
+      const auto results = results_collation();
+      for (auto& column : outcome.result->columns) column.type = reported(column.type, results);
     } else {
       _row_count = static_cast<int64_t>(outcome.affected_rows);
     }
@@ -1680,6 +1702,8 @@ void Session::set(const std::vector<sql::Assignment>& assignments) {
         break;
       case Target::system_variable: {
         _variables.set(a.scope, a.name, p.value, p.use_default, _warnings);
+        // The results' collation is then its character set's default.
+        if (sql::same_word(a.name, "character_set_results")) _results_collation.clear();
         if (sql::same_word(a.name, "character_set_connection") && !p.use_default) {
           if (const auto* d = default_collation(_variables.text("character_set_connection")))
             _variables.set("", "collation_connection", d->name, false, _warnings);
@@ -1710,12 +1734,14 @@ void Session::set(const std::vector<sql::Assignment>& assignments) {
         _variables.set("", "character_set_connection", charset, false, _warnings);
         _variables.set("", "character_set_results", charset, false, _warnings);
         _variables.set("", "collation_connection", collation->name, false, _warnings);
+        _results_collation = collation->name;
         break;
       }
       case Target::character_set: {
         const std::string charset = a.use_default ? _variables.text("character_set_server") : a.charset;
         _variables.set("", "character_set_client", charset, false, _warnings);
         _variables.set("", "character_set_results", charset, false, _warnings);
+        _results_collation.clear();
         _variables.set("", "character_set_connection", _variables.text("character_set_server"), false, _warnings);
         _variables.set("", "collation_connection", _variables.text("collation_server"), false, _warnings);
         break;
@@ -1812,10 +1838,11 @@ Outcome Session::drop_database(const sql::Statement& statement) {
 }
 
 Outcome Session::show_databases(const sql::Statement& statement) {
+  // A name, held in utf8mb3_bin (observed).
   ResultType type;
   type.field_type = f::var_string;
-  type.collation = protocol::collation::utf8mb4_0900_ai_ci;
-  type.length = 256;
+  type.collation = name_collation;
+  type.length = 192;
   type.decimals = 0;
   type.flags = c::not_null | c::binary | c::no_default_value;
   ResultSet result;
@@ -1897,8 +1924,8 @@ Outcome Session::show_tables(const sql::Statement& statement) {
   if (!names) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
   ResultType type;
   type.field_type = f::var_string;
-  type.collation = protocol::collation::utf8mb4_0900_ai_ci;
-  type.length = 256;
+  type.collation = name_collation;
+  type.length = 192;
   type.flags = c::not_null | c::binary | c::no_default_value;
   ResultSet result;
   const std::string column = "Tables_in_" + database;

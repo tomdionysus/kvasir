@@ -486,9 +486,10 @@ uint16_t column_collation_id(const catalog::Column& column) {
   return catalog::is_binary(column.type.kind) ? protocol::collation::binary : 0;
 }
 
-ResultType column_result_type(const catalog::Table& table, size_t index, const EvalSettings& eval) {
+ResultType column_result_type(const catalog::Table& table, size_t index, const EvalSettings&) {
   const auto& column = table.columns[index];
   const auto& t = column.type;
+  const uint16_t own = column_collation_id(column);
   ResultType r;
   r.collation = protocol::collation::binary;
   uint32_t flags = 0;
@@ -518,7 +519,9 @@ ResultType column_result_type(const catalog::Table& table, size_t index, const E
     r.precision = static_cast<int>(t.is_unsigned ? unsigned_length : signed_length - 1);
     flags |= c::num;
   };
-  const auto text_length = [&](uint64_t count) { return static_cast<uint32_t>(std::min<uint64_t>(count * eval.result_max_bytes, UINT32_MAX)); };
+  // A column's own type: its collation, its length in its own character
+  // set's bytes; a TEXT's is its bytes.
+  const auto text_length = [&](uint64_t count) { return static_cast<uint32_t>(std::min<uint64_t>(count * widest_character(own), UINT32_MAX)); };
   switch (t.kind) {
     case TypeKind::tinyint:
       integer(f::tiny, 4, 3);
@@ -552,7 +555,7 @@ ResultType column_result_type(const catalog::Table& table, size_t index, const E
     case TypeKind::char_:
     case TypeKind::varchar:
       r.field_type = t.kind == TypeKind::char_ ? f::string : f::var_string;
-      r.collation = eval.result_collation;
+      r.collation = own;
       r.length = text_length(t.length);
       if (is_bin(t.collation)) flags |= c::binary;
       break;
@@ -567,8 +570,8 @@ ResultType column_result_type(const catalog::Table& table, size_t index, const E
     case TypeKind::mediumtext:
     case TypeKind::longtext:
       r.field_type = f::blob;
-      r.collation = eval.result_collation;
-      r.length = text_length(catalog::blob_max_bytes(t.kind));
+      r.collation = own;
+      r.length = static_cast<uint32_t>(catalog::blob_max_bytes(t.kind));
       flags |= c::blob;
       if (is_bin(t.collation)) flags |= c::binary;
       break;

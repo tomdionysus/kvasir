@@ -78,13 +78,15 @@ void check(const std::vector<Case>& cases) {
     const auto statement = select(c.sql);
     const auto& expr = *statement.select.items.at(0).expr;
     Evaluator evaluator;
-    const auto type = evaluator.type(expr);
+    // As a utf8mb4 client is told it, which is what was observed.
+    const auto own = evaluator.type(expr);
+    const auto type = reported(own, protocol::collation::utf8mb4_0900_ai_ci);
     EXPECT_EQ(type_name(type.field_type), c.type);
     EXPECT_EQ(type.collation, c.collation);
     EXPECT_EQ(type.length, c.length);
     EXPECT_EQ(type.decimals, c.decimals);
     EXPECT_EQ(flag_names(type.flags), c.flags);
-    const auto text = to_text(evaluator.value(expr), type);
+    const auto text = to_text(evaluator.value(expr), own);
     EXPECT_EQ(text.value_or("NULL"), c.value);
   }
 }
@@ -664,8 +666,9 @@ TEST(ExecExpression, MoreStringFunctions) {
     Evaluator evaluator;
     const auto statement = select(sql);
     const auto& expr = *statement.select.items[0].expr;
-    EXPECT_EQ(type_name(evaluator.type(expr).field_type), "LONG_BLOB");
-    EXPECT_EQ(evaluator.type(expr).length, 67108864u);
+    const auto type = reported(evaluator.type(expr), protocol::collation::utf8mb4_0900_ai_ci);
+    EXPECT_EQ(type_name(type.field_type), "LONG_BLOB");
+    EXPECT_EQ(type.length, 67108864u);
     EXPECT_TRUE(is_null(evaluator.value(expr)));
     ASSERT_EQ(evaluator.warnings().size(), 1u);
     EXPECT_EQ(evaluator.warnings()[0].code, 1301);

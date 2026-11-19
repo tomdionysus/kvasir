@@ -83,7 +83,7 @@ AggregateSpec::AggregateSpec(const sql::Expr& call, std::vector<ResultType> args
     case Kind::min:
     case Kind::max:
       // Of a table's column, reported as an expression over it would be.
-      _type = column ? column_as_expression(*a, settings.result_max_bytes) : *a;
+      _type = column ? column_as_expression(*a) : *a;
       _type.flags = static_cast<uint16_t>(_type.flags & ~c::not_null);
       break;
     case Kind::bit_and:

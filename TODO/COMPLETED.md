@@ -2,6 +2,38 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-19: result metadata in character_set_results
+
+- Observed on MySQL 8.4.13 first (four probe rounds, written out with
+  every observed value in ACTIVE.md as of 102492a and a78f54b, and in
+  `reported()`'s comment):
+  every string column has its own type and is reported converted to the
+  results' collation (a BLOB's length times the results' widest
+  character, another's characters times it); binary strings never, and
+  nothing when character_set_results is NULL, as Connector/J sets it. The
+  results' collation is SET NAMES' COLLATE, else character_set_results'
+  default; collation_connection alone does not move it.
+- Landed: the evaluator's types are each expression's own (system
+  variables, session functions and SHOW's columns utf8mb3_general_ci,
+  names utf8mb3_bin, table columns their own collation, CONCAT, the string
+  and flow functions their aggregated collation, BLOB lengths unmultiplied);
+  `reported()` makes what is sent, once, in Session::execute. Found on the
+  way and fixed: after SET collation_connection = 'utf8mb4_bin' Kvasir
+  reported results in utf8mb4_bin (MySQL: 255, BINARY on a literal); the
+  length of CONCAT over a system variable counted utf8mb4 bytes where
+  MySQL counts utf8mb3's (CONCAT('a', @@sql_mode): 262152, Kvasir said
+  349536).
+- The evaluator tests' helpers report under utf8mb4 results, as their
+  expected types were observed; no expected value changed.
+- Known difference: REPEAT of a utf8mb3 system variable past 16 MB is a
+  LONG_BLOB in Kvasir; MySQL reports a MEDIUM_BLOB of 16777215 characters.
+- Test-first on node-d: the 27 new differential statements, 11
+  failing (671 of 682 with the superset rule in); the rest of the suite
+  passing.
+- Gate: release on node-d **342 passed, 0 failed**; the
+  differential gate **682 of 682** (27 new statements; the 655 before
+  recorded unchanged). clang-format clean.
+
 ## 2026-11-19: utf8mb4 outranks utf8mb3
 
 - Found while writing the metadata step's tests: CONCAT of a utf8mb4 and a
@@ -10,10 +42,10 @@ The record, newest first. Each entry says what landed, with its gate counts.
   (v = mb compares without case), in CONCAT, comparisons, LIKE, IFNULL and
   COALESCE. Kvasir now does the same; utf8mb3_bin is named in messages.
 - Test-first on node-d: the new session test failed (1267).
-- Gate: release on node-d **341 passed, 0 failed**; the 655
-  statements in the differential gate all answer as MySQL does (run within
-  the metadata step's 682, whose 11 failures are all that step's,
-  uncommitted).
+- Gate: release on node-d, 342 tests: **341 passed**, and the
+  differential test failed only on the metadata step's 11 statements, then
+  uncommitted; the 655 committed statements all answered as MySQL does.
+  (First recorded here as "341 passed, 0 failed", which was wrong.)
 
 ## 2026-11-19: what connectors send as they connect
 

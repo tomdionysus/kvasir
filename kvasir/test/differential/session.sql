@@ -688,3 +688,32 @@ START TRANSACTION
 COMMIT
 SET autocommit = 1
 SELECT @@autocommit
+# Result metadata is reported in character_set_results' collation, converted
+# from each column's own; nothing is converted when it is NULL.
+CREATE DATABASE kv_meta
+USE kv_meta
+CREATE TABLE t (v VARCHAR(10), b VARCHAR(5) COLLATE utf8mb4_bin, c CHAR(3), x TEXT, vb VARBINARY(4), m VARCHAR(4) CHARACTER SET utf8mb3, i INT)
+INSERT INTO t VALUES ('a', 'b', 'c', 'x', 'y', 'm', 1)
+SET character_set_results = NULL
+SELECT v, b, c, x, vb, m, i, CONCAT(v, m), CONCAT(v, @@sql_mode), 'é' FROM t
+SELECT 'a', @@sql_mode, @@character_set_results, @@collation_connection, DATABASE(), CONCAT('a', @@sql_mode)
+SELECT 1/0
+SHOW WARNINGS
+SHOW TABLES
+SHOW DATABASES LIKE 'kv_meta'
+SET character_set_results = binary
+SELECT v, b, c, x, vb, m, i, CONCAT(v, m), 'é' FROM t
+SELECT 'a', @@sql_mode, DATABASE(), CONCAT('a', @@sql_mode)
+SELECT 1/0
+SHOW WARNINGS
+SHOW TABLES
+SET character_set_results = utf8mb4
+SELECT v, b, c, x, vb, m, i, CONCAT(v, m), 'é' FROM t
+SHOW TABLES
+SET collation_connection = 'utf8mb4_bin'
+SELECT 'a', @@sql_mode
+SET NAMES utf8mb4 COLLATE utf8mb4_bin
+SET collation_connection = 'utf8mb4_0900_ai_ci'
+SELECT 'a', @@sql_mode
+SET NAMES utf8mb4
+DROP DATABASE kv_meta
