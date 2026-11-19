@@ -207,8 +207,8 @@ Conventions, shared with the stack: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Status
 
-Version 0.1.0, in development; no release is cut yet. Built and tested (337 tests), and
-tried with MySQL 8.4's own `mysql` client:
+Version 0.1.0, in development; no release is cut yet. Built and tested (341 tests), and
+tried with MySQL 8.4's own `mysql` client, whose `status` command it answers in full:
 
 - The MySQL client/server protocol's codec: its integer and string encodings, packet
   framing with every length bounded, and the connection phase's messages, OK, ERR, EOF,
@@ -242,8 +242,8 @@ tried with MySQL 8.4's own `mysql` client:
   Dannan's listener, the Argon2id check on a worker pool, with a back-off on failed
   sign-ins.
 
-The differential gate replays 605 statements and compares every column's type, length,
-flags, value and error with what a MySQL 8.4.13 server answered: 605 of 605 match.
+The differential gate replays 634 statements and compares every column's type, length,
+flags, value and error with what a MySQL 8.4.13 server answered: 634 of 634 match.
 
 Next, in order (`TODO/ACTIVE.md`):
 

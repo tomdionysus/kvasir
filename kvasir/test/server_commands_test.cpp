@@ -16,11 +16,14 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <string>
 #include <vector>
 
+#include "dannan/contract/time_source.h"
 #include "kvasir/protocol/messages.h"
 #include "kvasir/server/commands.h"
+#include "kvasir/server/statistics.h"
 
 namespace kvasir::server {
 namespace {
@@ -356,6 +359,108 @@ TEST(ServerCommands, ACommandOutOfSequenceIsRefusedAndCloses) {
   const auto e = err(packets(step.out)[0]);
   EXPECT_EQ(e.code, 1156);
   EXPECT_EQ(e.sqlstate, "08S01");
+}
+
+// COM_STATISTICS (the manual, "COM_STATISTICS"): the reply is one
+// human-readable string, with no header byte. Observed on MySQL 8.4.13
+// (2026-11-19), the `mysql` client's `status` command sends it, and MySQL
+// answers e.g. "Uptime: 540  Threads: 2  Questions: 2115  Slow queries: 0
+// Opens: 383  Flush tables: 3  Open tables: 203  Queries per second avg:
+// 3.916": two spaces between fields; the average Questions / Uptime cut,
+// not rounded, to three places (2115 / 540 = 3.9166); Threads those running
+// a command, the asker included. Questions counts a sign-in and every
+// command but COM_PING and COM_STATISTICS (the manual, "Questions"; measured:
+// a connection that only pings counts 2, its sign-in and its COM_QUIT; a
+// statement refused counts; a failed sign-in counts nothing). Kvasir has no
+// table cache and no slow query log: those fields are 0.
+struct SteppedTime : dannan::contract::TimeSource {
+  dannan::contract::TimePoint at = dannan::contract::TimePoint{} + std::chrono::hours(100);
+  dannan::contract::TimePoint now() const noexcept override { return at; }
+};
+
+std::string line(uint64_t uptime, uint64_t threads, uint64_t questions, const std::string& average) {
+  return "Uptime: " + std::to_string(uptime) + "  Threads: " + std::to_string(threads) + "  Questions: " + std::to_string(questions) +
+         "  Slow queries: 0  Opens: 0  Flush tables: 0  Open tables: 0  Queries per second avg: " + average;
+}
+
+TEST(ServerStatistics, TheLineMySqlSends) {
+  SteppedTime time;
+  NodeStatistics stats(time);
+  EXPECT_EQ(stats.text(), line(0, 0, 0, "0.000"));
+  time.at += std::chrono::milliseconds(540'900);
+  for (int i = 0; i < 2115; ++i) stats.question();
+  stats.command_began();
+  stats.command_began();
+  EXPECT_EQ(stats.text(), line(540, 2, 2115, "3.916"));
+  stats.command_ended();
+  time.at += std::chrono::seconds(2);
+  stats.question();
+  stats.question();
+  // 2117 / 542 = 3.9059
+  EXPECT_EQ(stats.text(), line(542, 1, 2117, "3.905"));
+}
+
+TEST(ServerCommands, StatisticsAnswersWithOneString) {
+  SteppedTime time;
+  NodeStatistics stats(time);
+  catalog::Catalog node;
+  txn::Store rows;
+  exec::Session session{registry(), node, rows, exec::SessionInfo{"root", "10.0.0.1", 7}};
+  {
+    // The sign-in counts.
+    CommandPhase phase(session, capability::protocol_41 | capability::deprecate_eof, &stats);
+    EXPECT_EQ(stats.text(), line(0, 0, 1, "0.000"));
+    phase.received(command(command::query, "SELECT 1"));
+    phase.received(command(command::query, "SELECT nope"));
+    phase.received(command(command::ping));
+    time.at += std::chrono::seconds(10);
+    auto sent = packets(phase.received(command(command::statistics)).out);
+    ASSERT_EQ(sent.size(), 1u);
+    EXPECT_EQ(sent[0].first_sequence, 1u);
+    EXPECT_EQ(std::string(sent[0].payload.begin(), sent[0].payload.end()), line(10, 1, 3, "0.300"));
+    // Nothing runs between commands; COM_STATISTICS is not counted.
+    EXPECT_EQ(stats.text(), line(10, 0, 3, "0.300"));
+    phase.received(command(command::init_db, "nope"));
+    EXPECT_EQ(stats.text(), line(10, 0, 4, "0.400"));
+    phase.received(command(command::quit));
+    EXPECT_EQ(stats.text(), line(10, 0, 5, "0.500"));
+  }
+  // A phase let go of while no command runs leaves the count as it was.
+  EXPECT_EQ(stats.text(), line(10, 0, 5, "0.500"));
+}
+
+TEST(ServerCommands, AWaitingStatementIsRunning) {
+  SteppedTime time;
+  NodeStatistics stats(time);
+  catalog::Catalog node;
+  txn::Store rows;
+  exec::Session a{registry(), node, rows, exec::SessionInfo{"root", "10.0.0.1", 7}};
+  exec::Session b{registry(), node, rows, exec::SessionInfo{"root", "10.0.0.2", 8}};
+  CommandPhase pa{a, capability::protocol_41 | capability::deprecate_eof, &stats};
+  {
+    CommandPhase pb{b, capability::protocol_41 | capability::deprecate_eof, &stats};
+    for (const char* sql : {"CREATE DATABASE d", "USE d", "CREATE TABLE t (a INT PRIMARY KEY)", "BEGIN", "INSERT INTO t VALUES (7)"}) TwoClients::ran(pa, sql);
+    TwoClients::ran(pb, "USE d");
+    EXPECT_EQ(stats.text(), line(0, 0, 8, "0.000"));
+    EXPECT_TRUE(TwoClients::send(pb, "INSERT INTO t VALUES (7)").waiting);
+    EXPECT_TRUE(pb.wait([] {}).waiting);
+    // Counted once, and running while it waits.
+    EXPECT_EQ(stats.text(), line(0, 1, 9, "0.000"));
+    TwoClients::ran(pa, "COMMIT");
+    EXPECT_FALSE(pb.resume().waiting);
+    EXPECT_EQ(stats.text(), line(0, 0, 10, "0.000"));
+    // Given up: no longer running.
+    TwoClients::ran(pa, "BEGIN");
+    TwoClients::ran(pa, "INSERT INTO t VALUES (8)");
+    EXPECT_TRUE(TwoClients::send(pb, "INSERT INTO t VALUES (8)").waiting);
+    EXPECT_EQ(stats.text(), line(0, 1, 13, "0.000"));
+    pb.give_up();
+    EXPECT_EQ(stats.text(), line(0, 0, 13, "0.000"));
+    // Let go of while it waits (the client left): no longer running.
+    EXPECT_TRUE(TwoClients::send(pb, "INSERT INTO t VALUES (8)").waiting);
+    EXPECT_EQ(stats.text(), line(0, 1, 14, "0.000"));
+  }
+  EXPECT_EQ(stats.text(), line(0, 0, 14, "0.000"));
 }
 
 }  // namespace

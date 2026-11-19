@@ -17,7 +17,28 @@ namespace kvasir::server {
 
 namespace capability = protocol::capability;
 
-CommandPhase::CommandPhase(exec::Session& session, uint32_t capabilities) : _session(session), _capabilities(capabilities) {}
+CommandPhase::CommandPhase(exec::Session& session, uint32_t capabilities, NodeStatistics* statistics)
+    : _session(session), _capabilities(capabilities), _statistics(statistics) {
+  if (_statistics) _statistics->question();
+}
+
+// A phase let go of while its statement waits (the client left) runs no
+// longer.
+CommandPhase::~CommandPhase() { settle({}); }
+
+void CommandPhase::begin_command() {
+  if (!_statistics || _running) return;
+  _statistics->command_began();
+  _running = true;
+}
+
+CommandStep CommandPhase::settle(CommandStep step) {
+  if (_running && !step.waiting) {
+    _statistics->command_ended();
+    _running = false;
+  }
+  return step;
+}
 
 void CommandPhase::send(protocol::Bytes& out, const protocol::Bytes& payload) { protocol::frame(payload, _sequence, out); }
 
@@ -40,6 +61,14 @@ void CommandPhase::error(protocol::Bytes& out, uint16_t code, const std::string&
 }
 
 CommandStep CommandPhase::received(const protocol::Packet& packet) {
+  begin_command();
+  // Every command is a question but these two (the manual, "Questions").
+  const bool question = packet.payload.empty() || (packet.payload[0] != command::ping && packet.payload[0] != command::statistics);
+  if (_statistics && question) _statistics->question();
+  return settle(receive(packet));
+}
+
+CommandStep CommandPhase::receive(const protocol::Packet& packet) {
   CommandStep step;
   // Every command begins a new exchange at sequence 0.
   _sequence = static_cast<uint8_t>(packet.last_sequence + 1);
@@ -61,6 +90,12 @@ CommandStep CommandPhase::received(const protocol::Packet& packet) {
       case command::ping:
         ok(step.out);
         return step;
+      case command::statistics: {
+        // One string, no header.
+        const std::string text = _statistics ? _statistics->text() : NodeStatistics(dannan::contract::steady_time_source()).text();
+        send(step.out, protocol::Bytes(text.begin(), text.end()));
+        return step;
+      }
       case command::query:
         return query(body);
       case command::init_db: {
@@ -167,7 +202,7 @@ CommandStep CommandPhase::wait(std::function<void()> wake) {
   _sequence = _pending->sequence;
   _pending.reset();
   error(step.out, exec::er_lock_deadlock, "40001", "Deadlock found when trying to get lock; try restarting transaction");
-  return step;
+  return settle(std::move(step));
 }
 
 CommandStep CommandPhase::resume() {
@@ -175,7 +210,7 @@ CommandStep CommandPhase::resume() {
   const auto pending = std::move(*_pending);
   _pending.reset();
   _sequence = pending.sequence;
-  return query(pending.text);
+  return settle(query(pending.text));
 }
 
 CommandStep CommandPhase::give_up() {
@@ -185,7 +220,7 @@ CommandStep CommandPhase::give_up() {
   _sequence = _pending->sequence;
   _pending.reset();
   error(step.out, exec::er_lock_wait_timeout, "HY000", "Lock wait timeout exceeded; try restarting transaction");
-  return step;
+  return settle(std::move(step));
 }
 
 }  // namespace kvasir::server

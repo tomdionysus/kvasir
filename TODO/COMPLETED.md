@@ -2,6 +2,33 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-19: COM_STATISTICS, and the `mysql` client's `status` works
+
+- Observed on MySQL 8.4.13 first: the reply is one string with no header,
+  "Uptime: N  Threads: N  Questions: N  Slow queries: N  Opens: N  Flush
+  tables: N  Open tables: N  Queries per second avg: N.NNN", the average
+  Questions / Uptime cut (not rounded) to three places (2115 / 540 shown
+  as 3.916). Questions counts a sign-in and every command but COM_PING and
+  COM_STATISTICS (the manual's "Questions"; measured connection by
+  connection: a refused statement counts, a failed sign-in does not).
+  Threads is MySQL's Threads_running.
+- Landed: `kvasir/server/statistics.h`, `NodeStatistics`, one per node
+  (atomics, the injected steady clock), given to each connection's command
+  phase; a command runs from its packet until the step that answers it, a
+  statement waiting for a lock included. Kvasir has no table cache and no
+  slow query log: Slow queries, Opens, Flush tables and Open tables are 0.
+- Known difference: MySQL counts its event scheduler among Threads, so an
+  idle MySQL says 2 where Kvasir says 1.
+- Tried with MySQL 8.4.13's own client (Docker on the Mac) against
+  kvasir-node on node-d over TLS: `status` filled every field
+  (Db characterset included) and ended with the statistics line;
+  `mysqladmin status` the same. The throwaway node, certificate and
+  account were removed.
+- Test-first on node-d: the 3 new tests failed against stubs, the
+  338 others passing.
+- Gate: release on node-d **341 passed, 0 failed**; the
+  differential gate **634 of 634**. clang-format clean.
+
 ## 2026-11-19: character_set_database and collation_database
 
 - The reference server is back, in Docker on the Mac at the maintainer's word

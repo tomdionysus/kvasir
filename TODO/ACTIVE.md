@@ -21,7 +21,7 @@ it.
 ## Resume here
 
 Step 2a, one node speaking the MySQL protocol, is in hand. Last gate
-(2026-11-19, node-d): release **338 passed, 0 failed**, the
+(2026-11-19, node-d): release **341 passed, 0 failed**, the
 differential gate **634 of 634**. No claim is held and no wait is queued.
 
 **Before any work: the build cluster was wiped on 2026-11-18** (the maintainer, relayed
@@ -80,8 +80,8 @@ node-d. Setting up a tree on another Pi:
   value before assigning any), USE, transactions in the status flags, user
   variables with their types, DATABASE() (`session.h`).
 - `kvasir/server/commands.h`: the command phase as a state machine
-  (COM_QUERY, COM_PING, COM_INIT_DB, COM_QUIT, COM_RESET_CONNECTION, 1047
-  for others), text result sets ended by EOF or by OK under
+  (COM_QUERY, COM_PING, COM_INIT_DB, COM_QUIT, COM_RESET_CONNECTION,
+  COM_STATISTICS from the node's `NodeStatistics`, 1047 for others), text result sets ended by EOF or by OK under
   CLIENT_DEPRECATE_EOF, one statement per query.
 - The diagnostics area (SHOW WARNINGS and SHOW ERRORS with LIMIT and
   COUNT(*), @@warning_count, @@error_count, errors recorded), and the
@@ -145,15 +145,11 @@ outside that rule (the maintainer, 2026-11-17).
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 and the reference server first, and watched to fail:
 
-1. COM_STATISTICS, the last thing the `mysql` client's `status` command
-   sends (the rest works since 2026-11-19). MySQL answers one string
-   packet: "Uptime: 274  Threads: 2  Questions: 2103  Slow queries: 0
-   Opens: 381  Flush tables: 3  Open tables: 201  Queries per second avg:
-   7.675" (two spaces between fields; the average is Questions / Uptime to
-   three places). Needs node-wide counters (start time from the injected
-   clock, open connections, statements received) given to each
-   connection's command phase. Then what connectors send as they connect
-   (JDBC, Python's, Go's), recorded the same way with the general log.
+1. What connectors send as they connect (the `mysql` client's `status`
+   works since 2026-11-19): JDBC (Connector/J), Python's and Go's,
+   recorded with the reference server's general log, each statement then
+   probed and tested. They need a connector run somewhere; none is
+   installed yet (a Pi under a claim, or a container on the Mac).
 2. UPPER and LOWER, which need Unicode's case mapping.
 3. Folding old row versions away (memory grows with every change today;
    folding what is older than every open snapshot is the design's, and
@@ -189,6 +185,9 @@ decision:
 - Character set and collation variables refuse what Kvasir does not
   convert (latin1, utf8mb3: 1235) and numbers (collation ids: 1232); MySQL
   takes both.
+- COM_STATISTICS: Slow queries, Opens, Flush tables and Open tables are 0
+  (no slow log, no table cache); Threads leaves out MySQL's event
+  scheduler.
 - SHOW DATABASES lists only Kvasir's databases (MySQL also lists
   information_schema, mysql, performance_schema and sys). DROP DATABASE IF
   EXISTS on

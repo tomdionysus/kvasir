@@ -81,10 +81,12 @@ struct ConnectionSettings {
 
 class Connection : public std::enable_shared_from_this<Connection> {
  public:
-  // `registry`, `catalog`, `rows`, `verifiers`, `checker` and `backoff` are
-  // the node's and outlive the connection; without `backoff` nobody waits.
+  // `registry`, `catalog`, `rows`, `verifiers`, `checker`, `backoff` and
+  // `statistics` are the node's and outlive the connection; without
+  // `backoff` nobody waits, and without `statistics` nothing is counted.
   Connection(std::shared_ptr<Transport> transport, boost::asio::any_io_executor executor, ConnectionSettings settings, const exec::VariableRegistry& registry,
-             catalog::Catalog& catalog, txn::Store& rows, VerifierCache& verifiers, PasswordChecker& checker, const SignInBackoff* backoff = nullptr);
+             catalog::Catalog& catalog, txn::Store& rows, VerifierCache& verifiers, PasswordChecker& checker, const SignInBackoff* backoff = nullptr,
+             NodeStatistics* statistics = nullptr);
 
   // Sends the greeting and serves the client until either side ends. On the
   // connection's executor; returns at once.
@@ -115,6 +117,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
   catalog::Catalog& _catalog;
   txn::Store& _rows;
   PasswordChecker& _checker;
+  NodeStatistics* const _statistics;
   SignIn _sign_in;
   protocol::PacketReader _reader;
   std::unique_ptr<exec::Session> _session;

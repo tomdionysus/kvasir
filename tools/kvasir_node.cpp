@@ -90,6 +90,7 @@ int serve(const kvasir::server::NodeSettings& node) {
   dannan::listen::Backoff principals({5, std::chrono::seconds(1), std::chrono::minutes(15), std::chrono::hours(1)});
   dannan::listen::Backoff sources({20, std::chrono::seconds(1), std::chrono::minutes(15), std::chrono::hours(1)});
   const kvasir::server::SignInBackoff backoff{principals, sources, dannan::contract::steady_time_source()};
+  kvasir::server::NodeStatistics statistics(dannan::contract::steady_time_source());
 
   boost::asio::io_context io;
   dannan::listen::ListenerConfig config;
@@ -107,7 +108,7 @@ int serve(const kvasir::server::NodeSettings& node) {
     settings.connection_id = next_id++;
     const auto executor = stream->get_executor();
     std::make_shared<kvasir::server::Connection>(std::make_shared<kvasir::server::StreamTransport>(std::move(stream)), executor, settings, registry, catalog,
-                                                 rows, verifiers, checker, &backoff)
+                                                 rows, verifiers, checker, &backoff, &statistics)
         ->start();
   });
   boost::asio::signal_set signals(io, SIGINT, SIGTERM);

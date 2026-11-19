@@ -33,7 +33,7 @@ std::string as_string(const protocol::Bytes& bytes) { return std::string(bytes.b
 
 Connection::Connection(std::shared_ptr<Transport> transport, boost::asio::any_io_executor executor, ConnectionSettings settings,
                        const exec::VariableRegistry& registry, catalog::Catalog& catalog, txn::Store& rows, VerifierCache& verifiers, PasswordChecker& checker,
-                       const SignInBackoff* backoff)
+                       const SignInBackoff* backoff, NodeStatistics* statistics)
     : _transport(std::move(transport)),
       _executor(std::move(executor)),
       _settings(std::move(settings)),
@@ -41,6 +41,7 @@ Connection::Connection(std::shared_ptr<Transport> transport, boost::asio::any_io
       _catalog(catalog),
       _rows(rows),
       _checker(checker),
+      _statistics(statistics),
       _sign_in(sign_in_settings(_settings, *_transport), verifiers, backoff),
       _reader(_settings.limits),
       _lock_timer(_executor) {
@@ -216,7 +217,7 @@ void Connection::sign_in_step(SignInStep step) {
   if (_sign_in.signed_in() && !_session) {
     _session =
         std::make_unique<exec::Session>(_registry, _catalog, _rows, exec::SessionInfo{_sign_in.user(), _transport->peer_host(), _settings.connection_id});
-    _commands = std::make_unique<CommandPhase>(*_session, _sign_in.client_capabilities() & _sign_in.server_capabilities());
+    _commands = std::make_unique<CommandPhase>(*_session, _sign_in.client_capabilities() & _sign_in.server_capabilities(), _statistics);
     _reader.restrict(false);
   }
   read_header();

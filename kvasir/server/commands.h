@@ -16,6 +16,7 @@
 #include "kvasir/exec/session.h"
 #include "kvasir/protocol/codec.h"
 #include "kvasir/protocol/packet.h"
+#include "kvasir/server/statistics.h"
 
 // The command phase, once a client has signed in, as a state machine with no
 // I/O like the sign-in: each packet from the client is a command, and each
@@ -24,7 +25,8 @@
 // Phase").
 //
 // Commands: COM_QUIT, COM_INIT_DB, COM_QUERY (one statement: Kvasir does not
-// offer CLIENT_MULTI_STATEMENTS), COM_PING and COM_RESET_CONNECTION. Any
+// offer CLIENT_MULTI_STATEMENTS), COM_STATISTICS, COM_PING and
+// COM_RESET_CONNECTION. Any
 // other is refused as MySQL refuses one it does not know. Results go as text
 // result sets, ended by EOF or, for a client that asked for
 // CLIENT_DEPRECATE_EOF, by OK with the EOF header.
@@ -34,6 +36,7 @@ namespace command {
 inline constexpr uint8_t quit = 0x01;
 inline constexpr uint8_t init_db = 0x02;
 inline constexpr uint8_t query = 0x03;
+inline constexpr uint8_t statistics = 0x09;
 inline constexpr uint8_t ping = 0x0e;
 inline constexpr uint8_t reset_connection = 0x1f;
 }  // namespace command
@@ -51,8 +54,13 @@ struct CommandStep {
 
 class CommandPhase {
  public:
-  // `capabilities` are those both sides agreed at sign-in.
-  CommandPhase(exec::Session& session, uint32_t capabilities);
+  // `capabilities` are those both sides agreed at sign-in. `statistics`, the
+  // node's, outlives the phase; the sign-in that made it counts as a
+  // question. Without it COM_STATISTICS answers with no counts.
+  CommandPhase(exec::Session& session, uint32_t capabilities, NodeStatistics* statistics = nullptr);
+  ~CommandPhase();
+  CommandPhase(const CommandPhase&) = delete;
+  CommandPhase& operator=(const CommandPhase&) = delete;
 
   CommandStep received(const protocol::Packet& packet);
 
@@ -73,6 +81,11 @@ class CommandPhase {
     uint8_t sequence;
     exec::LockWaitNeeded wait;
   };
+  CommandStep receive(const protocol::Packet& packet);
+  // The node's count of running commands: one begins with each packet, and
+  // ends with the step that answers it (a waiting statement still runs).
+  void begin_command();
+  CommandStep settle(CommandStep step);
   CommandStep query(std::string_view text);
   void send(protocol::Bytes& out, const protocol::Bytes& payload);
   void ok(protocol::Bytes& out, uint64_t affected_rows = 0, uint64_t last_insert_id = 0, const std::string& info = {});
@@ -81,6 +94,8 @@ class CommandPhase {
 
   exec::Session& _session;
   const uint32_t _capabilities;
+  NodeStatistics* const _statistics;
+  bool _running = false;
   uint8_t _sequence = 0;
   std::optional<Pending> _pending;
 };
