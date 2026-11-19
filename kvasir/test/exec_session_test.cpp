@@ -239,6 +239,81 @@ TEST(ExecSession, SetNames) {
   EXPECT_EQ(refusal(s, "SET NAMES utf8mb4 COLLATE utf8mb4_nope").code, 1273);
 }
 
+// Observed on MySQL 8.4.13 (Oracle's container, 2026-11-19): the `mysql`
+// client's `status` command reads @@character_set_database. Both variables
+// follow USE, are the server's with no database, and DEFAULT is the
+// database's pair; setting either warns it will become read-only, and
+// carries the other with it.
+TEST(ExecSession, TheDatabaseCharacterSet) {
+  catalog::Catalog cat;
+  txn::Store rows;
+  auto s = make(cat, rows);
+  using V = std::vector<std::string>;
+  const auto pair = [&] { return row(run(s, "SELECT @@character_set_database, @@collation_database")); };
+  const Warning collation_warning{"Warning", 1681, "Updating 'collation_database' is deprecated. It will be made read-only in a future release."};
+  const Warning charset_warning{"Warning", 1681, "Updating 'character_set_database' is deprecated. It will be made read-only in a future release."};
+  const auto warned = [&](const std::vector<Warning>& expected) {
+    ASSERT_EQ(s.warnings().size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+      EXPECT_EQ(s.warnings()[i].level, expected[i].level) << i;
+      EXPECT_EQ(s.warnings()[i].code, expected[i].code) << i;
+      EXPECT_EQ(s.warnings()[i].message, expected[i].message) << i;
+    }
+  };
+
+  EXPECT_EQ(pair(), (V{"utf8mb4", "utf8mb4_0900_ai_ci"}));
+  EXPECT_EQ(row(run(s, "SELECT @@global.character_set_database, @@session.collation_database")), (V{"utf8mb4", "utf8mb4_0900_ai_ci"}));
+  const auto o = run(s, "SELECT @@character_set_database");
+  EXPECT_EQ(o.result->columns[0].type.field_type, f::var_string);
+  EXPECT_EQ(o.result->columns[0].type.length, 87380u);
+  EXPECT_EQ(o.result->columns[0].type.collation, 255);
+
+  run(s, "CREATE DATABASE kv_dbcs COLLATE utf8mb4_bin");
+  run(s, "CREATE DATABASE kv_dbcs2 CHARACTER SET binary");
+  run(s, "USE kv_dbcs2");
+  EXPECT_EQ(pair(), (V{"binary", "binary"}));
+  run(s, "USE kv_dbcs");
+  EXPECT_EQ(pair(), (V{"utf8mb4", "utf8mb4_bin"}));
+
+  run(s, "SET collation_database = 'utf8mb4_0900_as_cs'");
+  warned({collation_warning});
+  EXPECT_EQ(pair(), (V{"utf8mb4", "utf8mb4_0900_as_cs"}));
+  run(s, "SET character_set_database = 'binary'");
+  warned({charset_warning});
+  EXPECT_EQ(pair(), (V{"binary", "binary"}));
+  run(s, "SET collation_database = DEFAULT");
+  warned({collation_warning});
+  EXPECT_EQ(pair(), (V{"utf8mb4", "utf8mb4_bin"}));
+  run(s, "SET character_set_database = 'UTF8MB4'");
+  EXPECT_EQ(pair(), (V{"utf8mb4", "utf8mb4_0900_ai_ci"}));
+  run(s, "SET collation_database = 'utf8mb4_general_ci', character_set_database = 'binary'");
+  warned({collation_warning, charset_warning});
+  EXPECT_EQ(pair(), (V{"binary", "binary"}));
+  run(s, "SET character_set_database = DEFAULT");
+  EXPECT_EQ(pair(), (V{"utf8mb4", "utf8mb4_bin"}));
+
+  auto r = refusal(s, "SET character_set_database = 'nope'");
+  EXPECT_EQ(r.code, 1115);
+  EXPECT_EQ(r.message, "Unknown character set: 'nope'");
+  r = refusal(s, "SET collation_database = 'utf8mb4_nope'");
+  EXPECT_EQ(r.code, 1273);
+  EXPECT_EQ(r.message, "Unknown collation: 'utf8mb4_nope'");
+  r = refusal(s, "SET collation_database = NULL");
+  EXPECT_EQ(r.code, 1231);
+  EXPECT_EQ(r.message, "Variable 'collation_database' can't be set to the value of 'NULL'");
+  EXPECT_EQ(refusal(s, "SET character_set_database = NULL").message, "Variable 'character_set_database' can't be set to the value of 'NULL'");
+  r = refusal(s, "SET collation_connection = NULL");
+  EXPECT_EQ(r.code, 1231);
+  EXPECT_EQ(r.message, "Variable 'collation_connection' can't be set to the value of 'NULL'");
+
+  // Dropping another database changes nothing; dropping the current one
+  // leaves the server's.
+  run(s, "DROP DATABASE kv_dbcs2");
+  EXPECT_EQ(pair(), (V{"utf8mb4", "utf8mb4_bin"}));
+  run(s, "DROP DATABASE kv_dbcs");
+  EXPECT_EQ(pair(), (V{"utf8mb4", "utf8mb4_0900_ai_ci"}));
+}
+
 TEST(ExecSession, TransactionsShowInTheStatusFlags) {
   auto s = make();
   constexpr uint16_t in_trans = 1, autocommit = 2;

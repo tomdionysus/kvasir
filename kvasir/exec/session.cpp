@@ -408,6 +408,7 @@ Outcome Session::run(const sql::Statement& statement) {
     case Kind::use:
       if (!_catalog.database(statement.database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + statement.database + "'");
       _database = statement.database;
+      follow_database();
       return {};
     case Kind::create_database:
       implicit_commit();
@@ -1687,6 +1688,18 @@ void Session::set(const std::vector<sql::Assignment>& assignments) {
           if (const auto* col = find_collation(_variables.text("collation_connection")))
             _variables.set("", "character_set_connection", col->charset, false, _warnings);
         }
+        if (sql::same_word(a.name, "character_set_database") || sql::same_word(a.name, "collation_database")) {
+          // DEFAULT is the current database's pair; a character set brings
+          // its default collation, a collation its character set.
+          if (p.use_default) {
+            follow_database();
+          } else if (sql::same_word(a.name, "character_set_database")) {
+            if (const auto* d = default_collation(_variables.text("character_set_database"))) _variables.assign("collation_database", d->name);
+          } else if (const auto* col = find_collation(_variables.text("collation_database"))) {
+            _variables.assign("character_set_database", col->charset);
+          }
+          _warnings.push_back({"Warning", 1681, "Updating '" + lower(a.name) + "' is deprecated. It will be made read-only in a future release."});
+        }
         if (sql::same_word(a.name, "autocommit") && _variables.number("autocommit") && _in_transaction) commit();
         break;
       }
@@ -1709,6 +1722,19 @@ void Session::set(const std::vector<sql::Assignment>& assignments) {
       }
     }
   }
+}
+
+void Session::follow_database() {
+  std::string charset = _variables.text("character_set_server");
+  std::string collation = _variables.text("collation_server");
+  if (_database) {
+    if (const auto database = _catalog.database(*_database)) {
+      charset = database->charset;
+      collation = database->collation;
+    }
+  }
+  _variables.assign("character_set_database", std::move(charset));
+  _variables.assign("collation_database", std::move(collation));
 }
 
 void Session::check_database_name(const std::string& name) const {
@@ -1779,6 +1805,7 @@ Outcome Session::drop_database(const sql::Statement& statement) {
     _warnings.push_back({"Note", 1008, message});
   } else if (_database == name) {
     _database.reset();
+    follow_database();
   }
   outcome.affected_rows = tables;
   return outcome;

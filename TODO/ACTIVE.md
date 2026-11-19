@@ -20,10 +20,9 @@ it.
 
 ## Resume here
 
-Step 2a, one node speaking the MySQL protocol, is in hand. `develop` is
-pushed and clean at 42a28f2 plus the documents' commit. Last gate
-(2026-11-17, node-c): release **337 passed, 0 failed**, the
-differential gate **605 of 605**. No claim is held and no wait is queued.
+Step 2a, one node speaking the MySQL protocol, is in hand. Last gate
+(2026-11-19, node-d): release **338 passed, 0 failed**, the
+differential gate **634 of 634**. No claim is held and no wait is queued.
 
 **Before any work: the build cluster was wiped on 2026-11-18** (the maintainer, relayed
 by the coordinating session). Checked on 2026-11-19, all four Pis:
@@ -38,12 +37,12 @@ by the coordinating session). Checked on 2026-11-19, all four Pis:
   checks (`verify/`, with the reference server's general_ci dump) and
   `node-b-listing.txt` (the container's image and port).
 
-To start again, in this order:
+Since then (2026-11-19, at the maintainer's word): the reference server runs in Docker
+on the Mac (`CLAUDE.local.md` has how to probe and record), and re-recording
+the 605 statements on it gave byte-identical answers. clang-format is on
+node-d. Setting up a tree on another Pi:
 
-1. Ask the maintainer for the reference server back (see "Waiting on the maintainer"). Nothing
-   new can be observed on MySQL without it, so no new test can be written
-   from it. Until then only work whose expected answers are already
-   recorded can go on.
+1. (Done on node-d.)
 2. Put a tree on one 15 GB Pi under a claim: rsync this repository to
    `/root/kvasir-work/kvasir`, `git clone
    https://github.com/tomdionysus/dannan.git /root/kvasir-work/dannan`
@@ -52,9 +51,8 @@ To start again, in this order:
    -n 19 tools/ci.sh release`. It must give 337 passed before anything
    changes (a first run on a new machine, the stated reason for running
    the suite again).
-3. clang-format is on no Pi. `tools/ci.sh check` cannot run there until it
-   is installed (a package install: the maintainer's go and a note on the board
-   first); hosted CI's `check` job is the only format check meanwhile.
+3. Format on node-d, or install clang-format on another Pi (the maintainer: "You can
+   install clang-format on any cluster pi"; a note on the board first).
 
 **Done and pushed**:
 
@@ -147,9 +145,15 @@ outside that rule (the maintainer, 2026-11-17).
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 and the reference server first, and watched to fail:
 
-1. SHOW STATUS and the other statements the `mysql` client's `status`
-   command and connectors send. Start by recording exactly what the client
-   sends, so the step covers those and nothing more. Not started.
+1. COM_STATISTICS, the last thing the `mysql` client's `status` command
+   sends (the rest works since 2026-11-19). MySQL answers one string
+   packet: "Uptime: 274  Threads: 2  Questions: 2103  Slow queries: 0
+   Opens: 381  Flush tables: 3  Open tables: 201  Queries per second avg:
+   7.675" (two spaces between fields; the average is Questions / Uptime to
+   three places). Needs node-wide counters (start time from the injected
+   clock, open connections, statements received) given to each
+   connection's command phase. Then what connectors send as they connect
+   (JDBC, Python's, Go's), recorded the same way with the general log.
 2. UPPER and LOWER, which need Unicode's case mapping.
 3. Folding old row versions away (memory grows with every change today;
    folding what is older than every open snapshot is the design's, and
@@ -182,6 +186,9 @@ decision:
   only. utf8mb3_bin columns cannot yet be compared in expressions. Rows
   without ORDER BY come in primary-key (or insertion) order, where MySQL
   may read a covering index.
+- Character set and collation variables refuse what Kvasir does not
+  convert (latin1, utf8mb3: 1235) and numbers (collation ids: 1232); MySQL
+  takes both.
 - SHOW DATABASES lists only Kvasir's databases (MySQL also lists
   information_schema, mysql, performance_schema and sys). DROP DATABASE IF
   EXISTS on
@@ -235,12 +242,12 @@ on the Mac only when hunting a specific bug; none on node-d (4 GB).
 - To watch a test fail when the code is already written: send the tests
   with HEAD's versions of the sources (`git show HEAD:<path>` into
   `build/head/`), build, see the failures, then send the new sources.
-- Formatting is clang-format on a Pi that has it (none since the wipe),
-  the file piped through over ssh and copied back.
-- Record the differential gate on the reference server's Pi: `sh
-  tools/record_mysql.sh kvasir/test/differential/session.sql`, its output
-  becoming `session.expected`; statements recorded before must come back
-  unchanged.
+- Formatting is clang-format on a Pi that has it (node-d), the file
+  piped through over ssh and copied back.
+- Record the differential gate on the Mac, where the reference server
+  runs: `sh tools/record_mysql.sh kvasir/test/differential/session.sql`,
+  its output becoming `session.expected`; statements recorded before must
+  come back unchanged.
 - Commit when a step's gate passes and push `develop`. No Claude attribution.
 - Design questions go to the maintainer through the interactive question tool, with a
   recommendation first. He asked that other sessions' advice be gathered and
@@ -395,25 +402,16 @@ on the Mac only when hunting a specific bug; none on node-d (4 GB).
 
 ## Waiting on the maintainer
 
-**Blocks step 2's next piece:** the MySQL 8.4 reference server (ruling 30)
-went with the cluster wipe. Recommended: the same again on node-b,
-which needs Docker installed there (the maintainer's go, and a note on the board
-first). As it was: Oracle's
-`container-registry.oracle.com/mysql/community-server:8.4-aarch64` (the
-plain `8.4` tag is amd64 only), MySQL 8.4.13, container `kvasir-mysql84`,
-bound to 127.0.0.1:33306 only, a new root password in
-`/root/kvasir-work/mysql84.env` (mode 600, never copied off), held on the
-board as a light claim; this time with `--restart unless-stopped`.
-`probe.sh` (in `build/pi-rescue/`) goes back to `/root/kvasir-work`: it
-runs SQL from stdin as a utf8mb4 client and prints each column's type,
-collation, length, decimals and flags, then the rows. The same container
-gave the real `mysql` client for trying a node by hand. Expected values in
-tests that came from it say "observed on MySQL 8.4.13"; a newer 8.4 patch
-release must re-record the 605 statements and explain any that change.
+Nothing blocks. The MySQL 8.4 reference server (ruling 30) is MySQL 8.4.13
+in Docker on the Mac (the maintainer, 2026-11-19), Oracle's
+`container-registry.oracle.com/mysql/community-server:8.4.13`, container
+`kvasir-mysql84`, 127.0.0.1:33306 only; `CLAUDE.local.md` has the rest.
+Expected values in tests that came from it say "observed on MySQL 8.4.13";
+a newer 8.4 patch release must re-record the differential statements and
+explain any that change.
 
-Also for him, none blocking:
+For him, none blocking:
 
-- clang-format on a Pi (a package install), for `tools/ci.sh check`.
 - Whether the Louhi session should be told of the ruling that sanitizers
   are not run on every push (asked 2026-11-17, not answered).
 - The default replica count (three proposed).

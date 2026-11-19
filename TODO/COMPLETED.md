@@ -2,6 +2,36 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-19: character_set_database and collation_database
+
+- The reference server is back, in Docker on the Mac at the maintainer's word
+  (`community-server:8.4.13`, x86_64); the 605 statements re-recorded on
+  it came back byte-identical. clang-format was installed on
+  node-d at the maintainer's word, and a tree rebuilt there: **337 passed**
+  before any change.
+- The `mysql` client's `status` command, logged on the reference server,
+  sends `select DATABASE(), USER() limit 1`, `select
+  @@character_set_client, @@character_set_connection,
+  @@character_set_server, @@character_set_database limit 1` and
+  COM_STATISTICS. The second failed on Kvasir (1193); COM_STATISTICS is
+  next.
+- Observed on MySQL 8.4.13 first: both variables follow USE, are the
+  server's with no database (and after dropping the current one), and
+  DEFAULT for either restores the current database's pair; setting a
+  character set brings its default collation and a collation its
+  character set, each with 1681 "Updating '...' is deprecated. It will be
+  made read-only in a future release." NULL is 1231 for every collation
+  variable (Kvasir said 1232 for collation_connection; fixed).
+- Known differences: a character set or collation Kvasir does not
+  convert (latin1, utf8mb3) is refused with 1235 where MySQL takes it
+  (with 1287 for utf8mb3), as for the connection's variables; a number
+  (a collation id) is refused with 1232.
+- Test-first on node-d: the new session test and the differential
+  gate (611 of 634) failed against HEAD's code, the 336 others passing.
+- Gate: release on node-d **338 passed, 0 failed**; the
+  differential gate **634 of 634** (29 new statements; the 605 before
+  recorded unchanged). clang-format clean on the changed files.
+
 ## 2026-11-19: handoff, after the build cluster was wiped
 
 - 2026-11-18: Miach's work was given the cluster for the evening and

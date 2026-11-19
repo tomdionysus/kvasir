@@ -179,6 +179,9 @@ class Session : private VariableSource {
   // MySQL's checks on a database name: 1059, 1102, and 1044 for
   // information_schema.
   void check_database_name(const std::string& name) const;
+  // character_set_database and collation_database: the current database's
+  // defaults, else the server's.
+  void follow_database();
 
   struct UserVariable {
     Value value;

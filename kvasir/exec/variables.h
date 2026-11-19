@@ -88,6 +88,10 @@ class SessionVariables {
   // warning 1292, appended to `warnings`.
   void set(std::string_view scope, std::string_view name, const Value& value, bool use_default, std::vector<Warning>& warnings);
 
+  // Sets a session value with no checks and no warnings, for the session's
+  // own changes (USE setting character_set_database).
+  void assign(std::string_view name, std::string value);
+
   // The session value as text, for the session's own use (sql_mode,
   // collation_connection).
   std::string text(std::string_view name) const;

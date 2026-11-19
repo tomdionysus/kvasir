@@ -2788,3 +2788,106 @@ row 16	5	2.55	\N	-3	-16	-1	-3	-2.6	0.00	0	-2.5	-1	5	-20	5
 end
 statement DROP DATABASE kv_numbers
 end
+statement SELECT @@character_set_database, @@collation_database, @@session.character_set_database, @@global.collation_database
+column @@character_set_database|VAR_STRING|255|87380|31|
+column @@collation_database|VAR_STRING|255|87380|31|
+column @@session.character_set_database|VAR_STRING|255|87380|31|
+column @@global.collation_database|VAR_STRING|255|87380|31|
+row utf8mb4	utf8mb4_0900_ai_ci	utf8mb4	utf8mb4_0900_ai_ci
+end
+statement select @@character_set_client, @@character_set_connection, @@character_set_server, @@character_set_database limit 1
+column @@character_set_client|VAR_STRING|255|87380|31|
+column @@character_set_connection|VAR_STRING|255|87380|31|
+column @@character_set_server|VAR_STRING|255|87380|31|
+column @@character_set_database|VAR_STRING|255|87380|31|
+row utf8mb4	utf8mb4	utf8mb4	utf8mb4
+end
+statement CREATE DATABASE kv_dbcs COLLATE utf8mb4_bin
+end
+statement CREATE DATABASE kv_dbcs2 CHARACTER SET binary
+end
+statement USE kv_dbcs2
+end
+statement SELECT @@character_set_database, @@collation_database
+column @@character_set_database|VAR_STRING|255|87380|31|
+column @@collation_database|VAR_STRING|255|87380|31|
+row binary	binary
+end
+statement USE kv_dbcs
+end
+statement SELECT @@character_set_database, @@collation_database
+column @@character_set_database|VAR_STRING|255|87380|31|
+column @@collation_database|VAR_STRING|255|87380|31|
+row utf8mb4	utf8mb4_bin
+end
+statement SET collation_database = 'utf8mb4_0900_as_cs'
+end
+statement SELECT @@character_set_database, @@collation_database
+column @@character_set_database|VAR_STRING|255|87380|31|
+column @@collation_database|VAR_STRING|255|87380|31|
+row utf8mb4	utf8mb4_0900_as_cs
+end
+statement SET character_set_database = 'binary'
+end
+statement SELECT @@character_set_database, @@collation_database
+column @@character_set_database|VAR_STRING|255|87380|31|
+column @@collation_database|VAR_STRING|255|87380|31|
+row binary	binary
+end
+statement SET collation_database = DEFAULT
+end
+statement SELECT @@character_set_database, @@collation_database
+column @@character_set_database|VAR_STRING|255|87380|31|
+column @@collation_database|VAR_STRING|255|87380|31|
+row utf8mb4	utf8mb4_bin
+end
+statement SET character_set_database = 'UTF8MB4'
+end
+statement SELECT @@character_set_database, @@collation_database
+column @@character_set_database|VAR_STRING|255|87380|31|
+column @@collation_database|VAR_STRING|255|87380|31|
+row utf8mb4	utf8mb4_0900_ai_ci
+end
+statement SET collation_database = 'utf8mb4_general_ci', character_set_database = 'binary'
+end
+statement SELECT @@character_set_database, @@collation_database
+column @@character_set_database|VAR_STRING|255|87380|31|
+column @@collation_database|VAR_STRING|255|87380|31|
+row binary	binary
+end
+statement SET character_set_database = DEFAULT
+end
+statement SELECT @@character_set_database, @@collation_database
+column @@character_set_database|VAR_STRING|255|87380|31|
+column @@collation_database|VAR_STRING|255|87380|31|
+row utf8mb4	utf8mb4_bin
+end
+statement SET character_set_database = 'nope'
+error 1115|42000|Unknown character set: 'nope'
+end
+statement SET collation_database = 'utf8mb4_nope'
+error 1273|HY000|Unknown collation: 'utf8mb4_nope'
+end
+statement SET collation_database = NULL
+error 1231|42000|Variable 'collation_database' can't be set to the value of 'NULL'
+end
+statement SET character_set_database = NULL
+error 1231|42000|Variable 'character_set_database' can't be set to the value of 'NULL'
+end
+statement SET collation_connection = NULL
+error 1231|42000|Variable 'collation_connection' can't be set to the value of 'NULL'
+end
+statement DROP DATABASE kv_dbcs2
+end
+statement SELECT @@character_set_database, @@collation_database
+column @@character_set_database|VAR_STRING|255|87380|31|
+column @@collation_database|VAR_STRING|255|87380|31|
+row utf8mb4	utf8mb4_bin
+end
+statement DROP DATABASE kv_dbcs
+end
+statement SELECT @@character_set_database, @@collation_database
+column @@character_set_database|VAR_STRING|255|87380|31|
+column @@collation_database|VAR_STRING|255|87380|31|
+row utf8mb4	utf8mb4_0900_ai_ci
+end

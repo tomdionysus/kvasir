@@ -194,6 +194,9 @@ VariableRegistry::VariableRegistry(std::string ack_level, std::string version, s
   }
   _specs.push_back(text("collation_connection", "utf8mb4_0900_ai_ci", VariableType::collation));
   _specs.push_back(text("collation_server", "utf8mb4_0900_ai_ci", VariableType::collation));
+  // The current database's defaults; the session keeps them in step with USE.
+  _specs.push_back(text("character_set_database", "utf8mb4", VariableType::charset));
+  _specs.push_back(text("collation_database", "utf8mb4_0900_ai_ci", VariableType::collation));
   _specs.push_back(number("auto_increment_increment", 1, 1, 65535));
   _specs.push_back(number("auto_increment_offset", 1, 1, 65535));
   auto isolation = text("transaction_isolation", "REPEATABLE-READ", VariableType::enumeration);
@@ -413,6 +416,7 @@ void SessionVariables::set(std::string_view scope, std::string_view name, const 
       break;
     }
     case VariableType::collation: {
+      if (is_null(value)) cannot_take(s.name, value);
       if (!str) wrong_type(s.name);
       const auto* collation = find_collation(*str);
       if (!collation) throw SqlError(1273, "HY000", "Unknown collation: '" + *str + "'");
@@ -422,6 +426,8 @@ void SessionVariables::set(std::string_view scope, std::string_view name, const 
   }
   _session[s.name] = result;
 }
+
+void SessionVariables::assign(std::string_view name, std::string value) { _session[spec(name).name] = std::move(value); }
 
 std::string SessionVariables::text(std::string_view name) const { return value_text(get("", name)); }
 

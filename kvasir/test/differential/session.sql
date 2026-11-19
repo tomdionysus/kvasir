@@ -633,3 +633,32 @@ CREATE TABLE f (i INT, u INT UNSIGNED NOT NULL, d DECIMAL(6,2), t TINYINT, db DO
 INSERT INTO f VALUES (1, 2, 4.5, 7, 1.25), (-16, 5, -2.55, NULL, -0.5)
 SELECT ABS(i), ABS(u), ABS(d), ABS(t), FLOOR(d), FLOOR(i), FLOOR(db), ROUND(d), ROUND(d, 1), ROUND(d, i), ROUND(i, i), TRUNCATE(d, 1), SIGN(d), CEILING(u), ROUND(i, -1), ROUND(u) FROM f
 DROP DATABASE kv_numbers
+SELECT @@character_set_database, @@collation_database, @@session.character_set_database, @@global.collation_database
+select @@character_set_client, @@character_set_connection, @@character_set_server, @@character_set_database limit 1
+CREATE DATABASE kv_dbcs COLLATE utf8mb4_bin
+CREATE DATABASE kv_dbcs2 CHARACTER SET binary
+USE kv_dbcs2
+SELECT @@character_set_database, @@collation_database
+USE kv_dbcs
+SELECT @@character_set_database, @@collation_database
+SET collation_database = 'utf8mb4_0900_as_cs'
+SELECT @@character_set_database, @@collation_database
+SET character_set_database = 'binary'
+SELECT @@character_set_database, @@collation_database
+SET collation_database = DEFAULT
+SELECT @@character_set_database, @@collation_database
+SET character_set_database = 'UTF8MB4'
+SELECT @@character_set_database, @@collation_database
+SET collation_database = 'utf8mb4_general_ci', character_set_database = 'binary'
+SELECT @@character_set_database, @@collation_database
+SET character_set_database = DEFAULT
+SELECT @@character_set_database, @@collation_database
+SET character_set_database = 'nope'
+SET collation_database = 'utf8mb4_nope'
+SET collation_database = NULL
+SET character_set_database = NULL
+SET collation_connection = NULL
+DROP DATABASE kv_dbcs2
+SELECT @@character_set_database, @@collation_database
+DROP DATABASE kv_dbcs
+SELECT @@character_set_database, @@collation_database
