@@ -1,6 +1,6 @@
 # Kvasir - Active Work
 
-Last updated: 2026-11-16, written for a session starting with no memory of
+Last updated: 2026-11-19, written for a session starting with no memory of
 it.
 
 ## Read, in this order
@@ -20,10 +20,43 @@ it.
 
 ## Resume here
 
-Step 2a, one node speaking the MySQL protocol, is in hand.
+Step 2a, one node speaking the MySQL protocol, is in hand. `develop` is
+pushed and clean at 42a28f2 plus the documents' commit. Last gate
+(2026-11-17, node-c): release **337 passed, 0 failed**, the
+differential gate **605 of 605**. No claim is held and no wait is queued.
 
-**Done and pushed** (318 tests; sanitizers run on the Pis and in hosted
-CI's x86-64 jobs):
+**Before any work: the build cluster was wiped on 2026-11-18** (the maintainer, relayed
+by the coordinating session). Checked on 2026-11-19, all four Pis:
+
+- They have g++ 14, clang 19, cmake, ninja, Boost, OpenSSL, yaml-cpp,
+  GoogleTest, lcov, git and rsync, on the 6.18.62-v8-va48+ kernel.
+- They have no `/root/kvasir-work`, no Docker and no clang-format. The
+  MySQL 8.4.13 reference server (`kvasir-mysql84`) is gone, with its
+  password.
+- Saved off node-b before the wipe, in `build/pi-rescue/` (not in git, so do
+  not clean `build/`): `probe.sh`, the probe SQL files, the collation
+  checks (`verify/`, with the reference server's general_ci dump) and
+  `node-b-listing.txt` (the container's image and port).
+
+To start again, in this order:
+
+1. Ask the maintainer for the reference server back (see "Waiting on the maintainer"). Nothing
+   new can be observed on MySQL without it, so no new test can be written
+   from it. Until then only work whose expected answers are already
+   recorded can go on.
+2. Put a tree on one 15 GB Pi under a claim: rsync this repository to
+   `/root/kvasir-work/kvasir`, `git clone
+   https://github.com/tomdionysus/dannan.git /root/kvasir-work/dannan`
+   (the pin is tag 0.9.0), `chown -R root:root` both, then
+   `KVASIR_CI_JOBS=2 KVASIR_DANNAN_REPOSITORY=/root/kvasir-work/dannan nice
+   -n 19 tools/ci.sh release`. It must give 337 passed before anything
+   changes (a first run on a new machine, the stated reason for running
+   the suite again).
+3. clang-format is on no Pi. `tools/ci.sh check` cannot run there until it
+   is installed (a package install: the maintainer's go and a note on the board
+   first); hosted CI's `check` job is the only format check meanwhile.
+
+**Done and pushed**:
 
 - `kvasir/protocol/`: the value codec, packet framing, the connection
   messages, and `caching_sha2.h` (the scramble, the fast-path check, the
@@ -65,7 +98,7 @@ CI's x86-64 jobs):
   credential.
 - The differential gate, recorded: `tools/record_mysql.sh` runs
   `kvasir/test/differential/session.sql` on the reference server, and
-  `differential_test.cpp` replays it through a session: 433 of 433
+  `differential_test.cpp` replays it through a session: 605 of 605
   statements answer as MySQL 8.4 does. Re-record when the list grows.
 - Tables and rows on one node: CREATE / DROP TABLE, SHOW TABLES, INSERT,
   UPDATE, DELETE, SELECT over a table's rows, and transactions with lock
@@ -90,19 +123,19 @@ CI's x86-64 jobs):
 - `kvasir/catalog/catalog.h`: the node's databases in memory, shared by
   every session (step 2's catalog; in the cluster it becomes agreed state).
   CREATE DATABASE, DROP DATABASE, SHOW DATABASES and USE work as MySQL's.
-  Known differences: SHOW DATABASES lists only Kvasir's databases (MySQL
-  also lists information_schema, mysql, performance_schema and sys); DROP
-  DATABASE IF EXISTS on a missing database keeps its note (MySQL counts one
-  and lists none).
 - The fuzz targets have run (libFuzzer, clang 19 on node-a, fuzzer and
   UBSan): the lexer's found an empty token, fixed; the packet reader and
-  parser ran clean for a minute each. Corpora in `/root/kvasir-work/corpus`
-  on node-a.
+  parser ran clean for a minute each. Their corpora went with the wipe.
+- Aggregates, GROUP BY, HAVING and DISTINCT; the flow control functions
+  (IFNULL, COALESCE, NULLIF, IF, CASE); the string functions (CONCAT,
+  CONCAT_WS, LENGTH, CHAR_LENGTH, SUBSTRING, LEFT, RIGHT, TRIM, LTRIM,
+  RTRIM, REPLACE, LOCATE, INSTR, POSITION, LPAD, RPAD, REPEAT, REVERSE) and
+  the number functions (ABS, SIGN, FLOOR, CEILING, ROUND, TRUNCATE, MOD),
+  the last two groups in `kvasir/exec/functions.cpp`. Any other function
+  is refused.
 - Almost every expected type, length, flag and value in `exec_*_test.cpp`
-  and the greeting's bytes were observed on the MySQL 8.4.13 container
-  (see "Waiting on the maintainer" for where it runs). Known difference: arithmetic on
-  a bare NULL literal is typed DOUBLE 23/31 where MySQL reports smaller
-  lengths.
+  and the greeting's bytes were observed on the MySQL 8.4.13 reference
+  server.
 
 **A step's gate** is the release build's full suite on a Pi plus the
 differential gate, nothing more. No sanitizer build (ASan, UBSan, TSan) is
@@ -114,41 +147,46 @@ outside that rule (the maintainer, 2026-11-17).
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 and the reference server first, and watched to fail:
 
-1. Lock waits are done (see COMPLETED): a waiting statement is undone and
-   run again once woken. Known difference: MySQL's statement keeps the
-   locks it took before the wait; Kvasir's lets them go and takes them
-   again.
-2. UPDATE and DELETE, then aggregates, GROUP BY, HAVING and DISTINCT,
-   are done (see COMPLETED). Known differences there: GROUP_CONCAT, the
-   JSON aggregates and WITH ROLLUP are refused (1235); 1056 names the
-   function in upper case as Kvasir holds it; DISTINCT with ORDER BY on a
-   column not selected is not refused (MySQL's 3065); a grouped result's
-   metadata follows MySQL's temporary-table rules as observed (a plan
-   MySQL picks for an index, which Kvasir has none of, may differ). The
-   flow control functions (IFNULL, COALESCE, NULLIF, IF, CASE) are done
-   (see COMPLETED); not yet checked against MySQL: FLOAT operands, which
-   Kvasir merges as DOUBLE. CONCAT, CONCAT_WS, LENGTH, CHAR_LENGTH,
-   SUBSTRING, LEFT and RIGHT are done (see COMPLETED); known difference: a
-   constant string argument read as an integer warns once where MySQL
-   warns twice. TRIM, REPLACE, LOCATE, INSTR, POSITION, LPAD, RPAD,
-   REPEAT and REVERSE are done too, and ABS, SIGN, FLOOR, CEILING, ROUND,
-   TRUNCATE and MOD. Next: SHOW STATUS and the other statements a client's
-   `status` command and connectors send; UPPER and LOWER after, as they
-   need Unicode's case mapping.
-   Old versions are never
-   folded away yet (memory grows with every change; folding older than
-   every open snapshot is the design's, to come before long runs).
-3. SERIALIZABLE (range read marks), INSERT IGNORE, REPLACE, ON DUPLICATE
+1. SHOW STATUS and the other statements the `mysql` client's `status`
+   command and connectors send. Start by recording exactly what the client
+   sends, so the step covers those and nothing more. Not started.
+2. UPPER and LOWER, which need Unicode's case mapping.
+3. Folding old row versions away (memory grows with every change today;
+   folding what is older than every open snapshot is the design's, and
+   must come before long runs).
+4. SERIALIZABLE (range read marks), INSERT IGNORE, REPLACE, ON DUPLICATE
    KEY UPDATE, INSERT ... SELECT.
-   Known differences now: an engine other than InnoDB is refused as
-   unknown (MySQL makes MyISAM and MEMORY tables); column names compare
-   case-insensitively in ASCII only; utf8mb3_bin columns cannot yet be
-   compared in expressions; rows without ORDER BY come in primary-key (or
-   insertion) order, where MySQL may read a covering index instead.
-4. utf8mb4_unicode_ci, and character sets besides
-   utf8mb4, utf8mb3 and binary (N'...' and _latin1'...' are refused); an
-   alias holding a character past the BMP (MySQL refuses it with 3854,
-   Kvasir accepts it).
+5. utf8mb4_unicode_ci, and character sets besides utf8mb4, utf8mb3 and
+   binary (N'...' and _latin1'...' are refused).
+
+**Known differences from MySQL 8.4**, each to be closed or kept by a
+decision:
+
+- Not yet checked on the reference server: FLOAT operands of the flow
+  control functions (Kvasir merges them as DOUBLE); the type of LPAD or
+  RPAD with a NULL length (Kvasir: a LONG BLOB, as REPEAT with a NULL
+  count).
+- A constant string argument read as an integer ('2x' as a position)
+  warns once; MySQL warns twice.
+- Arithmetic on a bare NULL literal is typed DOUBLE 23/31; MySQL reports
+  smaller lengths.
+- A statement that waited for a lock lets go of the locks it took before
+  the wait and takes them again; MySQL's keeps them.
+- GROUP_CONCAT, the JSON aggregates and WITH ROLLUP are refused (1235).
+  1056 names the function in upper case. DISTINCT with ORDER BY on a
+  column not selected is not refused (MySQL: 3065). A grouped result's
+  metadata follows MySQL's temporary-table rules as observed; where MySQL
+  would pick an index, which Kvasir has none of, it may differ.
+- An engine other than InnoDB is refused as unknown (MySQL makes MyISAM
+  and MEMORY tables). Column names compare case-insensitively in ASCII
+  only. utf8mb3_bin columns cannot yet be compared in expressions. Rows
+  without ORDER BY come in primary-key (or insertion) order, where MySQL
+  may read a covering index.
+- SHOW DATABASES lists only Kvasir's databases (MySQL also lists
+  information_schema, mysql, performance_schema and sys). DROP DATABASE IF
+  EXISTS on
+  a missing database keeps its note (MySQL counts one and lists none).
+- An alias holding a character past the BMP is accepted (MySQL: 3854).
 
 **A real client works** (2026-11-16): `kvasir-node` on Dannan 0.8.4
 (`StreamTransport` over its Stream, `start_tls_unanswered` after exactly the
@@ -170,19 +208,17 @@ word, 2026-11-15, after a check that no local notes, keys or server
 addresses are in its history (his email is there only as the commit
 author, as on Lir).
 
-**Hosted CI runs every job on each push** (check, release on x86-64 and
-arm64, clang, ASan/UBSan, TSan, coverage, CodeQL). It stopped while the
-repository was private (GitHub refused jobs for the account's billing) and
-ran again once it was public. Its x86-64 sanitizers are part of the gate:
-they found a use-after-free the Pi's arm64 ASan run passed. Dependabot's two
-pull requests (actions bumps) are untouched, the maintainer's to merge.
+**Hosted CI** runs on each push: check, release on x86-64 and arm64, clang,
+coverage and CodeQL. The ASan/UBSan and TSan jobs were removed at the maintainer's
+word (6eb0322, 2026-11-17); `tools/ci.sh asan` and `tsan` remain for a
+release or a bug hunt. Worth knowing when one is run: x86-64 once found a
+use-after-free that arm64's ASan passed (argument evaluation order
+differs), so a release's sanitizer run wants both architectures.
+Dependabot's two pull requests (actions bumps) are untouched, the maintainer's to
+merge.
 
-On the Pis: since 2026-11-16 (~10:30Z) all four run a 4K-page, 48-bit-VA
-kernel, where ASan, UBSan and TSan all work (g++ everywhere, clang 19 on
-node-a, node-b and node-c). Hosted CI's x86-64 sanitizers remain part of
-the gate: they found a use-after-free arm64 missed.
-The maintainer's rules: TSan on the Mac only when hunting a specific bug; no sanitizer
-builds on node-d (4 GB).
+The maintainer's sanitizer rules: only before a release or to hunt a named bug; TSan
+on the Mac only when hunting a specific bug; none on node-d (4 GB).
 
 ## How work is done
 
@@ -191,11 +227,20 @@ builds on node-d (4 GB).
   `-j` needs, `claim_release` when it ends). Sources go by rsync to
   `/root/kvasir-work/kvasir` with Dannan beside them in
   `/root/kvasir-work/dannan`; `chown -R root:root` both after the sync, or
-  git refuses the clone. Both exist on node-d (which has clang-format,
-  so `tools/ci.sh check` runs there) and node-c (which has not).
-  The remote tree is not a git checkout: `git add -A` there before `check`
-  and `git reset -q` after.
-- `clang-format -i` is run on the Pi and the formatted files copied back.
+  git refuses the clone. Neither exists on any Pi since the wipe (see
+  "Resume here"). Touch the changed files on the Pi after an rsync: the
+  clocks differ, and ninja otherwise misses them. An incremental run is
+  `nice -n 19 ninja -C build-ci/release -j2 kvasir_tests`, then the
+  binary. `tools/ci.sh` reads `KVASIR_CI_JOBS`, not `JOBS`.
+- To watch a test fail when the code is already written: send the tests
+  with HEAD's versions of the sources (`git show HEAD:<path>` into
+  `build/head/`), build, see the failures, then send the new sources.
+- Formatting is clang-format on a Pi that has it (none since the wipe),
+  the file piped through over ssh and copied back.
+- Record the differential gate on the reference server's Pi: `sh
+  tools/record_mysql.sh kvasir/test/differential/session.sql`, its output
+  becoming `session.expected`; statements recorded before must come back
+  unchanged.
 - Commit when a step's gate passes and push `develop`. No Claude attribution.
 - Design questions go to the maintainer through the interactive question tool, with a
   recommendation first. He asked that other sessions' advice be gathered and
@@ -350,22 +395,31 @@ builds on node-d (4 GB).
 
 ## Waiting on the maintainer
 
-Nothing blocks step 2. Not yet put to him:
+**Blocks step 2's next piece:** the MySQL 8.4 reference server (ruling 30)
+went with the cluster wipe. Recommended: the same again on node-b,
+which needs Docker installed there (the maintainer's go, and a note on the board
+first). As it was: Oracle's
+`container-registry.oracle.com/mysql/community-server:8.4-aarch64` (the
+plain `8.4` tag is amd64 only), MySQL 8.4.13, container `kvasir-mysql84`,
+bound to 127.0.0.1:33306 only, a new root password in
+`/root/kvasir-work/mysql84.env` (mode 600, never copied off), held on the
+board as a light claim; this time with `--restart unless-stopped`.
+`probe.sh` (in `build/pi-rescue/`) goes back to `/root/kvasir-work`: it
+runs SQL from stdin as a utf8mb4 client and prints each column's type,
+collation, length, decimals and flags, then the rows. The same container
+gave the real `mysql` client for trying a node by hand. Expected values in
+tests that came from it say "observed on MySQL 8.4.13"; a newer 8.4 patch
+release must re-record the 605 statements and explain any that change.
 
+Also for him, none blocking:
+
+- clang-format on a Pi (a package install), for `tools/ci.sh check`.
+- Whether the Louhi session should be told of the ruling that sanitizers
+  are not run on every push (asked 2026-11-17, not answered).
 - The default replica count (three proposed).
 - The design's "Acknowledgement levels" items marked Proposed.
 - The SQL surface left until asked for (the replication protocol, XA,
   full-text and spatial indexes, loadable plugins).
-- The MySQL 8.4 server for the differential gate (ruling 30) is up:
-  Oracle's `container-registry.oracle.com/mysql/community-server:8.4-aarch64`
-  (the plain `8.4` tag is amd64 only), MySQL 8.4.13, container
-  `kvasir-mysql84` on node-b, bound to 127.0.0.1:33306 only, started
-  2026-11-15 after a note on the claim board and held there as a light
-  claim. Its root password is in `/root/kvasir-work/mysql84.env` on node-b
-  (mode 600, never copied off). `/root/kvasir-work/probe.sh` there runs SQL
-  from stdin as a utf8mb4 client and prints each column's type, collation,
-  length, decimals and flags, then the rows. Expected values in tests that
-  came from it say "observed on MySQL 8.4.13".
 
 ## Ordered work
 
@@ -373,7 +427,7 @@ Nothing blocks step 2. Not yet put to him:
 2. One node, in memory: the protocol, SQL and transactions for the subset
    real drivers and tools use, with the differential gate. 2a in hand.
 3. The commit protocol written down and passed through Dannan's simulator.
-4. The cluster at `decided` and `replicated`. Waits on Dannan 0.9.0.
+4. The cluster at `decided` and `replicated`, on Dannan 0.9.0 (pinned).
 5. Persistence in Dagda, with backup and restore. Waits on Dagda's
    node-local log.
 6. `ephemeral`, `persisted` and held commits; range splits and merges;

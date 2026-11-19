@@ -54,9 +54,12 @@ cmake --build build -j2
 or `tools/ci.sh release`, which does the same. Dannan is fetched at its pinned
 tag from the sibling checkout, or from its repository. Run the test binary
 rather than `ctest`. Sanitizers run before a release, or to hunt a bug that
-cannot be pinned any other way. Hosted CI runs every step of `tools/ci.sh` on
-each push. The differential gate against a MySQL 8.4 server, and multi-node
-beds, run by hand on the build servers.
+cannot be pinned any other way. Hosted CI runs `tools/ci.sh`'s `check`,
+`release`, `clang` and `coverage` steps on each push, never the sanitizer
+steps. The differential gate replays MySQL 8.4's recorded answers inside
+`kvasir_tests`; recording them against a MySQL 8.4 server
+(`tools/record_mysql.sh`), and multi-node beds, are done by hand on the build
+servers.
 
 Write tests from the MySQL 8.4 manual's documented behaviour, the design and
 the laws, not from the current behaviour.

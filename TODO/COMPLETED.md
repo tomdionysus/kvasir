@@ -2,6 +2,33 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-19: handoff, after the build cluster was wiped
+
+- 2026-11-18: Miach's work was given the cluster for the evening and
+  Kvasir stood down; then all four Pis were wiped to a bare OS at the maintainer's
+  word (both relayed by the coordinating session). Kvasir held no claim and
+  had nothing running. Lost with it: every `/root/kvasir-work` tree and
+  build, the fuzz corpora, and the MySQL 8.4.13 reference server with its
+  password. Saved to `build/pi-rescue/` first: `probe.sh`, the probe SQL
+  files, the collation checks and the container's image and port.
+  Everything else is in git.
+- The documents were brought into line for a session starting cold:
+  ACTIVE.md (what the Pis now have, the order to start again, the known
+  differences in one list, hosted CI without sanitizers), the README's
+  status, build and layout, CONTRIBUTING's CI sentence, and the local
+  notes.
+- No code changed and nothing was built. The last gate stands (2026-11-17,
+  node-c): release **337 passed, 0 failed**; the differential gate
+  **605 of 605**. No sanitizer run. No claim is held.
+- Resume from `TODO/ACTIVE.md`, "Resume here". The reference server must
+  come back before SHOW STATUS can be started.
+
+## 2026-11-17: hosted CI without sanitizers
+
+- At the maintainer's word the ASan/UBSan and TSan jobs left `.github/workflows/ci.yml`
+  (6eb0322), with the container options they needed. `tools/ci.sh asan`
+  and `tsan` remain, for a release or a bug hunt.
+
 ## 2026-11-17: ABS, SIGN, FLOOR, CEILING, ROUND, TRUNCATE and MOD
 
 - Observed on MySQL 8.4.13 first. An exact argument gives an exact

@@ -13,8 +13,9 @@ cluster behaves as one server, with ACID transactions and no node in charge. It 
 [Dagda](https://github.com/tomdionysus/dagda), the store.
 
 Kvasir is in development: the design is settled, and one node, in memory, serves MySQL
-clients over TLS: sign-in, session statements, expressions, collations and databases. It
-has no tables yet and no cluster. "Status" below says exactly what is built.
+clients over TLS: sign-in, session statements, databases and tables, rows and
+transactions, expressions, functions, grouping and collations. It has no cluster yet and
+keeps nothing on disk. "Status" below says exactly what is built.
 
 ## Why it exists
 
@@ -146,7 +147,7 @@ Hosted systems never address one another.
 
 A C++20 compiler (GCC 14 or Clang 19), CMake 3.24 or later, Boost 1.83 or later (Asio),
 OpenSSL 3, yaml-cpp, and GoogleTest for the tests. Dannan is fetched from `../dannan` at
-the pinned release (0.8.2), so clone it beside this repository. On Debian 13:
+the pinned release (0.9.0), so clone it beside this repository. On Debian 13:
 
 ```
 apt-get install g++ cmake ninja-build libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev
@@ -155,8 +156,9 @@ cmake --build build
 ./build/kvasir_tests
 ```
 
-`tools/ci.sh` runs each check the CI runs: `check` (header blocks and formatting),
-`release`, `clang`, `asan`, `tsan` and `coverage`. Build options are
+`tools/ci.sh` runs one step at a time: `check` (header blocks and formatting),
+`release`, `clang` and `coverage`, which hosted CI runs on each push, and `asan` and
+`tsan`, which are run before a release or to hunt a bug. Build options are
 `KVASIR_BUILD_TESTING`, `KVASIR_BUILD_FUZZING` (a clang with libFuzzer) and
 `KVASIR_WARNINGS_AS_ERRORS`.
 
@@ -186,8 +188,10 @@ kvasir/protocol/   the MySQL wire codec, packet framing, connection messages,
 kvasir/server/     the sign-in, the command phase, the connection and its transport over
                    Dannan's stream, the built-in accounts and the node's settings
 kvasir/sql/        the lexer, reserved words, syntax tree and parser
-kvasir/exec/       values, exact decimals, expressions, collations, variables, sessions
-kvasir/catalog/    the node's databases
+kvasir/exec/       values, exact decimals, expressions, functions, aggregates, collations,
+                   variables, table definitions, stored values, sessions
+kvasir/catalog/    the node's databases and tables
+kvasir/txn/        a node's rows as versions, transactions, locks and lock waits
 kvasir/data/       Unicode's data the collations are compiled from, with its license
 kvasir/include/    the public headers (the version)
 kvasir/test/       GoogleTest, one binary (kvasir_tests), and the differential gate's
@@ -199,14 +203,12 @@ TODO/              now and next (ACTIVE.md), the design, the level standard, and
                    landed (COMPLETED.md)
 ```
 
-Transactions (`kvasir/txn/`) join as they are built. Conventions, shared with the stack:
-[CONTRIBUTING.md](CONTRIBUTING.md).
+Conventions, shared with the stack: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Status
 
-Version 0.1.0, in development; no release is cut yet. Built and tested (275 tests, under
-release, AddressSanitizer and ThreadSanitizer builds), and tried with MySQL 8.4's own
-`mysql` client:
+Version 0.1.0, in development; no release is cut yet. Built and tested (337 tests), and
+tried with MySQL 8.4's own `mysql` client:
 
 - The MySQL client/server protocol's codec: its integer and string encodings, packet
   framing with every length bounded, and the connection phase's messages, OK, ERR, EOF,
@@ -217,25 +219,36 @@ release, AddressSanitizer and ThreadSanitizer builds), and tried with MySQL 8.4'
 - The built-in accounts, with Argon2id credentials, checked with the same work whether
   or not a name exists.
 - The SQL lexer, MySQL 8.4's 262 reserved words, and the parser for the statements a
-  client sends as it connects: SELECT (a select list, FROM DUAL or tables, WHERE, ORDER
-  BY, LIMIT), SET (variables, NAMES, CHARACTER SET), USE, BEGIN, START TRANSACTION,
-  COMMIT and ROLLBACK, CREATE and DROP DATABASE, SHOW DATABASES and SHOW WARNINGS, with
-  MySQL's operator precedence.
+  client sends as it connects and the first data statements: SELECT (DISTINCT, a select
+  list, FROM DUAL or one table, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT), INSERT,
+  UPDATE, DELETE, CREATE and DROP TABLE and DATABASE, SHOW DATABASES, TABLES, WARNINGS
+  and ERRORS, SET (variables, NAMES, CHARACTER SET), USE, BEGIN, START TRANSACTION,
+  COMMIT and ROLLBACK, with MySQL's operator precedence. Joins, subqueries and prepared
+  statements are not built yet.
 - Typing and evaluating expressions with MySQL's result types, exact decimals, overflow
   and division rules; the session's system and user variables; the command phase.
+- Tables with MySQL's integer, decimal, float and string types, keys and AUTO_INCREMENT;
+  rows as versions in memory, with transactions at REPEATABLE READ and READ COMMITTED,
+  row locks, lock waits, the lock-wait timeout and deadlock detection.
+- Aggregates (COUNT, SUM, AVG, MIN, MAX, the bit and variance families) with GROUP BY
+  and HAVING; the flow control functions (IF, IFNULL, NULLIF, COALESCE, CASE); string
+  functions (CONCAT, SUBSTRING, TRIM, REPLACE, LOCATE, LPAD, REPEAT and their kin) and
+  number functions (ABS, SIGN, FLOOR, CEILING, ROUND, TRUNCATE, MOD). Any other
+  function is refused.
 - Collations: utf8mb4_0900_ai_ci and _as_cs from Unicode's UCA 9.0.0 table, the
   general_ci collations derived from Unicode 3.0.0's character database, the binary
   ones; comparison, LIKE and COLLATE under MySQL's coercibility rules.
-- The node's catalog of databases, and `kvasir-node` serving clients over Dannan's
-  listener, the Argon2id check on a worker pool.
+- The node's catalog of databases and tables, and `kvasir-node` serving clients over
+  Dannan's listener, the Argon2id check on a worker pool, with a back-off on failed
+  sign-ins.
 
-The differential gate replays 187 statements and compares every column's type, length,
-flags, value and error with what a MySQL 8.4.13 server answered: 187 of 187 match.
+The differential gate replays 605 statements and compares every column's type, length,
+flags, value and error with what a MySQL 8.4.13 server answered: 605 of 605 match.
 
 Next, in order (`TODO/ACTIVE.md`):
 
-1. One node, in memory: tables and rows, then the SQL and transactions real drivers and
-   tools use, with the differential gate; the sign-in back-off from Dannan (0.8.5, now 0.9.0).
+1. One node, in memory, continued: the rest of the SQL and transactions real drivers
+   and tools use, with the differential gate.
 2. The commit protocol written down and passed through Dannan's deterministic simulator.
 3. The cluster at `decided` and `replicated`.
 4. Persistence in Dagda, with backup and restore to a point in time.
