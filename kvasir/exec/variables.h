@@ -114,9 +114,9 @@ struct CollationInfo {
 };
 const CollationInfo* find_collation(std::string_view name);
 const CollationInfo* default_collation(std::string_view charset);
-// By id; utf8mb3_general_ci too, which system variables and session
-// functions compare under but which no session can choose. Nothing for an id
-// Kvasir does not know.
+// By id; utf8mb3_general_ci and utf8mb3_bin too, which system variables,
+// session functions and columns hold but which no session can choose.
+// Nothing for an id Kvasir does not know.
 const CollationInfo* find_collation(uint16_t id);
 // Whether MySQL has this character set and Kvasir does not yet convert to it.
 bool charset_not_converted(std::string_view charset);

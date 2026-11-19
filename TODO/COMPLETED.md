@@ -2,6 +2,19 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-19: utf8mb4 outranks utf8mb3
+
+- Found while writing the metadata step's tests: CONCAT of a utf8mb4 and a
+  utf8mb3 column was refused with 1267. Observed on MySQL 8.4.13: between
+  two IMPLICIT strings utf8mb4, the superset, wins, even over utf8mb3_bin
+  (v = mb compares without case), in CONCAT, comparisons, LIKE, IFNULL and
+  COALESCE. Kvasir now does the same; utf8mb3_bin is named in messages.
+- Test-first on node-d: the new session test failed (1267).
+- Gate: release on node-d **341 passed, 0 failed**; the 655
+  statements in the differential gate all answer as MySQL does (run within
+  the metadata step's 682, whose 11 failures are all that step's,
+  uncommitted).
+
 ## 2026-11-19: what connectors send as they connect
 
 - Logged on the reference server's general log, each connector run in a

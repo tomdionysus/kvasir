@@ -560,6 +560,31 @@ constexpr uint16_t bin = 63, ai = 255;
 constexpr uint16_t num = c::num, nn = c::not_null, pri = c::primary_key, uni = c::unique_key, mul = c::multiple_key, part = c::part_key,
                    nodef = c::no_default_value, autoinc = c::auto_increment, uns = c::unsigned_, zf = c::zerofill, blob = c::blob, binflag = c::binary;
 
+// Observed on MySQL 8.4.13, 2026-11-19: between two IMPLICIT strings,
+// utf8mb4 outranks utf8mb3, its superset, even utf8mb3_bin (v = mb compares
+// without case); a tie of two utf8mb4 or two utf8mb3 collations is as
+// before.
+TEST(ExecSessionTables, Utf8mb4OutranksUtf8mb3) {
+  TableBed b;
+  run(b.s, "CREATE TABLE sup (v VARCHAR(10), m VARCHAR(4) CHARACTER SET utf8mb3, mb VARCHAR(4) CHARACTER SET utf8mb3 COLLATE utf8mb3_bin)");
+  run(b.s, "INSERT INTO sup VALUES ('M', 'm', 'm')");
+  auto o = run(b.s, "SELECT CONCAT(m, v), v = m, m = v, v < m, CONCAT(m, 'a'), CONCAT(mb, v), v = mb, IFNULL(m, v), v LIKE m FROM sup");
+  EXPECT_EQ(row(o), (std::vector<std::string>{"mM", "1", "1", "0", "ma", "mM", "1", "m", "1"}));
+  const Shape compared{f::longlong, bin, 1, 0, binflag | num};
+  EXPECT_EQ(shapes(o), (std::vector<Shape>{{f::var_string, ai, 56, 31, 0},
+                                           compared,
+                                           compared,
+                                           compared,
+                                           {f::var_string, ai, 20, 31, 0},
+                                           {f::var_string, ai, 56, 31, 0},
+                                           compared,
+                                           {f::var_string, ai, 40, 31, 0},
+                                           compared}));
+  o = run(b.s, "SELECT COALESCE(v, m, mb) FROM sup");
+  EXPECT_EQ(row(o), (std::vector<std::string>{"M"}));
+  EXPECT_EQ(shapes(o), (std::vector<Shape>{{f::var_string, ai, 40, 31, 0}}));
+}
+
 // The numeric types' columns: MySQL 8.4.13, 2026-11-16.
 TEST(ExecSessionTables, NumericColumns) {
   TableBed b;

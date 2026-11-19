@@ -166,7 +166,9 @@ const CollationInfo* default_collation(std::string_view charset) {
 
 const CollationInfo* find_collation(uint16_t id) {
   static const CollationInfo utf8mb3_general_ci{"utf8mb3_general_ci", 33, "utf8mb3", true};
+  static const CollationInfo utf8mb3_bin{"utf8mb3_bin", 83, "utf8mb3", false};
   if (id == utf8mb3_general_ci.id) return &utf8mb3_general_ci;
+  if (id == utf8mb3_bin.id) return &utf8mb3_bin;
   for (const auto& c : collations)
     if (c.id == id) return &c;
   return nullptr;

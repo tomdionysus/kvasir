@@ -413,6 +413,17 @@ std::string collation_text(uint16_t id) {
   return info ? info->name : std::to_string(id);
 }
 
+// Of two collations, the one whose character set holds the other's: utf8mb4
+// over utf8mb3 (observed); nothing for any other pair.
+std::optional<uint16_t> superset(uint16_t a, uint16_t b) {
+  const auto* x = find_collation(a);
+  const auto* y = find_collation(b);
+  if (!x || !y) return std::nullopt;
+  if (x->charset == "utf8mb4" && y->charset == "utf8mb3") return a;
+  if (x->charset == "utf8mb3" && y->charset == "utf8mb4") return b;
+  return std::nullopt;
+}
+
 std::string coercibility_text(int coercibility) {
   static const char* const names[] = {"EXPLICIT", "NONE", "IMPLICIT", "SYSCONST", "COERCIBLE", "NUMERIC", "IGNORABLE"};
   return names[coercibility];
@@ -516,10 +527,13 @@ Evaluator::Derivation Evaluator::aggregate_collations(const std::vector<Derivati
     if (next.second < chosen.second) {
       chosen = next;
     } else if (next.second == chosen.second && next.first != chosen.first) {
-      // A tie: a binary string wins, then a _bin collation beside another
-      // (but never between two explicit ones); anything else is refused.
+      // A tie: a binary string wins, then utf8mb4 over utf8mb3, then a _bin
+      // collation beside another (but never between two explicit ones);
+      // anything else is refused.
       if (chosen.first == binary_collation || next.first == binary_collation) {
         chosen.first = binary_collation;
+      } else if (const auto wider = superset(chosen.first, next.first)) {
+        chosen.first = *wider;
       } else if (chosen.second != explicit_coercibility && is_bin(chosen.first) != is_bin(next.first)) {
         if (is_bin(next.first)) chosen = next;
       } else {
