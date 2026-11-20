@@ -205,7 +205,8 @@ TODO/              now and next (ACTIVE.md), the design, the level standard, and
                    landed (COMPLETED.md)
 ```
 
-Conventions, shared with the stack: [CONTRIBUTING.md](CONTRIBUTING.md).
+Conventions, shared with the stack: [CONTRIBUTING.md](CONTRIBUTING.md). Everyone
+taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Status
 
