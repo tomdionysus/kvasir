@@ -361,6 +361,168 @@ TEST(ServerCommands, ACommandOutOfSequenceIsRefusedAndCloses) {
   EXPECT_EQ(e.sqlstate, "08S01");
 }
 
+// MySQL's server sends no NUM flag (0x8000); its client library adds it.
+// Captured from MySQL 8.4.13 (Go's driver, 2026-11-20): SELECT a, 1 + 1, 2.5,
+// 1e0 FROM t sent 1 + 1 as LONGLONG 3 flags 0x0081, 2.5 NEWDECIMAL 4 0x0081
+// with 1 decimal, 1e0 DOUBLE 3 0x0081 with 31.
+TEST(ServerCommands, NoNumFlagOnTheWire) {
+  Fixture f;
+  const auto sent = f.query("SELECT 1 + 1, 2.5, 1e0");
+  ASSERT_GE(sent.size(), 4u);
+  const auto a = column(sent[1]), b = column(sent[2]), c = column(sent[3]);
+  EXPECT_EQ(a.type, 8);
+  EXPECT_EQ(a.length, 3u);
+  EXPECT_EQ(a.flags, 0x0081);
+  EXPECT_EQ(b.type, 246);
+  EXPECT_EQ(b.length, 4u);
+  EXPECT_EQ(b.flags, 0x0081);
+  EXPECT_EQ(b.decimals, 1);
+  EXPECT_EQ(c.type, 5);
+  EXPECT_EQ(c.flags, 0x0081);
+  EXPECT_EQ(c.decimals, 31);
+}
+
+// Prepared statements: the bytes MySQL 8.4.13 exchanged with Go's driver
+// (go-sql-driver/mysql 1.8.1, no CLIENT_DEPRECATE_EOF) and
+// mysql-connector-python (with it), captured through a proxy on 2026-11-20,
+// and the manual's COM_STMT_PREPARE, COM_STMT_EXECUTE,
+// COM_STMT_SEND_LONG_DATA, COM_STMT_CLOSE and COM_STMT_RESET.
+Bytes hex(std::string_view text) {
+  Bytes out;
+  std::string digits;
+  for (const char ch : text)
+    if (ch != ' ') digits.push_back(ch);
+  for (size_t i = 0; i + 1 < digits.size(); i += 2) out.push_back(static_cast<uint8_t>(std::stoi(digits.substr(i, 2), nullptr, 16)));
+  return out;
+}
+
+struct PreparedBed {
+  catalog::Catalog node;
+  txn::Store rows;
+  exec::Session session{registry(), node, rows, exec::SessionInfo{"root", "10.0.0.1", 7}};
+  CommandPhase phase;
+  explicit PreparedBed(uint32_t capabilities = capability::protocol_41) : phase(session, capabilities) {
+    for (const char* sql :
+         {"CREATE DATABASE kv_prep", "USE kv_prep", "CREATE TABLE t (a INT PRIMARY KEY, b VARCHAR(10))", "INSERT INTO t VALUES (1, 'x'), (2, 'y')"})
+      phase.received(command(command::query, sql));
+  }
+  std::vector<Packet> send(uint8_t code, const Bytes& body) {
+    return packets(phase.received(command(code, std::string_view(reinterpret_cast<const char*>(body.data()), body.size()))).out);
+  }
+  std::vector<Packet> prepare(std::string_view sql) { return packets(phase.received(command(command::stmt_prepare, sql)).out); }
+};
+
+const Bytes eof = hex("fe 0000 0200");
+
+TEST(ServerCommands, PrepareAndExecuteAsGosDriverDoes) {
+  PreparedBed b;
+  auto sent = b.prepare("SELECT a, b FROM t WHERE a > ? AND b <> ?");
+  ASSERT_EQ(sent.size(), 7u);
+  for (size_t i = 0; i < sent.size(); ++i) EXPECT_EQ(sent[i].first_sequence, i + 1);
+  EXPECT_EQ(sent[0].payload, hex("00 01000000 0200 0200 00 0000"));
+  EXPECT_EQ(sent[1].payload, hex("03646566 00 00 00 013f 00 0c 3f00 15000000 08 8000 00 0000"));
+  EXPECT_EQ(sent[2].payload, hex("03646566 00 00 00 013f 00 0c ff00 fcff0000 fd 0000 1f 0000"));
+  EXPECT_EQ(sent[3].payload, eof);
+  EXPECT_EQ(sent[4].payload, hex("03646566 076b765f70726570 0174 0174 0161 0161 0c 3f00 0b000000 03 0350 00 0000"));
+  EXPECT_EQ(sent[5].payload, hex("03646566 076b765f70726570 0174 0174 0162 0162 0c ff00 28000000 fd 0000 00 0000"));
+  EXPECT_EQ(sent[6].payload, eof);
+
+  sent = b.send(command::stmt_execute, hex("01000000 00 01000000 00 01 0800 fe00 0000000000000000 027a7a"));
+  ASSERT_EQ(sent.size(), 7u);
+  for (size_t i = 0; i < sent.size(); ++i) EXPECT_EQ(sent[i].first_sequence, i + 1);
+  EXPECT_EQ(sent[0].payload, hex("02"));
+  EXPECT_EQ(sent[1].payload, hex("03646566 076b765f70726570 0174 0174 0161 0161 0c 3f00 0b000000 03 0350 00 0000"));
+  EXPECT_EQ(sent[3].payload, eof);
+  EXPECT_EQ(sent[4].payload, hex("00 00 01000000 0178"));
+  EXPECT_EQ(sent[5].payload, hex("00 00 02000000 0179"));
+  EXPECT_EQ(sent[6].payload, eof);
+
+  // Again, with the types bound before.
+  sent = b.send(command::stmt_execute, hex("01000000 00 01000000 00 00 0100000000000000 0178"));
+  ASSERT_EQ(sent.size(), 6u);
+  EXPECT_EQ(sent[4].payload, hex("00 00 02000000 0179"));
+
+  // COM_STMT_CLOSE has no reply; the statement is then unknown.
+  EXPECT_TRUE(b.send(command::stmt_close, hex("01000000")).empty());
+  sent = b.send(command::stmt_execute, hex("01000000 00 01000000 00 01 0800 fe00 0000000000000000 027a7a"));
+  ASSERT_EQ(sent.size(), 1u);
+  const auto e = err(sent[0]);
+  EXPECT_EQ(e.code, 1243);
+  EXPECT_EQ(e.message, "Unknown prepared statement handler (1) given to mysqld_stmt_execute");
+}
+
+TEST(ServerCommands, ExecutedValuesAndChanges) {
+  PreparedBed b;
+  // SELECT ?, ? + 1, CONCAT(?, 'x'), ? with -5, 2.5, "ab", NULL.
+  auto sent = b.prepare("SELECT ?, ? + 1, CONCAT(?, 'x'), ?");
+  ASSERT_EQ(sent.size(), 11u);
+  EXPECT_EQ(sent[0].payload, hex("00 01000000 0400 0400 00 0000"));
+  sent = b.send(command::stmt_execute, hex("01000000 00 01000000 08 01 0800 0500 fe00 0600 fbffffffffffffff 0000000000000440 026162"));
+  ASSERT_EQ(sent.size(), 8u);
+  EXPECT_EQ(sent[1].payload, hex("03646566 00 00 00 013f 00 0c 3f00 15000000 08 8000 00 0000"));
+  EXPECT_EQ(sent[2].payload, hex("03646566 00 00 00 05 3f202b2031 00 0c 3f00 17000000 05 8000 1f 0000"));
+  EXPECT_EQ(sent[3].payload, hex("03646566 00 00 00 0e 434f4e434154283f2c2027782729 00 0c ff00 00000400 fa 0000 1f 0000"));
+  EXPECT_EQ(sent[6].payload, hex("00 20 fbffffffffffffff 0000000000000c40 03616278"));
+
+  // INSERT and DELETE answer OK.
+  sent = b.prepare("INSERT INTO t VALUES (?, ?)");
+  EXPECT_EQ(sent[0].payload, hex("00 02000000 0000 0200 00 0000"));
+  ASSERT_EQ(sent.size(), 4u);
+  sent = b.send(command::stmt_execute, hex("02000000 00 01000000 02 01 0800 0600 0900000000000000"));
+  ASSERT_EQ(sent.size(), 1u);
+  EXPECT_EQ(sent[0].payload, hex("00 01 00 0200 0000"));
+  sent = b.prepare("DELETE FROM t WHERE a = ?");
+  sent = b.send(command::stmt_execute, hex("03000000 00 01000000 00 01 0800 0900000000000000"));
+  EXPECT_EQ(sent[0].payload, hex("00 01 00 0200 0000"));
+}
+
+TEST(ServerCommands, PreparedWithDeprecateEof) {
+  // mysql-connector-python: no EOF after the definitions, the rows ended by
+  // an OK with the EOF header; COM_STMT_RESET answered OK.
+  PreparedBed b(capability::protocol_41 | capability::deprecate_eof);
+  auto sent = b.prepare("SELECT ?, ?, ?, ?");
+  ASSERT_EQ(sent.size(), 9u);
+  sent = b.send(command::stmt_reset, hex("01000000"));
+  ASSERT_EQ(sent.size(), 1u);
+  EXPECT_EQ(sent[0].payload, hex("00 00 00 0200 0000"));
+  sent = b.send(command::stmt_execute, hex("01000000 00 01000000 08 01 0000 fe00 0800 0600 04312e3235 027879 0700000000000000"));
+  ASSERT_EQ(sent.size(), 7u);
+  EXPECT_EQ(sent[1].payload, hex("03646566 00 00 00 013f 00 0c 3f00 43000000 f6 8000 1e 0000"));
+  EXPECT_EQ(sent[5].payload, hex("00 20 04312e3235 027879 0700000000000000"));
+  EXPECT_EQ(sent[6].payload, hex("fe 00 00 0200 0000"));
+  // An unknown statement to reset.
+  EXPECT_EQ(err(b.send(command::stmt_reset, hex("09000000"))[0]).message, "Unknown prepared statement handler (9) given to mysqld_stmt_reset");
+}
+
+TEST(ServerCommands, LongDataAndWhatIsRefused) {
+  PreparedBed b;
+  b.prepare("SELECT a FROM t WHERE b = ? AND a > ?");
+  // COM_STMT_SEND_LONG_DATA: statement, parameter, bytes; no reply. The
+  // execute then carries no value for that parameter.
+  EXPECT_TRUE(b.send(command::stmt_send_long_data, hex("01000000 0000 78")).empty());
+  auto sent = b.send(command::stmt_execute, hex("01000000 00 01000000 00 01 fe00 0800 0000000000000000"));
+  ASSERT_EQ(sent.size(), 5u);
+  EXPECT_EQ(sent[3].payload, hex("00 00 01000000"));
+  // COM_STMT_RESET forgets it.
+  b.send(command::stmt_send_long_data, hex("01000000 0000 79"));
+  b.send(command::stmt_reset, hex("01000000"));
+  sent = b.send(command::stmt_execute, hex("01000000 00 01000000 00 01 fe00 0800 0179 0000000000000000"));
+  EXPECT_EQ(sent[3].payload, hex("00 00 02000000"));
+
+  // Bytes that do not fit.
+  auto e = err(b.send(command::stmt_execute, hex("01000000 00 01000000 00 01 fe00"))[0]);
+  EXPECT_EQ(e.code, 1835);
+  EXPECT_EQ(e.message, "Malformed communication packet.");
+  // A cursor.
+  e = err(b.send(command::stmt_execute, hex("01000000 01 01000000 00 01 fe00 0800 0178 0000000000000000"))[0]);
+  EXPECT_EQ(e.code, 1235);
+  // A syntax error at the prepare.
+  e = err(b.prepare("SELECT FROM")[0]);
+  EXPECT_EQ(e.code, 1064);
+  // Two statements in one prepare.
+  EXPECT_EQ(err(b.prepare("SELECT 1; SELECT 2")[0]).code, 1064);
+}
+
 // COM_STATISTICS (the manual, "COM_STATISTICS"): the reply is one
 // human-readable string, with no header byte. Observed on MySQL 8.4.13
 // (2026-11-19), the `mysql` client's `status` command sends it, and MySQL
@@ -461,6 +623,24 @@ TEST(ServerCommands, AWaitingStatementIsRunning) {
     EXPECT_EQ(stats.text(), line(0, 1, 14, "0.000"));
   }
   EXPECT_EQ(stats.text(), line(0, 0, 14, "0.000"));
+}
+
+TEST(ServerCommands, PreparedStatementsAndQuestions) {
+  // The manual's "Questions" counts neither COM_STMT_PREPARE, COM_STMT_CLOSE
+  // nor COM_STMT_RESET; COM_STMT_EXECUTE counts.
+  SteppedTime time;
+  NodeStatistics stats(time);
+  catalog::Catalog node;
+  txn::Store rows;
+  exec::Session session{registry(), node, rows, exec::SessionInfo{"root", "10.0.0.1", 7}};
+  CommandPhase phase(session, capability::protocol_41, &stats);
+  phase.received(command(command::stmt_prepare, "SELECT ?"));
+  const Bytes reset = hex("01000000");
+  phase.received(command(command::stmt_reset, std::string_view(reinterpret_cast<const char*>(reset.data()), reset.size())));
+  const Bytes execute = hex("01000000 00 01000000 00 01 0800 0100000000000000");
+  phase.received(command(command::stmt_execute, std::string_view(reinterpret_cast<const char*>(execute.data()), execute.size())));
+  phase.received(command(command::stmt_close, std::string_view(reinterpret_cast<const char*>(reset.data()), reset.size())));
+  EXPECT_EQ(stats.text(), line(0, 0, 2, "0.000"));
 }
 
 }  // namespace

@@ -2,6 +2,28 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-20: prepared statements, (c) the command phase
+
+- Landed: COM_STMT_PREPARE (the reply, parameters' and columns'
+  definitions, each list ended by EOF unless CLIENT_DEPRECATE_EOF; 1064
+  for a syntax error or a second statement; 1390 past 65535 placeholders),
+  COM_STMT_EXECUTE (types kept per statement, binary rows, OK for a
+  change; a lock wait runs it again with the same values; 1835 for bytes
+  that do not fit, 1235 for a cursor), COM_STMT_SEND_LONG_DATA (never
+  answered; past max_allowed_packet the execute is refused with 1153),
+  COM_STMT_CLOSE (never answered), COM_STMT_RESET (OK; 1243 for an id not
+  prepared). Questions leave out COM_STMT_PREPARE, CLOSE and RESET (the
+  manual). The query and execute replies share one writer.
+- Fixed with a capture: MySQL's server sends no NUM flag in a column
+  definition (its client library adds it); Kvasir sent it in every text
+  result set. The session's types keep it, as the differential gate
+  records them through MySQL's client.
+- Test-first on node-d: the 6 new command tests failed with the
+  command codes and no behaviour, the 354 others passing. Every expected
+  packet is MySQL's captured bytes.
+- Gate: release on node-d **360 passed, 0 failed**; the
+  differential gate **684 of 684**.
+
 ## 2026-11-20: prepared statements, (b) the session
 
 - Landed: the parser numbers placeholders only for a prepared statement's
