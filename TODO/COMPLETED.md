@@ -2,6 +2,17 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-20: HAVING without GROUP BY, in the gate
+
+- JDBC's getTables filters with HAVING and no GROUP BY. Observed on MySQL
+  8.4.13 first (13 statements: aliases, a CASE alias with IN and NULLs,
+  columns in and not in the select list, WHERE with HAVING, no table, and
+  an aggregate beside a bare column). Kvasir already answered every one as
+  MySQL does (its grouping step), so no code changed and no sanitizer run
+  was due.
+- Gate: release on node-d (the build of 450b26f) **367 passed**;
+  the differential gate **707 of 707** (13 new statements).
+
 ## 2026-11-20: UPPER, LOWER, UCASE and LCASE
 
 - Observed on MySQL 8.4.13 first, for every code point: UPPER() and

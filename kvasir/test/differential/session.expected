@@ -3133,3 +3133,48 @@ row ƀǸ	ƀǸ	ǸA	ɃǸ	ƀǹ	ɃA	ƀǹ
 end
 statement DROP DATABASE kv_case
 end
+statement CREATE DATABASE kv_hv
+end
+statement USE kv_hv
+end
+statement CREATE TABLE t (a INT, b VARCHAR(5))
+end
+statement INSERT INTO t VALUES (1, 'x'), (2, 'y'), (3, 'x')
+end
+statement SELECT a, b AS kind FROM t HAVING kind = 'x' ORDER BY a
+column a|LONG|63|11|0|NUM
+column kind|VAR_STRING|255|20|0|
+row 1	x
+row 3	x
+end
+statement SELECT a, CASE WHEN b = 'x' THEN 'TABLE' ELSE 'VIEW' END AS t_type FROM t HAVING t_type IN ('TABLE', null, null) ORDER BY t_type, a
+column a|LONG|63|11|0|NUM
+column t_type|VAR_STRING|255|20|31|NOT_NULL
+row 1	TABLE
+row 3	TABLE
+end
+statement SELECT a FROM t HAVING a > 1
+column a|LONG|63|11|0|NUM
+row 2
+row 3
+end
+statement SELECT a FROM t HAVING b = 'x'
+error 1054|42S22|Unknown column 'b' in 'having clause'
+end
+statement SELECT a AS x FROM t WHERE a > 0 HAVING x < 3 ORDER BY x DESC
+column x|LONG|63|11|0|NUM
+row 2
+row 1
+end
+statement SELECT 1 AS one HAVING one = 1
+column one|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+row 1
+end
+statement SELECT 1 AS one HAVING one = 2
+column one|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+end
+statement SELECT a, COUNT(*) FROM t HAVING a = 1
+error 1140|42000|In aggregated query without GROUP BY, expression #1 of SELECT list contains nonaggregated column 'kv_hv.t.a'; this is incompatible with sql_mode=only_full_group_by
+end
+statement DROP DATABASE kv_hv
+end

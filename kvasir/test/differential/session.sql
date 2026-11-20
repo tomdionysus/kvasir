@@ -729,3 +729,16 @@ CREATE TABLE c (g VARCHAR(5) COLLATE utf8mb4_general_ci, b VARCHAR(5) COLLATE ut
 INSERT INTO c VALUES ('ƀǹ', 'ƀǹ', 'ǹa', 'ƀǹ', 'ƀa')
 SELECT UPPER(g), UPPER(b), UPPER(m), UPPER(n), LOWER(UPPER(n)), UPPER(x), LOWER(b) FROM c
 DROP DATABASE kv_case
+CREATE DATABASE kv_hv
+USE kv_hv
+CREATE TABLE t (a INT, b VARCHAR(5))
+INSERT INTO t VALUES (1, 'x'), (2, 'y'), (3, 'x')
+SELECT a, b AS kind FROM t HAVING kind = 'x' ORDER BY a
+SELECT a, CASE WHEN b = 'x' THEN 'TABLE' ELSE 'VIEW' END AS t_type FROM t HAVING t_type IN ('TABLE', null, null) ORDER BY t_type, a
+SELECT a FROM t HAVING a > 1
+SELECT a FROM t HAVING b = 'x'
+SELECT a AS x FROM t WHERE a > 0 HAVING x < 3 ORDER BY x DESC
+SELECT 1 AS one HAVING one = 1
+SELECT 1 AS one HAVING one = 2
+SELECT a, COUNT(*) FROM t HAVING a = 1
+DROP DATABASE kv_hv

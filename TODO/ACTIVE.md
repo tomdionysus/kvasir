@@ -179,7 +179,8 @@ and the reference server first, and watched to fail:
    UPDATE_TIME, CHECK_TIME, storage figures such as DATA_LENGTH 16384). In
    order, each its own step:
    a. (Done 2026-11-20.) UPPER and LOWER, every code point as MySQL's.
-   b. HAVING without GROUP BY over the select list's aliases (getTables).
+   b. (Done 2026-11-20: already answered as MySQL's; 13 statements added
+      to the gate.) HAVING without GROUP BY over the select list's aliases.
    c. information_schema as a read-only database: SCHEMATA, TABLES,
       COLUMNS generated from the catalog, with MySQL's metadata and values
       (DATA_TYPE, COLUMN_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION,
@@ -344,6 +345,18 @@ on the Mac only when hunting a specific bug; none on node-d (4 GB).
   completion", and "Prefer squash commits for the entire feature or
   milestone, onto develop". Each step is a `feature/<name>` branch, its
   gate passed there, squashed onto develop as one commit and pushed.
+- Testing (the maintainer, 2026-11-20, relayed by the coordinating session): "All
+  builds and tests must run on the cluster. ASan/TSan etc are to be run
+  only on the completion of a feature or milestone before merge to
+  develop; it is also acceptable to run them to diagnose bugs where other
+  methods have failed. Do not run multiple mutants in testing in general,
+  unless the code change is small and/or high risk. Do not run dozens of
+  test runs, test once and be done with it. Do not tolerate flaky tests.
+  Investigate tests that randomly fail." So a feature with code changes
+  runs `tools/ci.sh asan` and `tsan` on a 15 GB Pi (never node-d) on its
+  branch before the squash. This replaces "sanitizers only before a
+  release". UPPER and LOWER (450b26f) merged before this arrived without
+  a sanitizer run.
 - Where functionality lives across the stack (the maintainer, 2026-11-20, relayed by
   the coordinating session): the projects negotiate through the coordinating
   session, which keeps the record in
