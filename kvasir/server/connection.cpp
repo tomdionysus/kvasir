@@ -188,6 +188,32 @@ void Connection::lock_timed_out() {
 
 void Connection::sign_in_step(SignInStep step) {
   if (_finished) return;
+  if (_sign_in.signed_in() && !_session) {
+    _session = std::make_unique<exec::Session>(
+        _registry, _catalog, _rows, exec::SessionInfo{_sign_in.user(), _transport->peer_host(), _settings.connection_id, _sign_in.client_collation()});
+    if (const auto& database = _sign_in.database()) {
+      // The database the response named; one that is not there is refused
+      // in place of the OK (observed), and the connection ends.
+      try {
+        sql::Statement use;
+        use.kind = sql::Statement::Kind::use;
+        use.database = *database;
+        _session->execute(use);
+      } catch (const exec::SqlError& e) {
+        // The OK is the last packet of this step.
+        size_t last = 0;
+        for (size_t at = 0; at + 4 <= step.out.size();) {
+          last = at;
+          at += 4 + (size_t{step.out[at]} | size_t{step.out[at + 1]} << 8 | size_t{step.out[at + 2]} << 16);
+        }
+        uint8_t sequence = step.out.empty() ? _sign_in.sequence() : step.out[last + 3];
+        step.out.resize(last);
+        protocol::frame(protocol::encode(protocol::Err{e.code(), e.sqlstate(), e.what()}), sequence, step.out);
+        step.close = true;
+        _session.reset();
+      }
+    }
+  }
   if (!step.out.empty()) _transport->send(as_string(step.out));
   if (step.close) {
     _transport->close();
@@ -214,9 +240,7 @@ void Connection::sign_in_step(SignInStep step) {
     });
     return;
   }
-  if (_sign_in.signed_in() && !_session) {
-    _session = std::make_unique<exec::Session>(
-        _registry, _catalog, _rows, exec::SessionInfo{_sign_in.user(), _transport->peer_host(), _settings.connection_id, _sign_in.client_collation()});
+  if (_session && !_commands) {
     _commands = std::make_unique<CommandPhase>(*_session, _sign_in.client_capabilities() & _sign_in.server_capabilities(), _statistics);
     _reader.restrict(false);
   }

@@ -160,6 +160,22 @@ Bytes response(const std::array<uint8_t, protocol::nonce_size>& nonce, const std
   return w.take();
 }
 
+// The response with CLIENT_CONNECT_WITH_DB and a database.
+Bytes response_with_database(const std::array<uint8_t, protocol::nonce_size>& nonce, const std::string& password, const std::string& database) {
+  const auto scramble = sha2::scramble({reinterpret_cast<const uint8_t*>(password.data()), password.size()}, nonce);
+  Writer w;
+  w.u32(client_flags | capability::connect_with_db);
+  w.u32(16 * 1024 * 1024);
+  w.u8(255);
+  w.zeros(23);
+  w.nul_string("root");
+  w.lenenc(scramble.size());
+  w.raw(scramble);
+  w.nul_string(database);
+  w.nul_string(std::string(sha2::plugin_name));
+  return w.take();
+}
+
 Bytes query(const std::string& sql) {
   Bytes out{command::query};
   out.insert(out.end(), sql.begin(), sql.end());
@@ -282,6 +298,48 @@ TEST(ServerConnection, TheFullPathSignsInAndServesQueries) {
   bed.run();
   EXPECT_TRUE(bed.transport->closed);
   EXPECT_TRUE(bed.connection->finished());
+}
+
+// CLIENT_CONNECT_WITH_DB (Go's and JDBC's DSNs name one): the session starts
+// in the database the response names, and one that is not there is refused
+// with 1049 in place of the OK, the connection closed (observed on MySQL
+// 8.4.13: "ERROR 1049 (42000): Unknown database 'nope'").
+TEST(ServerConnection, TheResponsesDatabase) {
+  const auto sign_in = [](Bed& bed, const std::string& database) {
+    bed.verifiers.remember("root", sha2::fast_verifier({reinterpret_cast<const uint8_t*>("secret"), 6}));
+    bed.transport->push(framed(ssl_request(), 1));
+    bed.run();
+    bed.transport->push(framed(response_with_database(bed.nonce(), "secret", database), 2));
+    bed.run();
+  };
+  {
+    Bed bed;
+    exec::Session admin(registry(), bed.node, bed.rows, exec::SessionInfo{"root", "10.0.0.2", 8});
+    admin.execute(sql::parse("CREATE DATABASE kv_db").at(0));
+    sign_in(bed, "kv_db");
+    ASSERT_TRUE(bed.connection->signed_in());
+    bed.transport->push(framed(query("SELECT DATABASE()"), 0));
+    bed.run();
+    const auto sent = bed.sent_after(3);
+    ASSERT_EQ(sent.size(), 4u);
+    Reader row(sent[2].payload);
+    EXPECT_EQ(row.lenenc_string(256), "kv_db");
+  }
+  Bed bed;
+  sign_in(bed, "nope");
+  const auto sent = bed.sent_after(1);
+  // The fast path's answer, then the refusal where the OK would be.
+  ASSERT_EQ(sent.size(), 2u);
+  EXPECT_EQ(sent[0].payload, (Bytes{0x01, sha2::fast_auth_success}));
+  EXPECT_EQ(sent[1].first_sequence, 4u);
+  Reader r(sent[1].payload);
+  EXPECT_EQ(r.u8(), 0xff);
+  EXPECT_EQ(r.u16(), 1049);
+  EXPECT_EQ(r.u8(), '#');
+  r.view(5);
+  EXPECT_EQ(r.rest_string(256), "Unknown database 'nope'");
+  EXPECT_TRUE(bed.transport->closed);
+  EXPECT_FALSE(bed.connection->signed_in());
 }
 
 // A statement waiting for another transaction's lock keeps its connection,
