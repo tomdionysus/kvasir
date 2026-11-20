@@ -900,7 +900,7 @@ std::vector<std::string> unique_names(const catalog::Table& table, std::optional
   const auto name = duplicate.substr(0, duplicate.find('\0'));
   const auto& key =
       duplicate.empty() ? table.keys[*primary] : *std::find_if(table.keys.begin(), table.keys.end(), [&](const catalog::Key& k) { return k.name == name; });
-  throw SqlError(1062, "23000", "Duplicate entry '" + key_text(key, row) + "' for key '" + table.name + "." + key.name + "'");
+  throw SqlError(1062, "23000", "Duplicate entry '" + key_text(table, key, row) + "' for key '" + table.name + "." + key.name + "'");
 }
 
 // The collation an ORDER BY value sorts under: a column's own, else the

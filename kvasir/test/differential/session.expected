@@ -3372,3 +3372,329 @@ statement USE kv_isc
 end
 statement DROP DATABASE kv_isc
 end
+statement CREATE DATABASE kv_keys
+end
+statement USE kv_keys
+end
+statement CREATE TABLE p (a VARCHAR(10), UNIQUE KEY (a(3)))
+end
+statement INSERT INTO p VALUES ('abcdef')
+end
+statement INSERT INTO p VALUES ('abcxyz')
+error 1062|23000|Duplicate entry 'abc' for key 'p.a'
+end
+statement INSERT INTO p VALUES ('ab')
+end
+statement SELECT a FROM p ORDER BY a
+column a|VAR_STRING|255|40|0|UNIQUE_KEY PART_KEY
+row ab
+row abcdef
+end
+statement CREATE TABLE pm (a VARCHAR(10), UNIQUE KEY (a(2)))
+end
+statement INSERT INTO pm VALUES ('éxa')
+end
+statement INSERT INTO pm VALUES ('éxb')
+error 1062|23000|Duplicate entry 'éx' for key 'pm.a'
+end
+statement CREATE TABLE pb (a VARBINARY(10), UNIQUE KEY (a(2)))
+end
+statement INSERT INTO pb VALUES ('abc')
+end
+statement INSERT INTO pb VALUES ('abd')
+error 1062|23000|Duplicate entry 'ab' for key 'pb.a'
+end
+statement CREATE TABLE n (a INT, b INT, UNIQUE KEY (a, b))
+end
+statement INSERT INTO n VALUES (1, NULL), (1, NULL)
+end
+statement SELECT COUNT(*) FROM n
+column COUNT(*)|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+row 2
+end
+statement CREATE TABLE u (a BIGINT UNSIGNED PRIMARY KEY)
+end
+statement INSERT INTO u VALUES (18446744073709551615), (1), (9223372036854775808)
+end
+statement SELECT a FROM u
+column a|LONGLONG|63|20|0|NOT_NULL PRI_KEY UNSIGNED NO_DEFAULT_VALUE NUM PART_KEY
+row 1
+row 9223372036854775808
+row 18446744073709551615
+end
+statement INSERT INTO u VALUES (1)
+error 1062|23000|Duplicate entry '1' for key 'u.PRIMARY'
+end
+statement CREATE TABLE d (a DECIMAL(6,2) PRIMARY KEY)
+end
+statement INSERT INTO d VALUES (1.5), (-2.25), (0), (-0.5), (10)
+end
+statement SELECT a FROM d
+column a|NEWDECIMAL|63|8|2|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+row -2.25
+row -0.50
+row 0.00
+row 1.50
+row 10.00
+end
+statement INSERT INTO d VALUES (1.50)
+error 1062|23000|Duplicate entry '1.50' for key 'd.PRIMARY'
+end
+statement CREATE TABLE f (a DOUBLE PRIMARY KEY)
+end
+statement INSERT INTO f VALUES (1.5e0), (-2e0), (0e0), (-0.5e0)
+end
+statement SELECT a FROM f
+column a|DOUBLE|63|22|31|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+row -2
+row -0.5
+row 0
+row 1.5
+end
+statement INSERT INTO f VALUES (-0e0)
+error 1062|23000|Duplicate entry '-0' for key 'f.PRIMARY'
+end
+statement CREATE TABLE s (a SMALLINT, g SMALLINT UNSIGNED, b DECIMAL(40,30), c DOUBLE, d FLOAT(5,2), e VARCHAR(40))
+end
+statement INSERT INTO s (a) VALUES (40000)
+error 1264|22003|Out of range value for column 'a' at row 1
+end
+statement INSERT INTO s (a) VALUES (-32768)
+end
+statement INSERT INTO s (g) VALUES (65536)
+error 1264|22003|Out of range value for column 'g' at row 1
+end
+statement INSERT INTO s (g) VALUES (65535)
+end
+statement INSERT INTO s (b) VALUES ('0.000')
+end
+statement INSERT INTO s (b) VALUES ('1e-40')
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Note	1265	Data truncated for column 'b' at row 1
+end
+statement INSERT INTO s (b) VALUES ('0.001')
+end
+statement INSERT INTO s (b) VALUES ('0.1234567890123456789012345678901234567')
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Note	1265	Data truncated for column 'b' at row 1
+end
+statement INSERT INTO s (c) VALUES (18446744073709551615)
+end
+statement INSERT INTO s (c) VALUES (0x41)
+end
+statement INSERT INTO s (c) VALUES (0x010203040506070809)
+error 1264|22003|Out of range value for column 'c' at row 1
+end
+statement INSERT INTO s (d) VALUES (123.456)
+end
+statement INSERT INTO s (d) VALUES (1000)
+error 1264|22003|Out of range value for column 'd' at row 1
+end
+statement INSERT INTO s (e) VALUES (18446744073709551615), (1.5), (1.5e0)
+end
+statement INSERT INTO s (e) VALUES (0xC3)
+error 1366|HY000|Incorrect string value: '\xC3' for column 'e' at row 1
+end
+statement INSERT INTO s (e) VALUES (0xF880808080)
+error 1366|HY000|Incorrect string value: '\xF8\x80\x80\x80\x80' for column 'e' at row 1
+end
+statement INSERT INTO s (e) VALUES (0xE282)
+error 1366|HY000|Incorrect string value: '\xE2\x82' for column 'e' at row 1
+end
+statement SELECT * FROM s
+column a|SHORT|63|6|0|NUM
+column g|SHORT|63|5|0|UNSIGNED NUM
+column b|NEWDECIMAL|63|42|30|NUM
+column c|DOUBLE|63|22|31|NUM
+column d|FLOAT|63|5|2|NUM
+column e|VAR_STRING|255|160|0|
+row -32768	\N	\N	\N	\N	\N
+row \N	65535	\N	\N	\N	\N
+row \N	\N	0.000000000000000000000000000000	\N	\N	\N
+row \N	\N	0.000000000000000000000000000000	\N	\N	\N
+row \N	\N	0.001000000000000000000000000000	\N	\N	\N
+row \N	\N	0.123456789012345678901234567890	\N	\N	\N
+row \N	\N	\N	1.8446744073709552e19	\N	\N
+row \N	\N	\N	65	\N	\N
+row \N	\N	\N	\N	123.46	\N
+row \N	\N	\N	\N	\N	18446744073709551615
+row \N	\N	\N	\N	\N	1.5
+row \N	\N	\N	\N	\N	1.5
+end
+statement CREATE TABLE z (a TINYINT ZEROFILL, b SMALLINT ZEROFILL, c MEDIUMINT ZEROFILL, d INT ZEROFILL, e BIGINT ZEROFILL)
+end
+statement SELECT COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'kv_keys' AND TABLE_NAME = 'z' ORDER BY ORDINAL_POSITION
+column COLUMN_NAME|VAR_STRING|255|256|0|
+column COLUMN_TYPE|BLOB|255|67108860|0|NOT_NULL BLOB BINARY NO_DEFAULT_VALUE
+row a	tinyint(3) unsigned zerofill
+row b	smallint(5) unsigned zerofill
+row c	mediumint(8) unsigned zerofill
+row d	int(10) unsigned zerofill
+row e	bigint(20) unsigned zerofill
+end
+statement CREATE TABLE t1 (a TEXT(70000), b BLOB(70000), c TEXT(17000000), d BLOB(17000000))
+end
+statement CREATE TABLE t2 (a CHAR(3) CHARACTER SET binary, b VARCHAR(3) CHARACTER SET binary, c TINYTEXT CHARACTER SET binary, d TEXT CHARACTER SET binary, e MEDIUMTEXT CHARACTER SET binary, f LONGTEXT CHARACTER SET binary)
+end
+statement SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'kv_keys' AND TABLE_NAME IN ('t1', 't2') ORDER BY TABLE_NAME, ORDINAL_POSITION
+column TABLE_NAME|VAR_STRING|255|256|0|NOT_NULL BINARY NO_DEFAULT_VALUE
+column COLUMN_NAME|VAR_STRING|255|256|0|
+column COLUMN_TYPE|BLOB|255|67108860|0|NOT_NULL BLOB BINARY NO_DEFAULT_VALUE
+row t1	a	mediumtext
+row t1	b	mediumblob
+row t1	c	longtext
+row t1	d	longblob
+row t2	a	binary(3)
+row t2	b	varbinary(3)
+row t2	c	tinyblob
+row t2	d	blob
+row t2	e	mediumblob
+row t2	f	longblob
+end
+statement CREATE TABLE t3 (a VARCHAR(5) CHARACTER SET utf8mb4 COLLATE latin1_swedish_ci)
+error 1253|42000|COLLATION 'latin1_swedish_ci' is not valid for CHARACTER SET 'utf8mb4'
+end
+statement SELECT '﨎' < '㐀', '﨎' < '一', '﨩' < '㐀', '一' < '㐀'
+column '﨎' < '㐀'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column '﨎' < '一'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column '﨩' < '㐀'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column '一' < '㐀'|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 1	0	1	1
+end
+statement SELECT SUM(0x41), SUM(b'101'), AVG(0x0102)
+column SUM(0x41)|NEWDECIMAL|63|26|0|BINARY NUM
+column SUM(b'101')|NEWDECIMAL|63|26|0|BINARY NUM
+column AVG(0x0102)|NEWDECIMAL|63|11|4|BINARY NUM
+row 65	5	258.0000
+end
+statement SELECT BIT_OR(18446744073709551615), BIT_OR(2.6), BIT_XOR('3'), BIT_AND(2.5e0)
+column BIT_OR(18446744073709551615)|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column BIT_OR(2.6)|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column BIT_XOR('3')|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column BIT_AND(2.5e0)|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+row 18446744073709551615	3	3	2
+end
+statement SELECT BIT_OR(2.5), BIT_OR(3.5), BIT_OR(-2.5), BIT_OR(2.5e0), BIT_OR(3.5e0), BIT_OR('2.5'), BIT_OR('3.5'), BIT_OR(-1), BIT_OR(0x41)
+column BIT_OR(2.5)|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column BIT_OR(3.5)|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column BIT_OR(-2.5)|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column BIT_OR(2.5e0)|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column BIT_OR(3.5e0)|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column BIT_OR('2.5')|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column BIT_OR('3.5')|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column BIT_OR(-1)|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column BIT_OR(0x41)|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+row 3	4	18446744073709551613	2	4	2	3	18446744073709551615	65
+end
+statement SELECT VARIANCE(DISTINCT 1)
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'DISTINCT 1)' at line 1
+end
+statement SELECT STD(DISTINCT 1)
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'DISTINCT 1)' at line 1
+end
+statement SELECT BIT_AND(DISTINCT 1)
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'DISTINCT 1)' at line 1
+end
+statement SET SESSION div_precision_increment = -1
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1292	Truncated incorrect div_precision_increment value: '-1'
+end
+statement SELECT @@div_precision_increment
+column @@div_precision_increment|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+row 0
+end
+statement SET SESSION div_precision_increment = DEFAULT
+end
+statement SET SESSION time_zone = '+05:00'
+end
+statement SELECT @@time_zone
+column @@time_zone|VAR_STRING|255|87380|31|
+row +05:00
+end
+statement SET SESSION time_zone = 'system'
+end
+statement SELECT @@time_zone
+column @@time_zone|VAR_STRING|255|87380|31|
+row SYSTEM
+end
+statement SET SESSION time_zone = 'bogus'
+error 1298|HY000|Unknown or incorrect time zone: 'bogus'
+end
+statement SET SESSION time_zone = 5
+error 1232|42000|Incorrect argument type to variable 'time_zone'
+end
+statement SET SESSION sql_mode = 1.5
+error 1232|42000|Incorrect argument type to variable 'sql_mode'
+end
+statement SET SESSION time_zone = DEFAULT
+end
+statement SELECT LEFT('abcdef', 0x02), REPEAT('a', b'11'), LPAD('a', 0x03, 'x')
+column LEFT('abcdef', 0x02)|VAR_STRING|255|8|31|
+column REPEAT('a', b'11')|VAR_STRING|255|12|31|
+column LPAD('a', 0x03, 'x')|VAR_STRING|255|12|31|
+row ab	aaa	xxa
+end
+statement SELECT LOCATE(1, 'a1b'), LOCATE('1', 213), LOCATE(2.5, 'x2.5')
+column LOCATE(1, 'a1b')|LONGLONG|63|11|0|NOT_NULL BINARY NUM
+column LOCATE('1', 213)|LONGLONG|63|11|0|NOT_NULL BINARY NUM
+column LOCATE(2.5, 'x2.5')|LONGLONG|63|11|0|NOT_NULL BINARY NUM
+row 2	2	2
+end
+statement SELECT ROUND(195.0, -1), ROUND(95.0, -1), ROUND(150.0, -2), ROUND(-95.0, -1)
+column ROUND(195.0, -1)|NEWDECIMAL|63|5|0|NOT_NULL BINARY NUM
+column ROUND(95.0, -1)|NEWDECIMAL|63|4|0|NOT_NULL BINARY NUM
+column ROUND(150.0, -2)|NEWDECIMAL|63|5|0|NOT_NULL BINARY NUM
+column ROUND(-95.0, -1)|NEWDECIMAL|63|4|0|NOT_NULL BINARY NUM
+row 200	100	200	-100
+end
+statement SELECT ROUND(9223372036854775815, -1), TRUNCATE(9223372036854775815, -1), ROUND(9223372036854775814, -1)
+column ROUND(9223372036854775815, -1)|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column TRUNCATE(9223372036854775815, -1)|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+column ROUND(9223372036854775814, -1)|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+row 9223372036854775820	9223372036854775810	9223372036854775810
+end
+statement SELECT LENGTH(LPAD('a', 40000000, 'é'))
+column LENGTH(LPAD('a', 40000000, 'é'))|LONGLONG|63|10|0|BINARY NUM
+row \N
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1301	Result of lpad() was larger than max_allowed_packet (67108864) - truncated
+end
+statement CREATE TABLE k1 (a INT, KEY (a) COMMENT 'x' USING BTREE)
+end
+statement CREATE TABLE k2 (a INT, KEY (a) USING HASH)
+end
+statement CREATE TABLE k3 (a INT, KEY (a) BOGUS)
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'BOGUS)' at line 1
+end
+statement CREATE TABLE k4 (a INT DEFAULT CURRENT_TIMESTAMP())
+error 1067|42000|Invalid default value for 'a'
+end
+statement CREATE TABLE k5 (a INT FOO)
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'FOO)' at line 1
+end
+statement CREATE TABLE k6 (a INT DEFAULT +)
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near ')' at line 1
+end
+statement SHOW TABLES LIKE 'k%'
+column Tables_in_kv_keys (k%)|VAR_STRING|255|256|0|NOT_NULL BINARY NO_DEFAULT_VALUE
+row k1
+row k2
+end
+statement DROP DATABASE kv_keys
+end

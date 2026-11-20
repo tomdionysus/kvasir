@@ -7,6 +7,7 @@
 
 #include "kvasir/sql/parser.h"
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cstdint>
@@ -1512,7 +1513,14 @@ class Parser {
       take();
       return;
     }
-    if (accept_word("DISTINCT")) call.distinct = true;
+    // DISTINCT only where MySQL's grammar has it (observed: VARIANCE(DISTINCT
+    // 1) is a syntax error near DISTINCT).
+    if (word("DISTINCT")) {
+      static constexpr std::array<std::string_view, 6> with_distinct = {"COUNT", "SUM", "AVG", "MIN", "MAX", "GROUP_CONCAT"};
+      if (std::find(with_distinct.begin(), with_distinct.end(), call.value) == with_distinct.end()) fail(peek());
+      take();
+      call.distinct = true;
+    }
     if (!call.distinct && symbol("*") && symbol(")", 1)) {
       take();
       take();

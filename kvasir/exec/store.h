@@ -42,4 +42,8 @@ struct Stored {
 // number in a numeric column, bytes in a string one).
 Stored store(const catalog::ColumnType& type, const Value& value, const ResultType& from);
 
+// Where the first `count` characters of UTF-8 text end: a CHAR or VARCHAR
+// column's length, and a key's prefix on a text column.
+size_t character_end(const std::string& s, uint64_t count);
+
 }  // namespace kvasir::exec

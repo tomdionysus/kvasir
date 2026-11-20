@@ -31,6 +31,15 @@ Server-side prepared statements work with Go's, Python's and Java's
 drivers, answering as MySQL does. node-c and node-d each
 hold a tree in `/root/kvasir-work/kvasir`.
 
+Releases (the maintainer, 2026-11-20, to the stack): "When you have completed all
+current tasks, you may cut versions by rationalising docs - README should
+always be focused on installation and use - creating deb packages,
+running full tests including sanitation and fuzzing, and tagging and
+merging to main, pushing. You must maintain a release badge." This is
+The maintainer's standing word for tags once the current tasks are done; until then
+CLAUDE.md's "only at the maintainer's word" holds. And: "You may only bump minor or
+patch versions." (the maintainer, 2026-11-20): never the major.
+
 Next, in order:
 1. Coverage to ~100% (below).
 2. Step 1d: Connector/J's getTables and getColumns against a node.
@@ -167,8 +176,8 @@ over 49 files. Work:
 - the coverage job then fails below the bar, so it holds;
 - Codecov's upload has been refused ("Token required - not valid
   tokenless upload"), so the badge has not moved: the repository has no
-  CODECOV_TOKEN secret. The maintainer set it on 2026-11-20 (02:25Z). Check the next
-  push's upload succeeds and the badge moves.
+  CODECOV_TOKEN secret. The maintainer set it on 2026-11-20 (02:25Z); fc75865's upload
+  was accepted and the badge reads 96%.
 
 **A real MySQL client in the tests** (the maintainer, 2026-11-20: "You will use a
 real mysql library for C++, only in tests."; asked which, "Connector/C++

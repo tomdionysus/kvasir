@@ -1968,5 +1968,31 @@ TEST(ExecSessionFunctions, SubstringOverColumns) {
                                {f::var_string, ai, 8, 31, 0}}));
 }
 
+// information_schema's views Kvasir does not build yet are refused as not
+// yet supported, in any case, where MySQL would answer them (the design,
+// plan 1c); a name MySQL does not have is MySQL's 1109.
+TEST(ExecSessionInformationSchema, ViewsNotBuiltAreRefused) {
+  TableBed b;
+  b.expect_refused("SELECT * FROM information_schema.VIEWS", 1235, "42000", "This version of Kvasir doesn't yet support 'information_schema.VIEWS'");
+  b.expect_refused("SELECT * FROM INFORMATION_SCHEMA.routines", 1235, "42000", "This version of Kvasir doesn't yet support 'information_schema.ROUTINES'");
+  b.expect_refused("SELECT * FROM information_schema.NOPE", 1109, "42S02", "Unknown table 'NOPE' in information_schema");
+}
+
+// A type Kvasir does not build yet is refused as not yet supported, where
+// MySQL would create the table (the date and time types wait on step 2).
+TEST(ExecSessionDdl, TypesNotBuiltAreRefused) {
+  TableBed b;
+  b.expect_refused("CREATE TABLE d (a DATE)", 1235, "42000", "This version of Kvasir doesn't yet support 'the DATE type'");
+}
+
+// Index and column options Kvasir does not build yet are refused as not yet
+// supported, where MySQL would take them.
+TEST(ExecSessionDdl, OptionsNotBuiltAreRefused) {
+  TableBed b;
+  b.expect_refused("CREATE TABLE o1 (a INT, KEY (a) INVISIBLE)", 1235, "42000", "This version of Kvasir doesn't yet support 'index option INVISIBLE'");
+  b.expect_refused("CREATE TABLE o2 (a INT ON UPDATE 1)", 1235, "42000", "This version of Kvasir doesn't yet support 'ON UPDATE'");
+  b.expect_refused("CREATE TABLE o3 (a INT VISIBLE)", 1235, "42000", "This version of Kvasir doesn't yet support 'column attribute VISIBLE'");
+}
+
 }  // namespace
 }  // namespace kvasir::exec

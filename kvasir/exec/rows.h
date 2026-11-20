@@ -36,8 +36,9 @@ bool key_has_null(const catalog::Key& key, const txn::Row& row);
 // The bytes the row's values in the key sort as.
 std::string encode_key(const catalog::Table& table, const catalog::Key& key, const txn::Row& row);
 
-// The key's values as error 1062 names them, joined by '-'.
-std::string key_text(const catalog::Key& key, const txn::Row& row);
+// The key's values as error 1062 names them, joined by '-', each prefix
+// part by its prefix.
+std::string key_text(const catalog::Table& table, const catalog::Key& key, const txn::Row& row);
 
 // Values in ORDER BY: NULL first, numbers by value, strings under
 // `collation` (an id; 0 for none). -1, 0 or 1.

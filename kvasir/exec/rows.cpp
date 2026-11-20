@@ -15,6 +15,7 @@
 
 #include "kvasir/exec/collation.h"
 #include "kvasir/exec/ddl.h"
+#include "kvasir/exec/store.h"
 
 namespace kvasir::exec {
 
@@ -40,15 +41,6 @@ void append_terminated(std::string& out, const std::string& bytes) {
 // Whether a collation pads with spaces: utf8mb4_bin, utf8mb3_bin and the
 // general_ci collations.
 bool pads(uint16_t collation) { return collation == 46 || collation == 83 || collation == 45 || collation == 33; }
-
-size_t character_end(const std::string& s, uint64_t count) {
-  size_t i = 0;
-  for (uint64_t n = 0; n < count && i < s.size(); ++n) {
-    ++i;
-    while (i < s.size() && (static_cast<uint8_t>(s[i]) & 0xc0) != 0x80) ++i;
-  }
-  return i;
-}
 
 size_t characters(const std::string& s) {
   size_t n = 0;
@@ -148,12 +140,20 @@ std::string encode_key(const catalog::Table& table, const catalog::Key& key, con
   return out;
 }
 
-std::string key_text(const catalog::Key& key, const txn::Row& row) {
+std::string key_text(const catalog::Table& table, const catalog::Key& key, const txn::Row& row) {
   std::string out;
   for (size_t i = 0; i < key.parts.size(); ++i) {
     if (i) out += "-";
-    const auto& value = row[key.parts[i].column];
-    out += value ? *value : "NULL";
+    const auto& part = key.parts[i];
+    const auto& value = row[part.column];
+    if (!value) {
+      out += "NULL";
+      continue;
+    }
+    // A prefix part is named by its prefix (observed: 'ab' of 'abd' for
+    // a(2)), in characters for text and bytes otherwise.
+    const bool text = catalog::is_text(table.columns[part.column].type.kind);
+    out += !part.prefix ? *value : value->substr(0, text ? character_end(*value, part.prefix) : std::min<size_t>(part.prefix, value->size()));
   }
   return out;
 }

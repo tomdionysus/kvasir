@@ -284,16 +284,6 @@ bool valid_utf8(const std::string& s, bool three_bytes_at_most) {
   return true;
 }
 
-// Where the first `count` characters of UTF-8 text end.
-size_t character_end(const std::string& s, uint64_t count) {
-  size_t i = 0;
-  for (uint64_t n = 0; n < count && i < s.size(); ++n) {
-    ++i;
-    while (i < s.size() && (static_cast<uint8_t>(s[i]) & 0xc0) == 0x80) ++i;
-  }
-  return i;
-}
-
 std::string text_of(const Value& value) {
   if (const auto* s = std::get_if<std::string>(&value)) return *s;
   if (const auto* i = std::get_if<int64_t>(&value)) return std::to_string(*i);
@@ -327,6 +317,15 @@ Stored store_string(const catalog::ColumnType& type, const Value& value) {
 }
 
 }  // namespace
+
+size_t character_end(const std::string& s, uint64_t count) {
+  size_t i = 0;
+  for (uint64_t n = 0; n < count && i < s.size(); ++n) {
+    ++i;
+    while (i < s.size() && (static_cast<uint8_t>(s[i]) & 0xc0) == 0x80) ++i;
+  }
+  return i;
+}
 
 Stored store(const catalog::ColumnType& type, const Value& value, const ResultType& from) {
   if (catalog::is_integer(type.kind)) return store_integer(type, value, from);

@@ -81,7 +81,9 @@ case "$step" in
     find "$out/coverage" -name '*.gcda' -delete
     (cd "$out/coverage" && ./kvasir_tests)
     ignore=inconsistent,inconsistent,mismatch,negative,unused
-    lcov --quiet --capture --directory "$out/coverage" --ignore-errors "$ignore" --output-file "$out/all.info"
+    # A closing brace after a returned object is a line gcov counts and never
+    # runs; it is not code.
+    lcov --quiet --capture --directory "$out/coverage" --ignore-errors "$ignore" --filter brace,blank --output-file "$out/all.info"
     lcov --quiet --extract "$out/all.info" "$top/kvasir/*" --ignore-errors "$ignore" --output-file "$out/library.info"
     lcov --quiet --remove "$out/library.info" "$top/kvasir/test/*" "$top/kvasir/fuzz/*" --ignore-errors "$ignore" --output-file "$out/coverage.info"
     rm "$out/all.info" "$out/library.info"
