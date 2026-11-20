@@ -382,9 +382,10 @@ Joins that would move rows between nodes are not attempted at first.
 ## Order (Proposed)
 
 1. The skeleton. Done.
-2. One node, in memory: the protocol, SQL and transactions for the subset
-   real drivers and tools use, with the differential gate. In hand
-   (`ACTIVE.md` says how far).
+2. A cluster of one (never a special case: the maintainer, 2026-11-20): the protocol,
+   SQL and transactions for the subset real drivers and tools use, with the
+   differential gate, then its state in Dagda in the cluster's shape. In
+   hand (`ACTIVE.md` says how far).
 3. The commit protocol written down, Kvasir's model and level rules
    supplied, and the protocol passed through Dannan's simulator.
 4. The cluster at `decided` and `replicated`: ranges, the range map in slot

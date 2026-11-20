@@ -20,10 +20,22 @@ it.
 
 ## Resume here
 
-Step 2a, one node speaking the MySQL protocol, is in hand. Last gate
-(2026-11-20, node-d): release **367 passed, 0 failed**, the
-differential gate **694 of 694**. Server-side prepared statements work
-with Go's, Python's and Java's drivers, answering as MySQL does. No claim is held and no wait is queued.
+Step 2a, a cluster of one speaking the MySQL protocol, is in hand. There
+is no special-case code for a single node (the maintainer, 2026-11-20, to the stack:
+"there shall be NO special case code for a single node. you are all
+leaderless, multimaster soft cluster systems"). Last gate
+(2026-11-20, information_schema, ee383be): release on node-d
+**367 passed, 0 failed**, the differential gate **728 of 728**; ASan and
+TSan once each on node-c, 367 passed and 728 of 728, no report.
+Server-side prepared statements work with Go's, Python's and Java's
+drivers, answering as MySQL does. node-c and node-d each
+hold a tree in `/root/kvasir-work/kvasir`.
+
+Next, in order:
+1. Coverage to ~100% (below).
+2. Step 1d: Connector/J's getTables and getColumns against a node.
+3. The real MySQL client in the tests.
+4. Step 2b once Dagda's next release lands.
 The evaluator's types are each expression's own; what a client is told is
 `reported()`'s, in character_set_results (COMPLETED, 2026-11-19).
 
@@ -144,6 +156,65 @@ part of any step's gate: sanitizers run only before a release at the maintainer'
 word, or to hunt a named bug that cannot be pinned any other way
 (CLAUDE.md, Tests). Earlier entries in COMPLETED that list ASan counts were
 outside that rule (the maintainer, 2026-11-17).
+
+**Coverage** (the maintainer, 2026-11-20, to the stack: "You will maintain ~100%
+code coverage on all code."). Baseline at 09f8693, from GitHub CI's
+coverage job: lines 95.6% (7,662 of 8,011), functions 97.7% (804 of 823),
+over 49 files. Work:
+- take the per-file report from `tools/ci.sh coverage` on a Pi;
+- for each uncovered line, a test from the manual or the reference
+  server, or else the line is dead code and goes;
+- the coverage job then fails below the bar, so it holds;
+- Codecov's upload has been refused ("Token required - not valid
+  tokenless upload"), so the badge has not moved: the repository has no
+  CODECOV_TOKEN secret. The maintainer set it on 2026-11-20 (02:25Z). Check the next
+  push's upload succeeds and the badge moves.
+
+**A real MySQL client in the tests** (the maintainer, 2026-11-20: "You will use a
+real mysql library for C++, only in tests."; asked which, "Connector/C++
+9.x").
+- Oracle's MySQL Connector/C++ 9.x, fetched at a pinned tag into the build
+  tree when KVASIR_BUILD_TESTING is on, and never linked by Kvasir itself.
+- Its classic-protocol (JDBC-style) API needs Oracle's libmysqlclient,
+  which Debian 13 does not package (it has MariaDB's in its place).
+- First job: find how to get Oracle's libmysqlclient for arm64 and x86-64
+  Debian 13 (Oracle's APT repository, or built from the MySQL 8.4 source
+  at its tag), and what the first build costs on a Pi.
+- Then: tests that drive a node over TLS as a client would, and checks
+  that caching_sha2_password's fast and full paths, prepared statements
+  and metadata answer as MySQL does.
+
+**Status/Admin dashboard** (the maintainer, 2026-11-20, to Lir, Louhi, Mimir and
+Kvasir).
+- What the maintainer asked for:
+  - optional and configurable;
+  - an HTTP API with OpenAPI, and a React front end;
+  - its build directory configurable, defaulting to Kvasir's install;
+  - an SPA-capable server: routes first, then the SPA, configurable;
+  - styling and structure from Lugh's admin;
+  - sign-in by username and password, or by Lugh.
+- Placement:
+  - the HTTP core, static files, the SPA fallback, OpenAPI from the route
+    table and sessions are Dannan's (item 24, second minor);
+  - passwords are checked by Dannan's credential helper (item 11);
+  - Lugh sign-in goes through lugh_client;
+  - the shared shell is Lugh's "@lugh/admin-ui", fetched at a tag (React
+    19, React Router 7, Vite 7, TypeScript 5.9, plain CSS, Vitest).
+- Kvasir designs its own screens and API now, and builds once those land.
+
+**Dannan 0.10.0** has started (the maintainer's word, relayed 2026-11-20; plan
+`../dannan/TODO/2026-11-20-stack-plan.md`), in order:
+- the contract vocabulary with the ack-level enum;
+- logging;
+- the in-memory AcceptorStore;
+- dannan::testing, with the fuzz export and a client Stream;
+- the clock rules.
+Kvasir pins 0.10.0 once it is tagged, which needs the maintainer's word. Then it:
+- replaces its own ack-level enum with Dannan's;
+- moves kvasir-node's std::cerr output onto Dannan's logging;
+- moves its fuzz targets onto the exported driver;
+- takes the fake Stream for connection tests.
+The credential and node helpers come in the second minor.
 
 **The stack's converged plan** (2026-11-20, agreed by Kvasir; the record
 is "The converged plan" -> "Kvasir" in
@@ -584,18 +655,81 @@ For him, none blocking:
   point in Dannan.
 
 - The default replica count (three proposed).
+- Two figures Kvasir gave Dannan as proposals (2026-11-20, its
+  requirements request):
+  - a range splits at about 64 MiB of folded data;
+  - a range is unavailable to writes for at most about 1 s while it moves.
+  Kvasir also asked that the atomic commit across replica sets come no
+  later than Dannan's third minor, since step 4 needs it.
 - The design's "Acknowledgement levels" items marked Proposed.
 - The SQL surface left until asked for (the replication protocol, XA,
   full-text and spatial indexes, loadable plugins).
 
 ## Ordered work
 
+The maintainer, 2026-11-20: "Your persistence layer must be Dagda from now on", and,
+asked when, "Bring it forward": once information_schema lands, each node
+keeps its catalog, rows and accounts in Dagda's store, with memory as a
+cache; Kvasir writes nothing durable any other way. Kvasir is a leaderless
+cluster that may be only one node (the maintainer, 2026-11-20): a cluster of one is
+not a mode, and nothing is built that a second node would have to replace. The API (objects
+now, the node-local log later) is agreed with Dagda through Lir
+coordinating session before code; the cluster later moves onto Dagda's
+AcceptorStore and log.
+
+Dagda's answer (2026-11-20):
+- Pin Dagda 0.3.2 exactly (main a24db42, on Dannan 0.9.2, contract
+  version 2), with `find_package(dagda 0.3.2 CONFIG REQUIRED)`.
+  Dagda's repository is public (the maintainer, 2026-11-20):
+  `https://github.com/tomdionysus/dagda`. Kvasir fetches it as it fetches
+  Dannan: the sibling checkout when there is one, else GitHub at the tag,
+  so GitHub CI can build it.
+- Use `dagda::Context` from a `dagda::Node` over Kvasir's Dannan node (a
+  cluster of one has no peers yet). Never use LocalStore directly.
+- Objects hold immutable bytes, content-addressed: snapshots, and one
+  delta per transaction. Write each at `Durability::persisted`. An object
+  is at most one 16 MiB extent, so a larger snapshot is chunked.
+- The atomic step is one commit to the every-node manifest head space
+  naming every object of the current state, from the start (Dagda's
+  correction, after the maintainer's ruling that a cluster of one is not a mode).
+  That space is never node_local: a joining node imports its head and
+  history through the exchange, with no migration. A crash before the
+  commit leaves only unreferenced objects, which are collected.
+- The head space's owner is D6's register map, first in Dagda's next
+  release, with one key per range ("manifest/<range>"), written by the
+  range's folder through D6's conditional write expecting the version it
+  read. After a split, the greater (hlc, node id) wins. Kvasir writes no
+  owner of its own. Until D6 lands, "commit a manifest" stays behind one
+  Kvasir function.
+- Durability: until Dagda's per-space k-level (D2, slice 2), a commit is
+  durable on the committing node at return and replicated to peers after.
+  The `replicated` level therefore cannot rest on the manifest space
+  alone; at the cluster step, commits are ordered and made durable
+  through Dannan's agreement and the durable AcceptorStore.
+- Only the acceptor state is per node: it goes to the node-local log
+  under Dagda's durable AcceptorStore.
+- Deltas fold into a new snapshot on a count or size bound.
+
 1. The skeleton. Done.
-2. One node, in memory: the protocol, SQL and transactions for the subset
-   real drivers and tools use, with the differential gate. 2a in hand.
+2. A cluster of one: the protocol, SQL and transactions for the subset
+   real drivers and tools use, with the differential gate. 2a in hand (in
+   memory); 2b each node's state in Dagda, next after information_schema,
+   built in the cluster's shape:
+   - rows per range, each range one register in Dannan's agreement;
+   - a commit made durable by agreement over the range's acceptors, whose
+     log is Dagda's durable AcceptorStore;
+   - folding writes each range's manifest under "manifest/<range>" in the
+     every-node head space;
+   - a range's replica set is every node (one, here), so a joining node
+     changes no code.
+   Not a manifest commit per transaction: D6's conditional write is
+   checked on one node's view only, so that would be correct only with one
+   writer per range, which is single-node code (found 2026-11-20). 2b
+   therefore waits on Dagda's next release (D6 and the durable
+   AcceptorStore).
 3. The commit protocol written down and passed through Dannan's simulator.
 4. The cluster at `decided` and `replicated`, on Dannan 0.9.0 (pinned).
-5. Persistence in Dagda, with backup and restore. Waits on Dagda's
-   node-local log.
+5. Backup and restore in Dagda, and the cluster's state on Dagda's
+   AcceptorStore and node-local log once it exists.
 6. `ephemeral`, `persisted` and held commits; range splits and merges;
    pieces of a query on other nodes; the Lugh plugin; a change feed.

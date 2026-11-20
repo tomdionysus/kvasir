@@ -2,6 +2,44 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-20: information_schema's SCHEMATA, TABLES and COLUMNS (plan 1c)
+
+- What JDBC's metadata calls read, observed on MySQL 8.4.13 first: each
+  view's columns with their types, read directly and through a temporary
+  table (ORDER BY, GROUP BY, DISTINCT), and Connector/J's full getTables
+  and getColumns queries.
+- Landed: `kvasir/exec/information_schema.h`, the three views built from
+  the catalog when a statement names them and read with no transaction.
+  - MySQL's other 79 views give 1235, an unknown name 1109.
+  - Writes give 1044, before any lookup.
+  - USE works, with utf8mb3 as the database's character set; SHOW DATABASES
+    lists it.
+  - TABLES' times are refused when named; its storage figures are NULL.
+- Found and matched, each from a probe:
+  - a view column is named as the view names it;
+  - an expression is typed from the view's own column types, a bare column
+    reported as the temporary table's field;
+  - over a view with ORDER BY, an expression's integer is LONG below 10
+    digits' length, its string has 0 decimals, any BLOB is BLOB;
+  - utf8mb3_bin compares (as utf8mb4_bin) and is flagged BINARY;
+  - CASE and its kin keep the largest BLOB kind among their operands;
+  - UPPER and LOWER of a LONG_BLOB keep its length uncapped;
+  - an integer column keeps its own length in a CASE.
+- A crash fixed (in code before this feature): a grouped SELECT whose ORDER
+  BY named an expression's alias, with another aliased item after it, read
+  a path the expression had not. A new statement in the gate crashed the
+  old build first.
+- My errors: a probe database (`kv_is`) left on the reference server had
+  leaked into one recording; dropped and re-recorded.
+- Test-first on node-d: the 9 new statements failed (713 of 722)
+  before the code.
+- Gate: release on node-d **367 passed, 0 failed, 0 warnings**; the
+  differential gate **728 of 728**. Before the merge, once each on
+  node-c (`tools/ci.sh asan`, `tsan`), which also settles the run
+  UPPER and LOWER owed: ASan with UBSan **367 passed**, 728 of 728, no
+  report; TSan **367 passed**, 728 of 728, no report. Squashed onto
+  develop as ee383be.
+
 ## 2026-11-20: HAVING without GROUP BY, in the gate
 
 - JDBC's getTables filters with HAVING and no GROUP BY. Observed on MySQL
