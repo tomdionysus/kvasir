@@ -176,6 +176,14 @@ TEST(SqlLexer, ADotAfterANamesDotIsNoName) {
 
 TEST(SqlLexer, NamesBeyondAscii) { EXPECT_EQ(shape("SELECT café, 名前"), (V{"word:SELECT", "word:café", "sym:,", "word:名前"})); }
 
+// The manual permits U+0080 to U+FFFF in an unquoted name, but MySQL 8.4.13
+// takes a character past U+FFFF too (observed: SELECT 1 AS a\U00020000 is a
+// column named "a?", the name converted to utf8mb3).
+TEST(SqlLexer, NamesPastTheBasicPlane) {
+  EXPECT_EQ(shape("SELECT a\xf0\xa0\x80\x80 b"), (V{"word:SELECT", "word:a\xf0\xa0\x80\x80", "word:b"}));
+  EXPECT_EQ(error_of("SELECT a\xf0\x80\x80\x80").offset(), 8u);
+}
+
 TEST(SqlLexer, BytesThatAreNotUtf8AreRefusedOutsideStrings) {
   EXPECT_EQ(error_of("SELECT a\xff").offset(), 8u);
   EXPECT_EQ(error_of("SELECT \xc3").offset(), 7u);

@@ -3815,3 +3815,259 @@ row 2	9223372036854775807
 end
 statement DROP DATABASE kv_keys
 end
+statement CREATE DATABASE kv_parse
+end
+statement USE kv_parse
+end
+statement CREATE TABLE a1 (c CHAR(1) CHARACTER SET 1)
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '1)' at line 1
+end
+statement CREATE TABLE a4 (c LONG VARBINARY, d LONG VARCHAR, e LONG, f LONG CHARACTER SET utf8mb3)
+end
+statement CREATE TABLE a5 (c INT, d CHAR(1)) CHARACTER SET = utf8mb3
+end
+statement CREATE TABLE a6 (c INT, d CHAR(1)) DEFAULT CHARACTER SET utf8mb3 COLLATE utf8mb3_bin
+end
+statement CREATE TABLE a7 (c INT) 5
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '5' at line 1
+end
+statement SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, CHARACTER_SET_NAME, COLLATION_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'kv_parse' ORDER BY TABLE_NAME, ORDINAL_POSITION
+column TABLE_NAME|VAR_STRING|255|256|0|NOT_NULL BINARY NO_DEFAULT_VALUE
+column COLUMN_NAME|VAR_STRING|255|256|0|
+column COLUMN_TYPE|BLOB|255|67108860|0|NOT_NULL BLOB BINARY NO_DEFAULT_VALUE
+column CHARACTER_SET_NAME|VAR_STRING|255|256|0|
+column COLLATION_NAME|VAR_STRING|255|256|0|
+row a4	c	mediumblob	\N	\N
+row a4	d	mediumtext	utf8mb4	utf8mb4_0900_ai_ci
+row a4	e	mediumtext	utf8mb4	utf8mb4_0900_ai_ci
+row a4	f	mediumtext	utf8mb3	utf8mb3_general_ci
+row a5	c	int	\N	\N
+row a5	d	char(1)	utf8mb3	utf8mb3_general_ci
+row a6	c	int	\N	\N
+row a6	d	char(1)	utf8mb3	utf8mb3_bin
+end
+statement SELECT TABLE_NAME, TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'kv_parse' ORDER BY TABLE_NAME
+column TABLE_NAME|VAR_STRING|255|256|0|NOT_NULL BINARY NO_DEFAULT_VALUE
+column TABLE_COLLATION|VAR_STRING|255|256|0|NO_DEFAULT_VALUE
+row a4	utf8mb4_0900_ai_ci
+row a5	utf8mb3_general_ci
+row a6	utf8mb3_bin
+end
+statement START TRANSACTION READ
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '' at line 1
+end
+statement START TRANSACTION 5
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '5' at line 1
+end
+statement SELECT 1 LIMIT 'a'
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near ''a'' at line 1
+end
+statement SET SESSION div_precision_increment = 18446744073709551615
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1292	Truncated incorrect div_precision_increment value: '18446744073709551615'
+end
+statement SELECT @@div_precision_increment
+column @@div_precision_increment|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+row 30
+end
+statement SET SESSION div_precision_increment = DEFAULT
+end
+statement SET SESSION sql_select_limit = 18446744073709551615
+end
+statement SELECT @@sql_select_limit
+column @@sql_select_limit|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+row 18446744073709551615
+end
+statement CREATE TABLE g (id INT PRIMARY KEY, a INT)
+end
+statement INSERT INTO g VALUES (1, 10), (2, 10), (3, 20)
+end
+statement SELECT a, COUNT(*) FROM g WHERE '1abc' GROUP BY a
+column a|LONG|63|11|0|NUM
+column COUNT(*)|LONGLONG|63|21|0|NOT_NULL NUM
+row 10	2
+row 20	1
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1292	Truncated incorrect DOUBLE value: '1abc'
+end
+statement SELECT a, COUNT(*) FROM g WHERE a > '1x' GROUP BY a
+column a|LONG|63|11|0|NUM
+column COUNT(*)|LONGLONG|63|21|0|NOT_NULL NUM
+row 10	2
+row 20	1
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1292	Truncated incorrect DOUBLE value: '1x'
+end
+statement SELECT a, COUNT(*) FROM g GROUP BY a HAVING 'x'
+column a|LONG|63|11|0|NUM
+column COUNT(*)|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1292	Truncated incorrect DOUBLE value: 'x'
+end
+statement SELECT a, COUNT(*) FROM g GROUP BY a HAVING COUNT(*) > '1x'
+column a|LONG|63|11|0|NUM
+column COUNT(*)|LONGLONG|63|21|0|NOT_NULL NUM
+row 10	2
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1292	Truncated incorrect DOUBLE value: '1x'
+end
+statement SELECT a, COUNT(*) FROM g GROUP BY a HAVING 0.5e0
+column a|LONG|63|11|0|NUM
+column COUNT(*)|LONGLONG|63|21|0|NOT_NULL NUM
+row 10	2
+row 20	1
+end
+statement SELECT a FROM g GROUP BY a HAVING 18446744073709551615
+column a|LONG|63|11|0|NUM
+row 10
+row 20
+end
+statement SELECT a FROM g GROUP BY a HAVING 0.4
+column a|LONG|63|11|0|NUM
+row 10
+row 20
+end
+statement SELECT a, COUNT(*), SUM(a), AVG(a) FROM g WHERE 0 GROUP BY a
+column a|LONG|63|11|0|NUM
+column COUNT(*)|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+column SUM(a)|NEWDECIMAL|63|33|0|BINARY NUM
+column AVG(a)|NEWDECIMAL|63|16|4|BINARY NUM
+end
+statement SELECT COUNT(*) FROM g HAVING 0
+column COUNT(*)|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+end
+statement SELECT id FROM g WHERE a > '1x'
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+row 1
+row 2
+row 3
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1292	Truncated incorrect DOUBLE value: '1x'
+end
+statement SELECT id, a + '1x' FROM g
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column a + '1x'|DOUBLE|63|23|31|BINARY NUM
+row 1	11
+row 2	11
+row 3	21
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1292	Truncated incorrect DOUBLE value: '1x'
+row Warning	1292	Truncated incorrect DOUBLE value: '1x'
+row Warning	1292	Truncated incorrect DOUBLE value: '1x'
+end
+statement UPDATE g SET a = a WHERE a > '1x'
+error 1292|22007|Truncated incorrect DOUBLE value: '1x'
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Error	1292	Truncated incorrect DOUBLE value: '1x'
+end
+statement SELECT 1 WHERE '1abc'
+column 1|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+row 1
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1292	Truncated incorrect DOUBLE value: '1abc'
+end
+statement SELECT 1 WHERE 0.0
+column 1|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+end
+statement SELECT 1 FROM DUAL WHERE 18446744073709551615
+column 1|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+row 1
+end
+statement SELECT 1 WHERE 0.5e0
+column 1|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+row 1
+end
+statement UPDATE g SET a = a + 1 WHERE '1abc'
+error 1292|22007|Truncated incorrect DOUBLE value: '1abc'
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Error	1292	Truncated incorrect DOUBLE value: '1abc'
+end
+statement DELETE FROM g WHERE 'x'
+error 1292|22007|Truncated incorrect DOUBLE value: 'x'
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Error	1292	Truncated incorrect DOUBLE value: 'x'
+end
+statement UPDATE g SET a = 0 WHERE 0.0e0
+end
+statement UPDATE g SET a = a + 1 WHERE 0.5
+end
+statement DELETE FROM g WHERE 18446744073709551615 AND id = 3
+end
+statement SELECT * FROM g
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column a|LONG|63|11|0|NUM
+row 1	11
+row 2	11
+end
+statement SET SESSION sql_mode = ''
+end
+statement UPDATE g SET a = a + 1 WHERE '1abc'
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1292	Truncated incorrect DOUBLE value: '1abc'
+end
+statement DELETE FROM g WHERE 'x'
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1292	Truncated incorrect DOUBLE value: 'x'
+end
+statement SET SESSION sql_mode = DEFAULT
+end
+statement SELECT * FROM g
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column a|LONG|63|11|0|NUM
+row 1	12
+row 2	12
+end
+statement DROP DATABASE kv_parse
+end

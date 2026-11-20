@@ -8,6 +8,7 @@
 #pragma once
 
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -171,8 +172,9 @@ class Evaluator {
   // binary string, then a _bin collation), or 1267 or 1270.
   Derivation aggregate_collations(const std::vector<Derivation>& strings, const std::string& operation) const;
   // -1, 0 or 1, or nothing when either is NULL; two strings compare under
-  // `collation`.
-  std::optional<int> compare_values(const Value& x, const ResultType& tx, const Value& y, const ResultType& ty, std::optional<uint16_t> collation);
+  // `collation`. A quiet operand read as a number gives no warning.
+  std::optional<int> compare_values(const Value& x, const ResultType& tx, const Value& y, const ResultType& ty, std::optional<uint16_t> collation,
+                                    bool quiet_x = false, bool quiet_y = false);
 
   // The flow control functions (IFNULL, COALESCE, NULLIF, IF and CASE):
   // the type several operands give together, NULL aside, and the collation
@@ -218,6 +220,9 @@ class Evaluator {
 
   EvalSettings _settings;
   std::vector<Warning> _warnings;
+  // The literals a comparison has read as numbers: MySQL converts a
+  // constant operand once for the statement, so warns for it once.
+  std::set<const sql::Expr*> _converted;
 };
 
 // Computed result types, as MySQL reports them: a BIGINT of `precision`

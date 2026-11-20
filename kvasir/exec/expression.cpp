@@ -674,7 +674,8 @@ std::optional<bool> Evaluator::truth(const Value& v, const ResultType& t) {
   return real(v, t) != 0;
 }
 
-std::optional<int> Evaluator::compare_values(const Value& x, const ResultType& tx, const Value& y, const ResultType& ty, std::optional<uint16_t> collation) {
+std::optional<int> Evaluator::compare_values(const Value& x, const ResultType& tx, const Value& y, const ResultType& ty, std::optional<uint16_t> collation,
+                                             bool quiet_x, bool quiet_y) {
   if (is_null(x) || is_null(y)) return std::nullopt;
   if (collation) {
     const auto* sx = std::get_if<std::string>(&x);
@@ -687,7 +688,13 @@ std::optional<int> Evaluator::compare_values(const Value& x, const ResultType& t
     return a < b ? -1 : a > b ? 1 : 0;
   }
   if (dx == Domain::real || dy == Domain::real) {
-    const double a = real(x, tx), b = real(y, ty);
+    const auto quietly = [&](const Value& v, const ResultType& t, bool quiet) {
+      const auto held = _warnings.size();
+      const double r = real(v, t);
+      if (quiet) _warnings.erase(_warnings.begin() + static_cast<std::ptrdiff_t>(held), _warnings.end());
+      return r;
+    };
+    const double a = quietly(x, tx, quiet_x), b = quietly(y, ty, quiet_y);
     return a < b ? -1 : a > b ? 1 : 0;
   }
   return compare(as_decimal(x), as_decimal(y));
@@ -774,7 +781,11 @@ Value Evaluator::value(const Expr& e) {
         if (op == "<=>") {
           if (is_null(a) || is_null(b)) return int64_t{is_null(a) && is_null(b) ? 1 : 0};
         }
-        const auto c3 = compare_values(a, ta, b, tb, string_collation({{e.args[0].get(), ta}, {e.args[1].get(), tb}}, op));
+        // A literal is converted once for the statement (observed: WHERE
+        // a > '1x' over three rows warns once, where a + '1x' warns thrice).
+        const auto once = [&](const Expr& arg) { return arg.kind == ExprKind::string && !_converted.insert(&arg).second; };
+        const bool quiet_a = once(*e.args[0]), quiet_b = once(*e.args[1]);
+        const auto c3 = compare_values(a, ta, b, tb, string_collation({{e.args[0].get(), ta}, {e.args[1].get(), tb}}, op), quiet_a, quiet_b);
         if (!c3) return {};
         const int r = *c3;
         bool result = false;

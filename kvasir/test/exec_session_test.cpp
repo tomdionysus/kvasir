@@ -1994,5 +1994,14 @@ TEST(ExecSessionDdl, OptionsNotBuiltAreRefused) {
   b.expect_refused("CREATE TABLE o3 (a INT VISIBLE)", 1235, "42000", "This version of Kvasir doesn't yet support 'column attribute VISIBLE'");
 }
 
+// ASCII is CHARACTER SET latin1 and UNICODE is ucs2 (the manual's "String
+// Data Type Syntax"; MySQL creates both), character sets a column cannot yet
+// hold.
+TEST(ExecSessionDdl, CharacterSetsNotBuiltAreRefused) {
+  TableBed b;
+  b.expect_refused("CREATE TABLE c1 (a CHAR(1) ASCII)", 1235, "42000", "This version of Kvasir doesn't yet support 'character set latin1'");
+  b.expect_refused("CREATE TABLE c2 (a CHAR(1) UNICODE)", 1235, "42000", "This version of Kvasir doesn't yet support 'character set ucs2'");
+}
+
 }  // namespace
 }  // namespace kvasir::exec

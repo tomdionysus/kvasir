@@ -169,12 +169,23 @@ outside that rule (the maintainer, 2026-11-17).
 **Coverage** (the maintainer, 2026-11-20, to the stack: "You will maintain ~100%
 code coverage on all code."). Baseline at 09f8693, from GitHub CI's
 coverage job: lines 95.6% (7,662 of 8,011), functions 97.7% (804 of 823),
-over 49 files. On `feature/coverage` at 7f5026b (node-c, coverage
-build): lines **98.2% (7,991 of 8,138)**, functions 98.0%; 373 passed,
-832 of 832. Left (`build/coverage/uncovered.txt`): session.cpp 36,
-expression.cpp 34, parser.cpp 19, connection.cpp 15 (four of them the
-lock-wait timer, which waits on Dannan's injected time), stream_transport
-13 (waits on the Connector/C++ tests), a handful elsewhere. Found, not yet matched: MySQL keeps more than 65 digits in an
+over 49 files. On `feature/coverage` at round 4 (node-c, coverage
+build): lines **98.7% (8,053 of 8,160)**, functions 98.0%; 375 passed,
+902 of 902. Left: session.cpp 31, expression.cpp 24, connection.cpp 15
+(four of them the lock-wait timer, which waits on Dannan's injected
+time), stream_transport 13 (waits on the Connector/C++ tests), rows.cpp
+8, a handful elsewhere. variables.cpp:367 (a string variable other than
+time_zone) is reached only by SET GLOBAL, not yet supported (cluster-wide
+state, waits on persistence). Found, not yet matched:
+- MySQL takes a character past U+FFFF in a name and converts the name to
+  utf8mb3 with `?` for it: `SELECT 1 AS a<U+20000>` names the column
+  `a?`, a quoted alias of one warns 1300 for the first such column, a
+  string alias is error 3854, and an unknown column's 1054 names it with
+  `?`. Kvasir's lexer now takes the character (round 4) but keeps it in
+  the name; to probe and build as its own item.
+- ASCII (latin1) and UNICODE (ucs2) column attributes parse but are
+  refused 1235, as their character sets are.
+- MySQL keeps more than 65 digits in an
 intermediate DECIMAL (`99…99.0 * 10`, 65 nines, answers 66 digits; Kvasir
 refuses with 1690 DECIMAL); to probe and build as its own item.
 ddl.cpp:222 may be dead (the parser refuses an unknown type

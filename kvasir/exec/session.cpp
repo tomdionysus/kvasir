@@ -54,14 +54,11 @@ bool has_mode(const std::string& modes, std::string_view name) {
   return false;
 }
 
-bool truth(const Value& v) {
-  if (is_null(v)) return false;
-  if (const auto* i = std::get_if<int64_t>(&v)) return *i != 0;
-  if (const auto* u = std::get_if<uint64_t>(&v)) return *u != 0;
-  if (const auto* d = std::get_if<Decimal>(&v)) return !d->is_zero();
-  if (const auto* r = std::get_if<double>(&v)) return *r != 0;
-  const auto& s = std::get<std::string>(v);
-  return std::strtod(s.c_str(), nullptr) != 0;
+// Whether a condition (WHERE, HAVING) holds: true only for a true value, a
+// string read as a number (warning 1292 for what is left over).
+bool holds(Evaluator& evaluator, const sql::Expr& condition) {
+  const auto b = evaluator.truth(evaluator.value(condition), evaluator.type(condition));
+  return b && *b;
 }
 
 // The type a user variable takes from the value assigned to it (observed).
@@ -1512,10 +1509,21 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
       }
   }
 
+  // A condition that names no column (nor, in HAVING, an aggregate) is read
+  // once, as MySQL folds it (observed: WHERE '1abc' over three rows warns
+  // once).
+  std::optional<bool> constant_where, constant_having;
+  if (!_describing) {
+    if (select.where && !mentions_column(*select.where)) constant_where = holds(rows, *select.where);
+    if (select.having && !mentions_column(*select.having) && !contains_aggregate(*select.having)) constant_having = holds(having, *select.having);
+  }
+  const bool impossible = (constant_where && !*constant_where) || (constant_having && !*constant_having);
+
   // What the columns report. Grouping through a temporary table (the usual
   // way) reports what it holds as that table's fields; a group WHERE fixes,
-  // or a DISTINCT aggregate, needs none.
-  bool temporary = !groups_by.empty();
+  // a DISTINCT aggregate, or a condition found false needs none (observed:
+  // HAVING FALSE reports COUNT(*) BINARY, as its own type).
+  bool temporary = !groups_by.empty() && !impossible;
   if (temporary) {
     bool all_fixed = true;
     for (const auto* g : groups_by) all_fixed = all_fixed && g->kind == sql::ExprKind::column && has(fixed, *columns->index(g->path));
@@ -1585,7 +1593,7 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
     }
     for (const auto& row : table_rows) {
       if (columns) table_columns->set_row(&row);
-      if (select.where && !truth(rows.value(*select.where))) continue;
+      if (select.where && !(constant_where ? *constant_where : holds(rows, *select.where))) continue;
       size_t g = 0;
       if (per_row) {
         g = new_group(&row);
@@ -1618,7 +1626,7 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
     for (const auto& g : groups) {
       if (columns) table_columns->set_row(g.row);
       aggregates.set_group(&g.sums);
-      if (select.having && !truth(having.value(*select.having))) continue;
+      if (select.having && !(constant_having ? *constant_having : holds(having, *select.having))) continue;
       Chosen ch;
       for (const auto& sort : sorts) ch.keys.push_back(items.value(*sort.expr));
       for (size_t k = 0; k < outputs.size(); ++k) {
@@ -1852,9 +1860,24 @@ Outcome Session::change_rows(const sql::Statement& statement) {
       std::vector<Value> keys;
     };
     std::vector<Chosen> chosen;
+    // Strict mode makes a string WHERE reads as a number with text left over
+    // an error (observed: 1292, SQLSTATE 22007); a WHERE that names no
+    // column is read once.
+    const auto modes = _variables.text("sql_mode");
+    const bool strict = has_mode(modes, "STRICT_TRANS_TABLES") || has_mode(modes, "STRICT_ALL_TABLES");
+    const auto passes = [&] {
+      const size_t held = evaluator.warnings().size();
+      const bool b = holds(evaluator, *c.where);
+      if (strict)
+        for (size_t k = held; k < evaluator.warnings().size(); ++k)
+          if (evaluator.warnings()[k].code == er_truncated_wrong_value) throw SqlError(er_truncated_wrong_value, "22007", evaluator.warnings()[k].message);
+      return b;
+    };
+    std::optional<bool> constant_where;
+    if (c.where && !mentions_column(*c.where)) constant_where = passes();
     for (size_t i = 0; i < rows.size(); ++i) {
       columns.set_row(&rows[i].row);
-      if (c.where && !truth(evaluator.value(*c.where))) continue;
+      if (c.where && !(constant_where ? *constant_where : passes())) continue;
       Chosen ch{i, {}};
       for (const auto& sort : sorts) ch.keys.push_back(evaluator.value(*sort.first));
       chosen.push_back(std::move(ch));
@@ -1954,7 +1977,7 @@ Outcome Session::select(const sql::Select& select) {
   if (_describing) return described(std::move(result));
   const uint64_t limit = select.limit ? limit_of(*select.limit) : _variables.number("sql_select_limit");
   const uint64_t offset = select.offset ? limit_of(*select.offset) : 0;
-  const bool passes = !select.where || truth(evaluator.value(*select.where));
+  const bool passes = !select.where || holds(evaluator, *select.where);
   if (passes && offset == 0 && limit > 0) {
     std::vector<std::optional<std::string>> row;
     for (size_t i = 0; i < select.items.size(); ++i) row.push_back(to_text(evaluator.value(*select.items[i].expr), result.columns[i].type));
