@@ -171,12 +171,29 @@ coordinating session, 2026-11-20). Kvasir's own SQL work is not held.
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 and the reference server first, and watched to fail:
 
-1. JDBC's metadata calls (DatabaseMetaData.getTables, getColumns): large
-   queries over INFORMATION_SCHEMA.TABLES and COLUMNS (in
-   `build/connectors/prep.log`), needing information_schema, HAVING
-   without GROUP BY, UPPER, and more. Also: the fuzz target for the
-   execute reader has not run yet (a 15 GB Pi with clang); cursors
-   (COM_STMT_FETCH) are refused.
+1. JDBC's metadata calls (DatabaseMetaData.getTables, getColumns): the
+   queries are in `build/connectors/prep.log`. Probed 2026-11-20:
+   information_schema.TABLES has 21 columns and COLUMNS 22, with MySQL's
+   own metadata for each (enum-backed CHAR columns flagged ENUM, BLOB-typed
+   DATA_TYPE and COLUMN_TYPE, TIMESTAMP and DATETIME columns CREATE_TIME,
+   UPDATE_TIME, CHECK_TIME, storage figures such as DATA_LENGTH 16384). In
+   order, each its own step:
+   a. UPPER and LOWER (getColumns applies UPPER to DATA_TYPE and
+      COLUMN_TYPE), with each collation's case mapping as MySQL has it:
+      probe which Unicode version and which characters first.
+   b. HAVING without GROUP BY over the select list's aliases (getTables).
+   c. information_schema as a read-only database: SCHEMATA, TABLES,
+      COLUMNS generated from the catalog, with MySQL's metadata and values
+      (DATA_TYPE, COLUMN_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION,
+      IS_NULLABLE, COLUMN_KEY, EXTRA, ...). The temporal columns need a
+      decision: a result-only TIMESTAMP/DATETIME, or refusing them (1235)
+      until temporal types exist; the storage figures need one too (MySQL's
+      are InnoDB's; Kvasir's would be its own). SHOW DATABASES then lists
+      information_schema (a known difference closed).
+   d. JDBC's two queries in the differential gate, then Connector/J's
+      getTables and getColumns against kvasir-node.
+   Also: the fuzz target for the execute reader has not run yet (a 15 GB
+   Pi with clang); cursors (COM_STMT_FETCH) are refused.
 2. (Done 2026-11-20; kept for its notes.) Server-side prepared statements. Logged 2026-11-20
    (`build/connectors/prep.log`): Go's driver prepares on the server for
    every query with arguments (COM_STMT_PREPARE, COM_STMT_EXECUTE,
