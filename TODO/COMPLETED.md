@@ -857,7 +857,7 @@ The record, newest first. Each entry says what landed, with its gate counts.
   `Stream::start_tls` refuses MySQL's upgrade (it ends the connection when
   the ClientHello is already waiting); Dannan agreed
   `start_tls_unanswered`, proposed to the maintainer for 0.8.4. Asked Dannan to export
-  its fuzz harness (taken as a 0.9 item). Gave CodeQL `actions: read`.
+  its fuzz harness (taken as a 0.9.0 item). Gave CodeQL `actions: read`.
 - `caching_sha2_password` (known answer computed with the openssl command
   line on a Pi), the sign-in state machine and verifier cache, the built-in
   accounts (Argon2id through Dannan), the lexer, the reserved words (262,

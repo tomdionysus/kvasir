@@ -4245,6 +4245,9 @@ end
 statement CREATE DATABASE kv_c CHARACTER SET utf8mb4 COLLATE utf8mb3_bin
 error 1253|42000|COLLATION 'utf8mb3_bin' is not valid for CHARACTER SET 'utf8mb4'
 end
+statement CREATE DATABASE kv_c CHARACTER SET utf8mb3 COLLATE utf8mb4_bin
+error 1253|42000|COLLATION 'utf8mb4_bin' is not valid for CHARACTER SET 'utf8mb3'
+end
 statement INSERT INTO u VALUES (0x41FF4243444546)
 error 1366|HY000|Incorrect string value: '\xFFBCDEF' for column 'c' at row 1
 end

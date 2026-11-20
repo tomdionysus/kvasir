@@ -517,7 +517,7 @@ on the Mac only when hunting a specific bug; none on node-d (4 GB).
 
 ## With the other sessions
 
-- **Dannan**: agreement is on its `develop` as 0.9, with the simulator's
+- **Dannan**: agreement is on its `develop` as 0.9.0, with the simulator's
   first pieces. Kvasir reviewed the simulator design and the reconfiguration
   proposal; every point was taken. Kvasir owes its sequential model and its
   rule per level for which losses which faults excuse, for the simulator's
@@ -637,11 +637,11 @@ on the Mac only when hunting a specific bug; none on node-d (4 GB).
     day. One break: a test's WorkerPoolConfig aggregate lacked the new
     `schedule` member (-Werror=missing-field-initializers).
   Dannan has also taken Kvasir's
-  ask to export its fuzz harness with the test fixtures (a 0.9 item, not
+  ask to export its fuzz harness with the test fixtures (a 0.9.0 item, not
   started). Dannan's working tree may be on a feature branch: read
   its designs from `develop`.
 - **Mimir**: co-signed the simulator. Shares the level names. Proposed the
-  atomic commit across replica sets to Dannan (0.9 item 7,
+  atomic commit across replica sets to Dannan (0.9.0 item 7,
   `../mimir/TODO/2026-11-15-cross-slot-commit-proposal.md`). Kvasir's review,
   sent to Mimir and Dannan on 2026-11-15:
   - SQL transactions run several rounds, but their writes are known by
