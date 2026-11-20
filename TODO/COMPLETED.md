@@ -2,6 +2,31 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-20: prepared statements, (d) real drivers; two sign-in fixes
+
+- Ran against kvasir-node on node-d over TLS, and against the
+  reference server, the same programs (`build/connectors/e2e-go`,
+  `e2e-py`, `e2e-jdbc`): Go's go-sql-driver/mysql 1.8.1 (prepared on the
+  server: a SELECT over a table, -5, 2.5, "ab", NULL, an unsigned BIGINT,
+  a float, bytes, a bool, a 70000-byte string, INSERT, DELETE, a missing
+  table, LIMIT ?, a transaction rolled back), mysql-connector-python 26.10
+  prepared and plain, PyMySQL 1.2.4, and Connector/J 9.1.0 with and
+  without useServerPrepStmts. Every answer from Kvasir is the reference
+  server's. The throwaway node, certificate and accounts were removed.
+- Found and fixed on the way, each test-first (watched failing on
+  node-d):
+  - The database a handshake names (CLIENT_CONNECT_WITH_DB, in Go's and
+    JDBC's DSNs) was read and dropped: every statement on a table answered
+    1046. The session now starts in it, and one that is not there is
+    refused with 1049 in place of the OK (observed), the connection
+    closed (7de1ae7).
+  - Every Connector/J sign-in was refused: Connector/J reads the greeting's
+    nonce as ASCII, and Kvasir's used whole bytes. MySQL's are 1 to 127
+    and never '$' (observed over 300 greetings); Kvasir's now are
+    (9610406).
+- Gate: release on node-d **362 passed, 0 failed**; the
+  differential gate **684 of 684**.
+
 ## 2026-11-20: prepared statements, (c) the command phase
 
 - Landed: COM_STMT_PREPARE (the reply, parameters' and columns'

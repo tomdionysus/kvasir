@@ -21,8 +21,9 @@ it.
 ## Resume here
 
 Step 2a, one node speaking the MySQL protocol, is in hand. Last gate
-(2026-11-20, node-d): release **343 passed, 0 failed**, the
-differential gate **682 of 682**. No claim is held and no wait is queued.
+(2026-11-20, node-d): release **362 passed, 0 failed**, the
+differential gate **684 of 684**. Server-side prepared statements work
+with Go's, Python's and Java's drivers, answering as MySQL does. No claim is held and no wait is queued.
 The evaluator's types are each expression's own; what a client is told is
 `reported()`'s, in character_set_results (COMPLETED, 2026-11-19).
 
@@ -147,7 +148,13 @@ outside that rule (the maintainer, 2026-11-17).
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 and the reference server first, and watched to fail:
 
-1. Server-side prepared statements. Logged 2026-11-20
+1. JDBC's metadata calls (DatabaseMetaData.getTables, getColumns): large
+   queries over INFORMATION_SCHEMA.TABLES and COLUMNS (in
+   `build/connectors/prep.log`), needing information_schema, HAVING
+   without GROUP BY, UPPER, and more. Also: the fuzz target for the
+   execute reader has not run yet (a 15 GB Pi with clang); cursors
+   (COM_STMT_FETCH) are refused.
+2. (Done 2026-11-20; kept for its notes.) Server-side prepared statements. Logged 2026-11-20
    (`build/connectors/prep.log`): Go's driver prepares on the server for
    every query with arguments (COM_STMT_PREPARE, COM_STMT_EXECUTE,
    COM_STMT_CLOSE), so every Go program passing arguments fails on Kvasir
