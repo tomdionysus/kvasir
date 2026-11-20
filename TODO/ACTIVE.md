@@ -147,12 +147,51 @@ outside that rule (the maintainer, 2026-11-17).
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 and the reference server first, and watched to fail:
 
-1. The connectors' sessions with real traffic: what Connector/J, Python's
-   and Go's drivers send for prepared statements (COM_STMT_PREPARE and
-   its kin, which Kvasir refuses with 1047), and for their metadata
-   calls. Scripts in `build/connectors/`; they run in throwaway
-   containers on the Mac against the reference server (Docker network
-   `kvasir-probe`, account `probe`).
+1. Server-side prepared statements. Logged 2026-11-20
+   (`build/connectors/prep.log`): Go's driver prepares on the server for
+   every query with arguments (COM_STMT_PREPARE, COM_STMT_EXECUTE,
+   COM_STMT_CLOSE), so every Go program passing arguments fails on Kvasir
+   today; mysql-connector-python with `prepared=True` too (and
+   COM_STMT_RESET); Connector/J only with `useServerPrepStmts=true` (by
+   default it sends text). The bytes, captured through a proxy
+   (`build/connectors/capture/`: `proxy.py`, `capture.txt`, and
+   `NOTES.md`, which decodes every packet: prepare OK, parameter and
+   column definitions, the execute packet, binary rows). In pieces, each
+   its own gated commit:
+   a. The protocol (`kvasir/protocol/`): the prepare reply, the execute
+      packet read as untrusted input (bounded by the statement's
+      parameter count, types kept from the last bind when the
+      new-params-bound flag is 0; temporal types refused, Kvasir has
+      none), binary rows from a result's text values by column type
+      (TINY 1 byte, SHORT 2, LONG and INT24 4, LONGLONG 8, FLOAT 4, DOUBLE
+      8, everything else length-encoded; a NULL bitmap offset by 2). A
+      fuzz target for the execute reader. Tests from the manual and the
+      captured bytes.
+   b. The session: placeholders numbered in the parser (a COM_QUERY with
+      `?` is MySQL's 1064: record it in the gate), prepare (an id per
+      session from 1, at most max_prepared_stmt_count, 1461 past it; the
+      statement checked, as MySQL refuses an unknown table at prepare),
+      execute with bound values, close, reset. A bound parameter's type
+      (observed): an integer LONGLONG 21 BINARY (no NUM flag), a string
+      VAR_STRING in the connection's collation 65532 long, NULL the type
+      inferred at prepare. At prepare (observed): beside an integer
+      column or in arithmetic with an integer, LONGLONG 21; beside a
+      string, alone in the select list, or anything else, VAR_STRING
+      65532; an INSERT's VALUES take the column's kind. Prepare-time
+      result columns are typed without running the statement. LIMIT ?
+      and cursors (execute flags other than 0; COM_STMT_FETCH) refused
+      at first, with known differences recorded.
+   c. The command phase: COM_STMT_PREPARE, EXECUTE, SEND_LONG_DATA,
+      CLOSE (no reply), RESET; 1243 for an unknown statement id.
+   d. Real drivers against kvasir-node on a Pi: Go's (the probe in
+      `build/connectors/go-cap/`), mysql-connector-python prepared, and
+      Connector/J with useServerPrepStmts, each answering as the
+      reference server did.
+   Before (a): capture more bound types (unsigned, FLOAT, DOUBLE alone,
+   a DECIMAL string, a long string, TINY) and SELECT ? with each, so the
+   rules above rest on observation.
+   JDBC's metadata calls (getTables, getColumns) query
+   INFORMATION_SCHEMA.TABLES and COLUMNS (in prep.log): a later item.
 2. UPPER and LOWER, which need Unicode's case mapping.
 3. Folding old row versions away (memory grows with every change today;
    folding what is older than every open snapshot is the design's, and
