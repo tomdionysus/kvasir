@@ -475,6 +475,18 @@ explain any that change.
 
 For him, none blocking:
 
+- Two audits the maintainer asked for (relayed by the coordinating session,
+  2026-11-20): no duplicated functionality across the stack, and no
+  special role or node. Kvasir's reports went to the coordinating session,
+  which correlates them; nothing moves until the maintainer decides. Kvasir's main
+  points: tests define SteppedTime where Dannan has one; kvasir-node runs
+  its own process lifecycle and console output instead of being a hosted
+  system in a Dannan node (supervise, status, logging); the credential
+  format may duplicate Lugh's (it would belong in Dannan); and a client's
+  address is the one place a lost node still reaches the user, which
+  every client-facing system shares, so Kvasir proposed a cluster entry
+  point in Dannan.
+
 - The default replica count (three proposed).
 - The design's "Acknowledgement levels" items marked Proposed.
 - The SQL surface left until asked for (the replication protocol, XA,
