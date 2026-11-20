@@ -9,6 +9,7 @@ add_executable(kvasir_tests
   catalog_catalog_test.cpp
   catalog_table_test.cpp
   differential_test.cpp
+  exec_casing_test.cpp
   exec_collation_test.cpp
   exec_decimal_test.cpp
   exec_expression_test.cpp

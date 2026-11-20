@@ -719,3 +719,13 @@ SET NAMES utf8mb4
 DROP DATABASE kv_meta
 SELECT ?
 SELECT 1 LIMIT ?
+SET NAMES utf8mb4 COLLATE utf8mb4_general_ci
+SELECT UPPER('aé'), UPPER('ǹ'), UPPER('ƀ'), LOWER('Ⱥ'), UCASE('ı'), LCASE('İ')
+SET NAMES utf8mb4
+SELECT UPPER('ƀ'), UPPER('ǹ'), LOWER('Ƀ'), UPPER('aé'), UCASE('ς'), LCASE('Σ')
+CREATE DATABASE kv_case
+USE kv_case
+CREATE TABLE c (g VARCHAR(5) COLLATE utf8mb4_general_ci, b VARCHAR(5) COLLATE utf8mb4_bin, m VARCHAR(5) CHARACTER SET utf8mb3, n VARCHAR(5), x TEXT)
+INSERT INTO c VALUES ('ƀǹ', 'ƀǹ', 'ǹa', 'ƀǹ', 'ƀa')
+SELECT UPPER(g), UPPER(b), UPPER(m), UPPER(n), LOWER(UPPER(n)), UPPER(x), LOWER(b) FROM c
+DROP DATABASE kv_case

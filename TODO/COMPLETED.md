@@ -2,6 +2,35 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-20: UPPER, LOWER, UCASE and LCASE
+
+- Observed on MySQL 8.4.13 first, for every code point: UPPER() and
+  LOWER() dumped under utf8mb4_0900_ai_ci, utf8mb4_general_ci and
+  utf8mb4_bin (2,621 code points changed by some collation, recorded as
+  `kvasir/test/differential/casing.tsv`), with probes of the rest. The
+  0900 collations use Unicode 9.0.0's simple mappings; every other
+  collation (utf8mb4_bin and _general_ci, the utf8mb3 ones, and
+  utf8mb4_unicode_ci as far as probed) uses Unicode 3.0.0's in the BMP;
+  binary strings are unchanged. MySQL maps in place in a buffer of the
+  argument's length, so a mapping that lengthens a character (U+023A to
+  U+2C65) ends the result early: LOWER('Ⱥ') is '', LOWER('aȺb') 'aⱥ'.
+  Results take the argument's type, never NOT NULL; 1582 for another
+  argument count.
+- Landed: Unicode 9.0.0's UnicodeData.txt in `kvasir/data/unicode/`;
+  `tools/kvasir_casing.cpp` compiles both versions' case tables at build
+  time; `kvasir/exec/casing.h`; the four functions. My first guess that
+  utf8mb4_bin followed Unicode 9.0 was wrong; the dump showed it agrees
+  with general_ci on all 2,621 code points.
+- Known difference: utf8mb4_unicode_ci's mapping was probed for a few
+  characters only.
+- Test-first on node-d: the casing tests failed against a stub,
+  the function tests and 3 new differential statements against the code
+  before the functions, the rest passing.
+- Gate: release on node-d **367 passed, 0 failed**; the
+  differential gate **694 of 694** (10 new statements).
+- Developed on `feature/upper-lower` and squashed onto develop, per the maintainer's
+  direction (relayed by the coordinating session, 2026-11-20).
+
 ## 2026-11-20: Dannan's SteppedTime in the tests
 
 - Released by the coordinating session as settled by the stack's goals: two

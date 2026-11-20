@@ -16,6 +16,7 @@
 #include <string>
 #include <string_view>
 
+#include "kvasir/exec/casing.h"
 #include "kvasir/exec/collation.h"
 #include "kvasir/exec/expression.h"
 #include "kvasir/protocol/types.h"
@@ -53,6 +54,7 @@ bool is_substring(const std::string& name) { return name == "SUBSTRING" || name 
 bool is_left_right(const std::string& name) { return name == "LEFT" || name == "RIGHT"; }
 bool is_locate(const std::string& name) { return name == "LOCATE" || name == "INSTR" || name == "POSITION"; }
 bool is_trim(const std::string& name) { return name == "TRIM" || name == "LTRIM" || name == "RTRIM"; }
+bool is_case(const std::string& name) { return name == "UPPER" || name == "UCASE" || name == "LOWER" || name == "LCASE"; }
 
 // The warning for a result max_allowed_packet cannot hold, which is NULL.
 Warning too_long(const std::string& name) {
@@ -150,11 +152,12 @@ std::optional<Evaluator::Merged> Evaluator::string_function(const Expr& e) const
     size_t least, most;
   };
   static constexpr size_t any = std::numeric_limits<size_t>::max();
-  static constexpr std::array<Arity, 22> arities = {
+  static constexpr std::array<Arity, 26> arities = {
       {{"CONCAT", 1, any},  {"CONCAT_WS", 2, any}, {"LENGTH", 1, 1},  {"OCTET_LENGTH", 1, 1}, {"CHAR_LENGTH", 1, 1}, {"CHARACTER_LENGTH", 1, 1},
        {"SUBSTRING", 2, 3}, {"SUBSTR", 2, 3},      {"MID", 2, 3},     {"LEFT", 2, 2},         {"RIGHT", 2, 2},       {"TRIM", 1, 2},
        {"LTRIM", 1, 1},     {"RTRIM", 1, 1},       {"REPLACE", 3, 3}, {"LOCATE", 2, 3},       {"INSTR", 2, 2},       {"POSITION", 2, 2},
-       {"LPAD", 3, 3},      {"RPAD", 3, 3},        {"REPEAT", 2, 2},  {"REVERSE", 1, 1}}};
+       {"LPAD", 3, 3},      {"RPAD", 3, 3},        {"REPEAT", 2, 2},  {"REVERSE", 1, 1},      {"UPPER", 1, 1},       {"UCASE", 1, 1},
+       {"LOWER", 1, 1},     {"LCASE", 1, 1}}};
   const auto found = std::find_if(arities.begin(), arities.end(), [&](const Arity& a) { return a.name == name; });
   if (found == arities.end()) return std::nullopt;
   if (e.args.size() < found->least || e.args.size() > found->most) wrong_count(name);
@@ -214,7 +217,7 @@ std::optional<Evaluator::Merged> Evaluator::string_function(const Expr& e) const
     for (size_t i = concat_ws ? 1 : 0; i < types.size(); ++i) total += longest(types[i]);
     // CONCAT_WS: a separator between each two arguments, NULL or not.
     if (concat_ws) total += longest(types[0]) * (types.size() - 2);
-  } else if (is_trim(name) || name == "REVERSE") {
+  } else if (is_trim(name) || name == "REVERSE" || is_case(name)) {
     total = longest(types[0]);
   } else if (name == "REPLACE") {
     // The string's length times one less than the replacement's, at least
@@ -370,6 +373,14 @@ Value Evaluator::string_function_value(const Expr& e) {
     }
     out.append(*s, at, std::string::npos);
     return out;
+  }
+  if (is_case(name)) {
+    // By the argument's collation's mapping (casing.h); a binary string is
+    // left as it is.
+    const auto s = text(*e.args[0]);
+    if (!s) return {};
+    const auto casing = casing_of(string_function(e)->derivation.first);
+    return name == "UPPER" || name == "UCASE" ? upper(*s, casing) : lower(*s, casing);
   }
   if (name == "REVERSE") {
     const auto s = text(*e.args[0]);

@@ -21,8 +21,8 @@ it.
 ## Resume here
 
 Step 2a, one node speaking the MySQL protocol, is in hand. Last gate
-(2026-11-20, node-d): release **362 passed, 0 failed**, the
-differential gate **684 of 684**. Server-side prepared statements work
+(2026-11-20, node-d): release **367 passed, 0 failed**, the
+differential gate **694 of 694**. Server-side prepared statements work
 with Go's, Python's and Java's drivers, answering as MySQL does. No claim is held and no wait is queued.
 The evaluator's types are each expression's own; what a client is told is
 `reported()`'s, in character_set_results (COMPLETED, 2026-11-19).
@@ -178,9 +178,7 @@ and the reference server first, and watched to fail:
    DATA_TYPE and COLUMN_TYPE, TIMESTAMP and DATETIME columns CREATE_TIME,
    UPDATE_TIME, CHECK_TIME, storage figures such as DATA_LENGTH 16384). In
    order, each its own step:
-   a. UPPER and LOWER (getColumns applies UPPER to DATA_TYPE and
-      COLUMN_TYPE), with each collation's case mapping as MySQL has it:
-      probe which Unicode version and which characters first.
+   a. (Done 2026-11-20.) UPPER and LOWER, every code point as MySQL's.
    b. HAVING without GROUP BY over the select list's aliases (getTables).
    c. information_schema as a read-only database: SCHEMATA, TABLES,
       COLUMNS generated from the catalog, with MySQL's metadata and values
@@ -341,6 +339,11 @@ on the Mac only when hunting a specific bug; none on node-d (4 GB).
   its output becoming `session.expected`; statements recorded before must
   come back unchanged.
 - Commit when a step's gate passes and push `develop`. No Claude attribution.
+- Branches (the maintainer, 2026-11-20, relayed by the coordinating session): "features
+  and milestones should be developed on branches and merged to develop on
+  completion", and "Prefer squash commits for the entire feature or
+  milestone, onto develop". Each step is a `feature/<name>` branch, its
+  gate passed there, squashed onto develop as one commit and pushed.
 - Where functionality lives across the stack (the maintainer, 2026-11-20, relayed by
   the coordinating session): the projects negotiate through the coordinating
   session, which keeps the record in

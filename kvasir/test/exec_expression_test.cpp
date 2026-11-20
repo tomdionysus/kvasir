@@ -91,6 +91,31 @@ void check(const std::vector<Case>& cases) {
   }
 }
 
+// UPPER(), LOWER(), UCASE() and LCASE() (observed on MySQL 8.4.13,
+// 2026-11-20): the argument's string type, a number's text in the
+// connection's character set, NULL a binary string of 0, a binary string
+// unchanged; Unicode 9.0.0's simple mappings under utf8mb4_0900_ai_ci (ß and
+// ﬁ unchanged, ς to Σ, ǅ to Ǆ and ǆ, ı to I, İ to i).
+TEST(ExecExpression, CaseFunctions) {
+  check({
+      {"UPPER('abc')", "VAR_STRING", 255, 12, 31, "", "ABC"},
+      {"LOWER('ABC')", "VAR_STRING", 255, 12, 31, "", "abc"},
+      {"UCASE('a')", "VAR_STRING", 255, 4, 31, "", "A"},
+      {"LCASE('A')", "VAR_STRING", 255, 4, 31, "", "a"},
+      {"UPPER(1)", "VAR_STRING", 255, 8, 31, "", "1"},
+      {"UPPER(1.5)", "VAR_STRING", 255, 16, 31, "", "1.5"},
+      {"UPPER(NULL)", "VAR_STRING", 63, 0, 31, "BINARY", "NULL"},
+      {"UPPER(X'61')", "VAR_STRING", 63, 1, 31, "BINARY", "a"},
+      {"LOWER(_binary'ABC')", "VAR_STRING", 63, 3, 31, "BINARY", "ABC"},
+      {"UPPER('aé')", "VAR_STRING", 255, 8, 31, "", "AÉ"},
+      {"UPPER('ßﬁ')", "VAR_STRING", 255, 8, 31, "", "ßﬁ"},
+      {"UPPER('ςı')", "VAR_STRING", 255, 8, 31, "", "ΣI"},
+      {"LOWER('İΣ')", "VAR_STRING", 255, 8, 31, "", "iσ"},
+      {"UPPER('ǅ')", "VAR_STRING", 255, 4, 31, "", "Ǆ"},
+      {"LOWER('ǅ')", "VAR_STRING", 255, 4, 31, "", "ǆ"},
+  });
+}
+
 // Integer literals carry a place for a sign; past BIGINT they are UNSIGNED,
 // past BIGINT UNSIGNED, DECIMAL.
 TEST(ExecExpression, IntegerLiterals) {
@@ -769,6 +794,13 @@ TEST(ExecExpression, ColumnNames) {
   EXPECT_EQ(names("'\xF0\x9F\x98\x80', 'a\xF0\x9F\x98\x80"
                   "b', '\xF0\x9F\x98\x80' LIKE '_'"),
             (std::vector<std::string>{"?", "a?b", "'?' LIKE '_'"}));
+}
+
+// Observed on MySQL 8.4.13: each takes one argument.
+TEST(ExecExpression, CaseFunctionsArguments) {
+  expect_error("UPPER()", 1582, "42000", "Incorrect parameter count in the call to native function 'UPPER'");
+  expect_error("LOWER(1, 2)", 1582, "42000", "Incorrect parameter count in the call to native function 'LOWER'");
+  expect_error("UCASE()", 1582, "42000", "Incorrect parameter count in the call to native function 'UCASE'");
 }
 
 }  // namespace

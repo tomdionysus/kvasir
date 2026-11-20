@@ -3091,3 +3091,45 @@ end
 statement SELECT 1 LIMIT ?
 error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '?' at line 1
 end
+statement SET NAMES utf8mb4 COLLATE utf8mb4_general_ci
+end
+statement SELECT UPPER('aé'), UPPER('ǹ'), UPPER('ƀ'), LOWER('Ⱥ'), UCASE('ı'), LCASE('İ')
+column UPPER('aé')|VAR_STRING|45|8|31|
+column UPPER('ǹ')|VAR_STRING|45|4|31|
+column UPPER('ƀ')|VAR_STRING|45|4|31|
+column LOWER('Ⱥ')|VAR_STRING|45|4|31|
+column UCASE('ı')|VAR_STRING|45|4|31|
+column LCASE('İ')|VAR_STRING|45|4|31|
+row AÉ	Ǹ	ƀ	Ⱥ	I	i
+end
+statement SET NAMES utf8mb4
+end
+statement SELECT UPPER('ƀ'), UPPER('ǹ'), LOWER('Ƀ'), UPPER('aé'), UCASE('ς'), LCASE('Σ')
+column UPPER('ƀ')|VAR_STRING|255|4|31|
+column UPPER('ǹ')|VAR_STRING|255|4|31|
+column LOWER('Ƀ')|VAR_STRING|255|4|31|
+column UPPER('aé')|VAR_STRING|255|8|31|
+column UCASE('ς')|VAR_STRING|255|4|31|
+column LCASE('Σ')|VAR_STRING|255|4|31|
+row Ƀ	Ǹ	ƀ	AÉ	Σ	σ
+end
+statement CREATE DATABASE kv_case
+end
+statement USE kv_case
+end
+statement CREATE TABLE c (g VARCHAR(5) COLLATE utf8mb4_general_ci, b VARCHAR(5) COLLATE utf8mb4_bin, m VARCHAR(5) CHARACTER SET utf8mb3, n VARCHAR(5), x TEXT)
+end
+statement INSERT INTO c VALUES ('ƀǹ', 'ƀǹ', 'ǹa', 'ƀǹ', 'ƀa')
+end
+statement SELECT UPPER(g), UPPER(b), UPPER(m), UPPER(n), LOWER(UPPER(n)), UPPER(x), LOWER(b) FROM c
+column UPPER(g)|VAR_STRING|255|20|31|
+column UPPER(b)|VAR_STRING|255|20|31|BINARY
+column UPPER(m)|VAR_STRING|255|20|31|
+column UPPER(n)|VAR_STRING|255|20|31|
+column LOWER(UPPER(n))|VAR_STRING|255|20|31|
+column UPPER(x)|MEDIUM_BLOB|255|1048560|31|
+column LOWER(b)|VAR_STRING|255|20|31|BINARY
+row ƀǸ	ƀǸ	ǸA	ɃǸ	ƀǹ	ɃA	ƀǹ
+end
+statement DROP DATABASE kv_case
+end

@@ -26,12 +26,33 @@ add_custom_command(
   COMMENT "Deriving the general_ci weights from Unicode's character database"
 )
 
+# UPPER() and LOWER()'s case tables, compiled by kvasir-casing: Unicode
+# 9.0.0's for utf8mb4's 0900 and _bin collations, 3.0.0's (the BMP) for the
+# general_ci and utf8mb3 ones.
+set(kvasir_casing9_table ${PROJECT_BINARY_DIR}/generated/kvasir/casing9_table.cpp)
+add_custom_command(
+  OUTPUT ${kvasir_casing9_table}
+  COMMAND kvasir-casing ${CMAKE_CURRENT_SOURCE_DIR}/data/unicode/UnicodeData-9.0.0.txt 110000 unicode9 ${kvasir_casing9_table}
+  DEPENDS kvasir-casing ${CMAKE_CURRENT_SOURCE_DIR}/data/unicode/UnicodeData-9.0.0.txt
+  COMMENT "Compiling Unicode 9.0.0's case mappings"
+)
+set(kvasir_casing3_table ${PROJECT_BINARY_DIR}/generated/kvasir/casing3_table.cpp)
+add_custom_command(
+  OUTPUT ${kvasir_casing3_table}
+  COMMAND kvasir-casing ${CMAKE_CURRENT_SOURCE_DIR}/data/unicode/UnicodeData-3.0.0.txt 10000 unicode3 ${kvasir_casing3_table}
+  DEPENDS kvasir-casing ${CMAKE_CURRENT_SOURCE_DIR}/data/unicode/UnicodeData-3.0.0.txt
+  COMMENT "Compiling Unicode 3.0.0's case mappings"
+)
+
 add_library(kvasir SHARED
   ${kvasir_ducet_table}
   ${kvasir_general_ci_table}
+  ${kvasir_casing9_table}
+  ${kvasir_casing3_table}
   catalog/catalog.cpp
   catalog/table.cpp
   exec/aggregate.cpp
+  exec/casing.cpp
   exec/collation.cpp
   exec/ddl.cpp
   exec/like.cpp

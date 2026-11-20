@@ -12,5 +12,12 @@ Unicode's data, as Unicode publishes it, unchanged (ruling 32):
   8.4's general_ci collations best: with the rule in
   `tools/kvasir_general_ci.cpp` and three exceptions, all 63,488 BMP code
   points, checked against the reference server's WEIGHT_STRING.
+- UnicodeData-9.0.0.txt: the Unicode Character Database for Unicode 9.0.0,
+  from https://www.unicode.org/Public/9.0.0/ucd/UnicodeData.txt
+  (sha256 68dfc414d28257b9b5d6ddbb8b466c768c00ebdf6cbf7784364a9b6cad55ee8f),
+  whose simple case mappings are UPPER() and LOWER() under the 0900
+  collations; every other collation (utf8mb4_bin and _general_ci, the
+  utf8mb3 ones) uses 3.0.0's, in the BMP only. Checked against the reference server for every code point
+  (kvasir/test/differential/casing.tsv).
 - LICENSE: Unicode License v3, from https://www.unicode.org/license.txt,
   whose notice must travel with the data.
