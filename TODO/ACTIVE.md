@@ -169,9 +169,11 @@ outside that rule (the maintainer, 2026-11-17).
 **Coverage** (the maintainer, 2026-11-20, to the stack: "You will maintain ~100%
 code coverage on all code."). Baseline at 09f8693, from GitHub CI's
 coverage job: lines 95.6% (7,662 of 8,011), functions 97.7% (804 of 823),
-over 49 files. On `feature/coverage` at round 4 (node-c, coverage
-build): lines **98.7% (8,053 of 8,160)**, functions 98.0%; 375 passed,
-902 of 902. Left: session.cpp 31, expression.cpp 24, connection.cpp 15
+over 49 files. On `feature/coverage` at round 5, 92a71c1 (node-a,
+coverage build): lines **98.9% (8,116 of 8,208)**, functions 97.9%; 375
+passed, 955 of 955. CI has a `tidy` step (clang-tidy
+bugprone-use-after-move, warnings as errors; zero findings, Lir's request
+2026-11-20). Left: session.cpp 19, expression.cpp 22, connection.cpp 15
 (four of them the lock-wait timer, which waits on Dannan's injected
 time), stream_transport 13 (waits on the Connector/C++ tests), rows.cpp
 8, a handful elsewhere. variables.cpp:367 (a string variable other than
