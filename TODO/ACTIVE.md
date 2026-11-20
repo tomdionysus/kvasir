@@ -181,8 +181,9 @@ lock-wait timer, which waits on Dannan's injected time), stream_transport
 integer bound to `LIMIT ?` is 1690 from SQL's EXECUTE (observed) and 1210
 in Kvasir; the binary protocol's answer waits on the Connector/C++ tests.
 session.cpp's CREATE DATABASE collation check (charset given, collation
-of another) answers as MySQL but its line is not reached: something
-earlier refuses it; find what. variables.cpp:367 (a string variable other than
+of another) answers as MySQL but its line is not reached: utf8mb3_bin is
+not a collation Kvasir holds, so the unknown-collation branch answers;
+`CHARACTER SET utf8mb3 COLLATE utf8mb4_bin` reaches it (next round). variables.cpp:367 (a string variable other than
 time_zone) is reached only by SET GLOBAL, not yet supported (cluster-wide
 state, waits on persistence). Found, not yet matched:
 - MySQL takes a character past U+FFFF in a name and converts the name to
