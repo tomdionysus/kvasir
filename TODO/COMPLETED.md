@@ -2,6 +2,15 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-20: Dannan pinned at 0.9.2
+
+- Most of the stack is on Dannan 0.9.2 (the coordinating session's audit,
+  item 32). 0.9.1 and 0.9.2 fix how adverts reach peers, which Kvasir does
+  not use yet; the ABI is 0.9.0's. Nothing in Kvasir changed.
+- Gate: a full release build on node-d with Dannan fetched fresh at
+  0.9.2 (3111ec3): **362 passed, 0 failed**; the differential gate **684
+  of 684**.
+
 ## 2026-11-20: prepared statements, (d) real drivers; two sign-in fixes
 
 - Ran against kvasir-node on node-d over TLS, and against the

@@ -301,6 +301,15 @@ on the Mac only when hunting a specific bug; none on node-d (4 GB).
   its output becoming `session.expected`; statements recorded before must
   come back unchanged.
 - Commit when a step's gate passes and push `develop`. No Claude attribution.
+- Where functionality lives across the stack (the maintainer, 2026-11-20, relayed by
+  the coordinating session): the projects negotiate through the coordinating
+  session, which keeps the record in
+  `lir-develop-cluster/TODO/2026-11-20-cluster-stack-placement.md`. A
+  question is first tested against the goals (no duplication; the deepest
+  shared dependency owns what two or more need; no special role or node;
+  failures never the user's problem) and the group's resources; only what
+  they cannot settle goes to the maintainer. Each project gets its list when the plan
+  converges. Kvasir touches nothing under discussion until then.
 - Design questions go to the maintainer through the interactive question tool, with a
   recommendation first. He asked that other sessions' advice be gathered and
   reconciled before he is asked anything.
