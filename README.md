@@ -12,29 +12,17 @@ written to become a leaderless, multi-master cluster with ACID transactions, on
 [Dannan](https://github.com/tomdionysus/dannan), the network layer, and
 [Dagda](https://github.com/tomdionysus/dagda), the store.
 
-**This release (0.1) is one node, in memory.** It keeps nothing on disk and does not
-yet join other nodes: everything is lost when the node stops. It therefore starts
-only at the `ephemeral` acknowledgement level, whose promise is exactly that. Use it
-for development, tests and data you can lose; not yet for anything you must keep.
+**Kvasir is a prototype.** It is not ready for any data you need to keep, and it will
+stay a prototype until it has a durable store and has been tested on a cluster.
+Today it is one node, in memory: it keeps nothing on disk and does not yet join other
+nodes, so everything is lost when the node stops. It therefore starts only at the
+`ephemeral` acknowledgement level, whose promise is exactly that.
 
-## Install
+## Build
 
-On Debian 13 (x86-64 or arm64), from the tomcully.com apt repository:
-
-```
-sudo curl -fsSLo /etc/apt/sources.list.d/tomcully.sources https://tomcully.com/apt/tomcully.sources
-sudo apt update
-sudo apt install kvasir
-```
-
-The package installs `kvasir-node`, its settings in `/etc/kvasir/`, a manual page
-(`man kvasir-node`) and a systemd unit, `kvasir.service`, which is installed
-disabled. `docs/packaging.md` lists every file.
-
-### From source
-
-A C++20 compiler (GCC 14 or Clang 19), CMake 3.24 or later, Boost 1.83 or later,
-OpenSSL 3 and yaml-cpp; GoogleTest for the tests. Dannan is fetched at its pinned
+Kvasir is not published as a package; build it from source. It needs a C++20
+compiler (GCC 14 or Clang 19), CMake 3.24 or later, Boost 1.83 or later, OpenSSL 3
+and yaml-cpp, and GoogleTest for the tests. Dannan is fetched at its pinned
 release from a checkout beside this one (`../dannan`); to fetch it from GitHub
 instead, add `-DKVASIR_DANNAN_REPOSITORY=https://github.com/tomdionysus/dannan.git`.
 On Debian 13:
@@ -59,22 +47,7 @@ account, and an acknowledgement level, which has no built-in default.
    echo 'a password' | kvasir-node hash-password
    ```
 
-2. With the package, put the certificate chain and key at `/etc/kvasir/node.pem` and
-   `/etc/kvasir/node.key`, readable by the `kvasir` user, add the account to
-   `/etc/kvasir/secrets.yaml`:
-
-   ```
-   users:
-     - "root:<credential>"
-   ```
-
-   and start it:
-
-   ```
-   sudo systemctl enable --now kvasir
-   ```
-
-   Without the package, give the same on the command line:
+2. Start the node with the certificate chain and key, the account and the level:
 
    ```
    kvasir-node --tls-certificate node.pem --tls-key node.key --ack-level ephemeral \
@@ -89,7 +62,7 @@ account, and an acknowledgement level, which has no built-in default.
 
 Every setting is a command-line flag, a key in the settings file (`--config PATH`,
 `$KVASIR_CONFIG`, or `/etc/kvasir/config.yaml`), a key in `secrets.yaml` beside it,
-or a `KVASIR_*` variable; `man kvasir-node` lists them. SIGINT or SIGTERM stops the
+or a `KVASIR_*` variable; `docs/man/kvasir-node.1` lists them. SIGINT or SIGTERM stops the
 node.
 
 ## What a node does
@@ -136,7 +109,7 @@ shared with Mimir and Dagda:
 
 | `ack_level` | The node answers | An answered commit is lost if |
 |---|---|---|
-| `ephemeral` | after its local checks | the node stops first (the only level this release keeps) |
+| `ephemeral` | after its local checks | the node stops first (the only level Kvasir keeps today) |
 | `persisted` | once one node's disk has it | that disk is lost first |
 | `decided` | once a majority has agreed it, in memory | a majority of its replicas lose power together |
 | `replicated` | once a majority has it on disk | never, while a majority's disks survive |
@@ -158,7 +131,9 @@ conventions and no duplicated code:
 
 `tools/ci.sh` runs one step at a time: `check` (header blocks and formatting),
 `release`, `clang`, `tidy`, `coverage`, `fuzz` and `deb`, which CI runs on each push,
-and `asan` and `tsan`, run before a release. Build options are
+and `asan` and `tsan`, run before a release. `deb` builds a Debian package
+(`docs/packaging.md`) to keep the packaging working; no package is published while
+Kvasir is a prototype. Build options are
 `KVASIR_BUILD_TESTING`, `KVASIR_BUILD_FUZZING` (clang with libFuzzer),
 `KVASIR_WARNINGS_AS_ERRORS` and `KVASIR_SYSTEM_DANNAN` (the packaging build).
 
