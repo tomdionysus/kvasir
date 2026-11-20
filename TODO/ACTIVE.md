@@ -181,14 +181,35 @@ and the reference server first, and watched to fail:
    a. (Done 2026-11-20.) UPPER and LOWER, every code point as MySQL's.
    b. (Done 2026-11-20: already answered as MySQL's; 13 statements added
       to the gate.) HAVING without GROUP BY over the select list's aliases.
-   c. information_schema as a read-only database: SCHEMATA, TABLES,
-      COLUMNS generated from the catalog, with MySQL's metadata and values
-      (DATA_TYPE, COLUMN_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION,
-      IS_NULLABLE, COLUMN_KEY, EXTRA, ...). The temporal columns need a
-      decision: a result-only TIMESTAMP/DATETIME, or refusing them (1235)
-      until temporal types exist; the storage figures need one too (MySQL's
-      are InnoDB's; Kvasir's would be its own). SHOW DATABASES then lists
-      information_schema (a known difference closed).
+   c. information_schema as a read-only database. The shape (decided
+      2026-11-20, Kvasir's own choices where it differs, each a known
+      difference):
+      - SCHEMATA, TABLES and COLUMNS are built from the catalog when a
+        statement names them: a view is a catalog::Table definition, the
+        type MySQL reports for each column (explicit, as MySQL's are not
+        derived: TABLE_TYPE a CHAR 44 flagged ENUM, DATA_TYPE a BLOB
+        201326580, SQL_PATH a NULL column), and its rows as text; the
+        select code runs over it as over a table, with no transaction.
+      - Any other of MySQL 8.4's 79 views (ADMINISTRABLE_ROLE_AUTHORIZATIONS
+        ... VIEW_TABLE_USAGE; the list is in COMPLETED when this lands) is
+        refused with 1235 naming it; a name MySQL does not have is 1109
+        "Unknown table 'NOPE' in information_schema" (42S02).
+      - USE information_schema works and DATABASE() names it; creating,
+        changing or dropping anything in it is 1044 "Access denied for user
+        '...'@'...' to database 'information_schema'"; SHOW DATABASES lists
+        it.
+      - TABLES' CREATE_TIME (TIMESTAMP), UPDATE_TIME and CHECK_TIME
+        (DATETIME) are refused with 1235 when selected (SELECT * included)
+        until Kvasir has temporal types; JDBC's queries do not select them.
+      - Storage figures: TABLE_ROWS Kvasir's committed count and
+        AUTO_INCREMENT its next value, where MySQL's are InnoDB's estimates;
+        ENGINE InnoDB, VERSION 10, ROW_FORMAT Dynamic as MySQL's; the byte
+        sizes 0. The gate leaves these columns out.
+      MySQL's metadata for all three views was probed (a table of nine
+      column types: INT AUTO_INCREMENT key, VARCHAR NOT NULL DEFAULT,
+      DECIMAL, TEXT, TINYINT(1), BIGINT UNSIGNED ZEROFILL, DOUBLE, CHAR
+      _bin, VARBINARY); probe COLUMNS' values for each column type and
+      key kind before writing the tests.
    d. JDBC's two queries in the differential gate, then Connector/J's
       getTables and getColumns against kvasir-node.
    Also: the fuzz target for the execute reader has not run yet (a 15 GB
@@ -340,6 +361,10 @@ on the Mac only when hunting a specific bug; none on node-d (4 GB).
   its output becoming `session.expected`; statements recorded before must
   come back unchanged.
 - Commit when a step's gate passes and push `develop`. No Claude attribution.
+- GitHub CI (the maintainer, 2026-11-20, relayed by the coordinating session): "If you
+  have public github repos, fix and maintain github CI." Kvasir's is
+  public: check `gh run list -R tomdionysus/kvasir` after each push and fix
+  any failure before other work.
 - Branches (the maintainer, 2026-11-20, relayed by the coordinating session): "features
   and milestones should be developed on branches and merged to develop on
   completion", and "Prefer squash commits for the entire feature or
