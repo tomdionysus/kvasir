@@ -257,9 +257,11 @@ The repin (feature/dannan-0.10.0) takes:
   building Dannan's packages itself;
 - DANNAN_BUILD_TOOLS off: Kvasir runs none of Dannan's tools.
 
-Each its own change, after the repin:
-- kvasir-node's std::cerr lines onto `status::SwappableSink` and a scoped
-  logger;
+Each its own change, after the repin (merged fa35ad8):
+- Done (07c593a): kvasir-node's lines onto `status::SwappableSink` and a
+  scoped logger, with log.level and log.format (the stack's names), and
+  every setting's flag and variable named from its key (Dannan's
+  docs/config.md);
 - the fuzz targets registered with `dannan::testing`, run by
   `dannan::fuzz::smoke` inside kvasir_tests as well (so g++ builds and the
   sanitizer steps run them too).
