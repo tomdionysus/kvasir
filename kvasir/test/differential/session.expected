@@ -4084,6 +4084,18 @@ column us + 1|LONGLONG|63|6|0|UNSIGNED BINARY NUM
 column s | 0|LONGLONG|63|21|0|UNSIGNED BINARY NUM
 row -2	70001	-210000	3	-70000	-1	6	18446744073709551613
 end
+statement SELECT MIN(s), MAX(m), MIN(us) FROM n
+column MIN(s)|SHORT|63|6|0|BINARY NUM
+column MAX(m)|INT24|63|9|0|BINARY NUM
+column MIN(us)|SHORT|63|5|0|UNSIGNED BINARY NUM
+row -3	70000	5
+end
+statement SELECT CASE WHEN 1 THEN s END, CASE WHEN 1 THEN m END, CASE WHEN 1 THEN us END FROM n
+column CASE WHEN 1 THEN s END|SHORT|63|6|0|BINARY NUM
+column CASE WHEN 1 THEN m END|INT24|63|9|0|BINARY NUM
+column CASE WHEN 1 THEN us END|SHORT|63|5|0|UNSIGNED BINARY NUM
+row -3	70000	5
+end
 statement SELECT '1.5e3abc' + 0, '2e' + 0, '2e+' + 0, '2E-1' + 0, ' 3e2 ' + 0
 column '1.5e3abc' + 0|DOUBLE|63|23|31|NOT_NULL BINARY NUM
 column '2e' + 0|DOUBLE|63|23|31|NOT_NULL BINARY NUM
@@ -4193,6 +4205,8 @@ row 21
 end
 statement UPDATE g SET a = a ORDER BY a, id DESC LIMIT 2
 end
+statement UPDATE g SET a = a ORDER BY a LIMIT 3
+end
 statement CREATE TABLE d (id INT PRIMARY KEY, x INT NOT NULL, y INT)
 end
 statement INSERT INTO d VALUES (1, 5, 6)
@@ -4228,6 +4242,9 @@ end
 statement SET NAMES utf8mb4 COLLATE nope_ci
 error 1273|HY000|Unknown collation: 'nope_ci'
 end
+statement CREATE DATABASE kv_c CHARACTER SET utf8mb4 COLLATE utf8mb3_bin
+error 1253|42000|COLLATION 'utf8mb3_bin' is not valid for CHARACTER SET 'utf8mb4'
+end
 statement INSERT INTO u VALUES (0x41FF4243444546)
 error 1366|HY000|Incorrect string value: '\xFFBCDEF' for column 'c' at row 1
 end
@@ -4239,6 +4256,15 @@ error 1690|22003|BIGINT value is out of range in '(9223372036854775807 + `kv_par
 end
 statement SELECT a, COUNT(*) FROM g GROUP BY a HAVING a + 9223372036854775807 > 0
 error 1690|22003|BIGINT value is out of range in '(`kv_parse`.`g`.`a` + 9223372036854775807)'
+end
+statement SELECT a AS x, COUNT(*) FROM g GROUP BY a HAVING x + 9223372036854775807 > 0
+error 1690|22003|BIGINT value is out of range in '(`x` + 9223372036854775807)'
+end
+statement SELECT a + 1 AS x, COUNT(*) FROM g GROUP BY a HAVING x + 9223372036854775807 > 0
+error 1690|22003|BIGINT value is out of range in '(`x` + 9223372036854775807)'
+end
+statement SELECT COUNT(*) AS x FROM g GROUP BY a HAVING x + 9223372036854775807 > 0
+error 1690|22003|BIGINT value is out of range in '(`x` + 9223372036854775807)'
 end
 statement SET collation_connection = utf8mb4_bin
 end

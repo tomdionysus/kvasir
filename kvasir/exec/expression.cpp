@@ -1229,7 +1229,7 @@ Value Evaluator::flow_value(const Expr& e) {
 
 std::string ColumnSource::written(const std::vector<std::string>& path) const {
   std::string out;
-  for (size_t i = 0; i < path.size(); ++i) out += (i ? "." : "") + path[i];
+  for (size_t i = 0; i < path.size(); ++i) out += (i ? ".`" : "`") + path[i] + "`";
   return out;
 }
 

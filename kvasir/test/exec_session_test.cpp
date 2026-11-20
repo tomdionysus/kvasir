@@ -477,6 +477,12 @@ TEST(ExecSessionPrepared, ChangesAndLimits) {
   EXPECT_EQ(typed(p.params), (std::vector<Typed>{longlong_param}));
   o = b.s.execute_prepared(p.id, b.s.bind(p.id, {bound(f::longlong, int64_t{9})}));
   EXPECT_EQ(o.affected_rows, 1u);
+  // A value set into an integer column is a BIGINT parameter.
+  p = prepare(b.s, "UPDATE t SET a = ? WHERE a = 2");
+  EXPECT_EQ(typed(p.params), (std::vector<Typed>{longlong_param}));
+  o = b.s.execute_prepared(p.id, b.s.bind(p.id, {bound(f::longlong, int64_t{7})}));
+  EXPECT_EQ(o.affected_rows, 1u);
+  EXPECT_EQ(row(run(b.s, "SELECT a, b FROM t WHERE a = 7")), (std::vector<std::string>{"7", "y"}));
 
   p = prepare(b.s, "SELECT ? FROM t LIMIT ?");
   EXPECT_EQ(typed(p.params),
@@ -495,6 +501,15 @@ TEST(ExecSessionPrepared, WhatIsRefused) {
   EXPECT_EQ(r.message, "Table 'kv_prep.nope' doesn't exist");
   r = refusal_of([&] { prepare(b.s, "INSERT INTO nope VALUES (?)"); });
   EXPECT_EQ(r.code, 1146);
+  // A column that is not there, at the prepare (observed).
+  r = refusal_of([&] { prepare(b.s, "UPDATE t SET nope = ?"); });
+  EXPECT_EQ(r.code, 1054);
+  EXPECT_EQ(r.sqlstate, "42S22");
+  EXPECT_EQ(r.message, "Unknown column 'nope' in 'field list'");
+  // What the text query refuses as not built, the prepare refuses alike.
+  r = refusal_of([&] { prepare(b.s, "INSERT INTO t SELECT ?, ?"); });
+  EXPECT_EQ(r.code, 1235);
+  EXPECT_EQ(r.message, "This version of Kvasir doesn't yet support 'INSERT ... SELECT'");
   // An id not prepared, or closed.
   r = refusal_of([&] { b.s.execute_prepared(5, {}); });
   EXPECT_EQ(r.code, 1243);

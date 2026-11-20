@@ -82,7 +82,7 @@ class ColumnSource {
   // Its value in the row at hand.
   virtual Value column_value(const std::vector<std::string>& path) const = 0;
   // The column as an error message names it: by default its path as
-  // written.
+  // written, each name backquoted (observed: a HAVING alias is `x`).
   virtual std::string written(const std::vector<std::string>& path) const;
 };
 

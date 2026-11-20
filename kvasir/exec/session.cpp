@@ -338,8 +338,16 @@ std::vector<ResultType> Session::infer_parameters(const sql::Statement& s) const
         if (integer_column(name)) set(row[i].get(), longlong_parameter(false));
       }
   }
-  for (const auto& [column, value] : s.change.set)
+  // An unknown column SET names is refused at the prepare (observed); a
+  // qualifier that names another table, at the execute.
+  for (const auto& [column, value] : s.change.set) {
+    if (table && !table->column(column.back())) {
+      std::string name;
+      for (size_t k = 0; k < column.size(); ++k) name += (k ? "." : "") + column[k];
+      throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + name + "' in 'field list'");
+    }
     if (integer_column(column.back())) set(value.get(), longlong_parameter(false));
+  }
   return out;
 }
 
