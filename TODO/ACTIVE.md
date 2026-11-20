@@ -439,6 +439,17 @@ on the Mac only when hunting a specific bug; none on node-d (4 GB).
     register.
   - The conflict rule must be the hosted system's to choose.
   - The record must carry a commit timestamp from the hybrid clock.
+- **Dagda**: the maintainer has ruled (relayed by Louhi and Dagda, 2026-11-20) that
+  Dagda builds a durable AcceptorStore for Dannan's agreement, one for
+  every hosted system, in its release after 0.3.2. Kvasir told Dagda how
+  its use differs: deltas applied to an exact base with the ballot as one
+  durable step, ancestry of 16 ballots, values up to 256 MiB (whole
+  records rare), group commit across slots including the promises a
+  current read keeps, order from the agreement only, and later a log
+  trimmable after folding. Asked about a per-space "caught up" signal:
+  Kvasir needs it for the manifest head space only, as a query and a
+  notice, to defer claim releases and folding's drops while not caught
+  up; correctness does not rest on it.
 - **Dagda**: adopting the level standard and recording it in the stack
   document. Its node-local log (slice 4) is paused for Macha's port; step 5
   waits on it. Dannan asked it which file contract the log writes through,
