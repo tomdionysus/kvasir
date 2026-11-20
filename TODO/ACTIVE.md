@@ -416,8 +416,6 @@ explain any that change.
 
 For him, none blocking:
 
-- Whether the Louhi session should be told of the ruling that sanitizers
-  are not run on every push (asked 2026-11-17, not answered).
 - The default replica count (three proposed).
 - The design's "Acknowledgement levels" items marked Proposed.
 - The SQL surface left until asked for (the replication protocol, XA,
