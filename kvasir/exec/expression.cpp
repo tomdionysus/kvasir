@@ -599,6 +599,32 @@ Decimal as_decimal(const Value& v) {
 
 }  // namespace
 
+uint64_t bit_operand(const Value& v, const ResultType& from) {
+  const auto signed_text = [](std::string_view text) -> uint64_t {
+    if (!text.empty() && text[0] == '-') {
+      int64_t i = 0;
+      std::from_chars(text.data(), text.data() + text.size(), i);
+      return static_cast<uint64_t>(i);
+    }
+    uint64_t u = 0;
+    std::from_chars(text.data() + (!text.empty() && text[0] == '+'), text.data() + text.size(), u);
+    return u;
+  };
+  if (const auto* i = std::get_if<int64_t>(&v)) return static_cast<uint64_t>(*i);
+  if (const auto* u = std::get_if<uint64_t>(&v)) return *u;
+  if (const auto* d = std::get_if<Decimal>(&v)) return signed_text(d->rounded(0).to_string());
+  if (const auto* r = std::get_if<double>(&v)) {
+    const double x = std::rint(*r);
+    return x < 0 ? static_cast<uint64_t>(static_cast<int64_t>(x)) : static_cast<uint64_t>(x);
+  }
+  if (is_null(v)) return 0;
+  const auto& s = std::get<std::string>(v);
+  if (from.number_string) return static_cast<uint64_t>(as_int(v));
+  size_t start = 0;
+  while (start < s.size() && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n')) ++start;
+  return signed_text(std::string_view(s).substr(start));
+}
+
 bool is_aggregate(const Expr& e) {
   static constexpr std::array<std::string_view, 18> names{"AVG",           "BIT_AND",        "BIT_OR", "BIT_XOR",  "COUNT",   "GROUP_CONCAT",
                                                           "JSON_ARRAYAGG", "JSON_OBJECTAGG", "MAX",    "MIN",      "STD",     "STDDEV",
@@ -762,12 +788,7 @@ Value Evaluator::value(const Expr& e) {
       }
       if (is_null(a) || is_null(b)) return {};
       if (bitwise(op)) {
-        const auto bits = [&](const Value& v) -> uint64_t {
-          if (const auto* d = std::get_if<Decimal>(&v)) return static_cast<uint64_t>(d->rounded(0).to_int().value_or(0));
-          if (const auto* r = std::get_if<double>(&v)) return static_cast<uint64_t>(std::llround(*r));
-          return static_cast<uint64_t>(as_int(v));
-        };
-        const uint64_t x = bits(a), y = bits(b);
+        const uint64_t x = bit_operand(a, ta), y = bit_operand(b, tb);
         if (op == "&") return x & y;
         if (op == "|") return x | y;
         if (op == "^") return x ^ y;
@@ -1208,10 +1229,25 @@ std::string mysql_text(const Expr& e) {
       return e.value;
     case ExprKind::string:
       return "'" + e.value + "'";
-    case ExprKind::unary:
+    case ExprKind::unary: {
       if (e.value == "-") return "-(" + mysql_text(*e.args[0]) + ")";
-      if (e.value == "NOT") return "(not(" + mysql_text(*e.args[0]) + "))";
+      if (e.value == "NOT") {
+        // NOT of a value that is not a condition is written as its
+        // comparison with 0 (observed: NOT 0 is "(0 = 0)").
+        const auto& a = *e.args[0];
+        const bool condition = a.kind == ExprKind::is || (a.kind == ExprKind::binary && (logical(a.value) || comparison(a.value))) ||
+                               (a.kind == ExprKind::unary && a.value == "NOT");
+        if (!condition) return "(" + mysql_text(a) + " = 0)";
+        return "(not(" + mysql_text(a) + "))";
+      }
       return e.value + "(" + mysql_text(*e.args[0]) + ")";
+    }
+    case ExprKind::is: {
+      // (NULL is null), as MySQL writes it (observed).
+      std::string what = e.value;
+      for (auto& ch : what) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+      return "(" + mysql_text(*e.args[0]) + " is " + (e.negated ? "not " : "") + what + ")";
+    }
     case ExprKind::binary: {
       std::string op = e.value;
       if (op == "!=") op = "<>";

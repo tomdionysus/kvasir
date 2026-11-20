@@ -169,7 +169,16 @@ outside that rule (the maintainer, 2026-11-17).
 **Coverage** (the maintainer, 2026-11-20, to the stack: "You will maintain ~100%
 code coverage on all code."). Baseline at 09f8693, from GitHub CI's
 coverage job: lines 95.6% (7,662 of 8,011), functions 97.7% (804 of 823),
-over 49 files. Work:
+over 49 files. On `feature/coverage` at 7f5026b (node-c, coverage
+build): lines **98.2% (7,991 of 8,138)**, functions 98.0%; 373 passed,
+832 of 832. Left (`build/coverage/uncovered.txt`): session.cpp 36,
+expression.cpp 34, parser.cpp 19, connection.cpp 15 (four of them the
+lock-wait timer, which waits on Dannan's injected time), stream_transport
+13 (waits on the Connector/C++ tests), a handful elsewhere. Found, not yet matched: MySQL keeps more than 65 digits in an
+intermediate DECIMAL (`99…99.0 * 10`, 65 nines, answers 66 digits; Kvasir
+refuses with 1690 DECIMAL); to probe and build as its own item.
+ddl.cpp:222 may be dead (the parser refuses an unknown type
+first); check before removing. Work:
 - take the per-file report from `tools/ci.sh coverage` on a Pi;
 - for each uncovered line, a test from the manual or the reference
   server, or else the line is dead code and goes;

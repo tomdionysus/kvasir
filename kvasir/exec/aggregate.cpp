@@ -9,7 +9,6 @@
 
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <cmath>
 #include <limits>
 
@@ -58,39 +57,6 @@ Decimal exact_of(const Value& v) {
   if (const auto* s = std::get_if<std::string>(&v))
     for (const char ch : *s) out = (out << 8) | static_cast<uint8_t>(ch);
   return Decimal::from_uint(out);
-}
-
-// A value as BIT_AND, BIT_OR and BIT_XOR take it, a negative as its two's
-// complement (observed): a DECIMAL rounded half away from zero, a DOUBLE
-// half to even, a string by its integer prefix, a hex or bit literal as
-// its bytes.
-uint64_t bits_of(const Value& v, const ResultType& from) {
-  const auto signed_text = [](const std::string& text) -> uint64_t {
-    if (!text.empty() && text[0] == '-') {
-      int64_t i = 0;
-      std::from_chars(text.data(), text.data() + text.size(), i);
-      return static_cast<uint64_t>(i);
-    }
-    uint64_t u = 0;
-    std::from_chars(text.data() + (!text.empty() && text[0] == '+'), text.data() + text.size(), u);
-    return u;
-  };
-  if (const auto* i = std::get_if<int64_t>(&v)) return static_cast<uint64_t>(*i);
-  if (const auto* u = std::get_if<uint64_t>(&v)) return *u;
-  if (const auto* d = std::get_if<Decimal>(&v)) return signed_text(d->rounded(0).to_string());
-  if (const auto* r = std::get_if<double>(&v)) {
-    const double x = std::rint(*r);
-    return x < 0 ? static_cast<uint64_t>(static_cast<int64_t>(x)) : static_cast<uint64_t>(x);
-  }
-  const auto& s = std::get<std::string>(v);
-  if (from.number_string) {
-    uint64_t out = 0;
-    for (const char ch : s) out = (out << 8) | static_cast<uint8_t>(ch);
-    return out;
-  }
-  size_t start = 0;
-  while (start < s.size() && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n')) ++start;
-  return signed_text(s.substr(start));
 }
 
 }  // namespace
@@ -175,7 +141,7 @@ void Accumulator::add(const std::vector<Value>& args, Evaluator& evaluator) {
     case Kind::bit_and:
     case Kind::bit_or:
     case Kind::bit_xor: {
-      const uint64_t bits = bits_of(v, _spec->args()[0]);
+      const uint64_t bits = bit_operand(v, _spec->args()[0]);
       if (_spec->kind() == Kind::bit_and) _bits = _count == 1 ? bits : _bits & bits;
       if (_spec->kind() == Kind::bit_or) _bits |= bits;
       if (_spec->kind() == Kind::bit_xor) _bits ^= bits;

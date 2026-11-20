@@ -127,6 +127,12 @@ struct EvalSettings {
   bool result_collation_binary = false;
 };
 
+// A value as the bit operators and BIT_AND, BIT_OR and BIT_XOR take it, a
+// negative as its two's complement (observed): a DECIMAL rounded half away
+// from zero, a DOUBLE half to even, a string by its integer prefix, a hex or
+// bit literal as its bytes, big-endian.
+uint64_t bit_operand(const Value& v, const ResultType& from);
+
 class Evaluator {
  public:
   explicit Evaluator(EvalSettings settings = {});
