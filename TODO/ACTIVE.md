@@ -145,6 +145,26 @@ word, or to hunt a named bug that cannot be pinned any other way
 (CLAUDE.md, Tests). Earlier entries in COMPLETED that list ASan counts were
 outside that rule (the maintainer, 2026-11-17).
 
+**The stack's converged plan** (2026-11-20, agreed by Kvasir; the record
+is "The converged plan" -> "Kvasir" in
+`../lir-develop-cluster/TODO/2026-11-20-cluster-stack-placement.md`):
+1. Done: Dannan pinned at 0.9.2; Dannan's SteppedTime in the tests.
+2. When Dannan's next minor carries them: credentials onto Dannan's
+   helper (the PHC string, `argon2id$v=19$m=,t=,p=$salt$hash`, unpadded
+   base64, replacing Kvasir's hex form; make, verify, needs_rehash,
+   constant work with a decoy), and the ack-level enum from Dannan's
+   contract/.
+3. Become a hosted system in a Dannan node through Dannan's node helper
+   (its item 14), with status and readiness.
+4. Fuzz targets and a fake Stream from Dannan's testing exports.
+5. Ranges on Dannan's transfer-driven replica sets (step 4); Dagda's
+   durable AcceptorStore at step 5; clients reach the cluster by DNS that
+   every node answers (the maintainer's question 3).
+6. Stays Kvasir's: the lock manager, the little-endian codec, and the
+   MySQL, SQL, decimal and collation code.
+Dannan's keyed map and Backoff get a hard bound (least recently touched
+evicted); Kvasir already keys by name and address together.
+
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 and the reference server first, and watched to fail:
 
