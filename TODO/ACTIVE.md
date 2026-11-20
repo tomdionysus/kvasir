@@ -250,7 +250,15 @@ Kvasir pins 0.10.0 once it is tagged, which needs the maintainer's word. Then it
 - replaces its own ack-level enum with Dannan's;
 - moves kvasir-node's std::cerr output onto Dannan's logging;
 - moves its fuzz targets onto the exported driver;
-- takes the fake Stream for connection tests.
+- takes the fake Stream for connection tests;
+- builds ASan and TSan with DANNAN_SANITIZE (address, thread) in place of
+  global flags, and reruns both before its next release.
+Before the repin commit, read 0.10.0's release notes and changelog in full,
+not only the fixes, and re-examine Kvasir's code against them: a new API
+that replaces a workaround, a helper that replaces code Kvasir wrote itself
+(the no-duplication rule), a fixed bug Kvasir works around that can now go.
+The repin commit says what changed and what was left, and why (the
+maintainer, 2026-11-20).
 The credential and node helpers come in the second minor.
 
 **The stack's converged plan** (2026-11-20, agreed by Kvasir; the record
