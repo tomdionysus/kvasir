@@ -2162,8 +2162,14 @@ Outcome Session::create_database(const sql::Statement& statement) {
   std::string charset = statement.charset;
   std::string collation = statement.collation;
   if (!charset.empty()) {
-    if (charset_not_converted(charset))
+    if (charset_not_converted(charset)) {
+      // A collation of another character set is refused first (observed:
+      // utf8mb3 with utf8mb4_bin is 1253), naming the set by its own name.
+      const std::string named = sql::same_word(charset, "utf8") ? std::string("utf8mb3") : lower(charset);
+      if (const auto* info = collation.empty() ? nullptr : find_collation(collation); info && info->charset != named)
+        throw SqlError(1253, "42000", "COLLATION '" + collation + "' is not valid for CHARACTER SET '" + named + "'");
       throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'character set " + lower(charset) + "'");
+    }
     if (!default_collation(charset)) throw SqlError(1115, "42000", "Unknown character set: '" + charset + "'");
     charset = default_collation(charset)->charset;
   }
