@@ -350,6 +350,175 @@ TEST(ExecSession, TheHandshakesCollation) {
   }
 }
 
+// Prepared statements, from what MySQL 8.4.13 answered Go's driver and
+// mysql-connector-python (captured through a proxy, 2026-11-20). Flags are
+// compared without NUM, which MySQL's server does not send (its client
+// library adds it).
+struct Typed {
+  uint8_t field_type = 0;
+  uint16_t collation = 0;
+  uint32_t length = 0;
+  uint8_t decimals = 0;
+  uint16_t flags = 0;
+  friend bool operator==(const Typed&, const Typed&) = default;
+  friend std::ostream& operator<<(std::ostream& o, const Typed& t) {
+    return o << int{t.field_type} << "/" << t.collation << "/" << t.length << "/" << int{t.decimals} << "/" << t.flags;
+  }
+};
+
+std::vector<Typed> typed(const std::vector<Column>& columns) {
+  std::vector<Typed> out;
+  for (const auto& col : columns)
+    out.push_back({col.type.field_type, col.type.collation, col.type.length, col.type.decimals, static_cast<uint16_t>(col.type.flags & ~c::num)});
+  return out;
+}
+
+Prepared prepare(Session& s, const std::string& sql) {
+  auto options = s.parser_options();
+  options.placeholders = true;
+  return s.prepare(std::move(sql::parse(sql, options).at(0)));
+}
+
+protocol::BoundValue bound(uint8_t type, decltype(protocol::BoundValue::value) value, bool is_unsigned = false) {
+  return {{type, is_unsigned}, std::move(value)};
+}
+
+std::vector<std::optional<std::string>> values(const Outcome& o, size_t i = 0) { return o.result.value().rows.at(i); }
+
+template <typename F>
+Refusal refusal_of(F f) {
+  try {
+    f();
+  } catch (const SqlError& e) {
+    return {e.code(), e.sqlstate(), e.what()};
+  }
+  return {};
+}
+
+constexpr uint16_t binary_set = 63, ai_ci = 255, bin_flag = c::binary, unsigned_flag = c::unsigned_;
+const Typed longlong_param{f::longlong, binary_set, 21, 0, bin_flag};
+
+struct PreparedBed {
+  catalog::Catalog node;
+  txn::Store rows;
+  Session s;
+  explicit PreparedBed(uint16_t collation = 255) : s(registry(), node, rows, SessionInfo{"root", "10.0.0.1", 7, collation}) {
+    for (const char* sql :
+         {"CREATE DATABASE kv_prep", "USE kv_prep", "CREATE TABLE t (a INT PRIMARY KEY, b VARCHAR(10))", "INSERT INTO t VALUES (1, 'x'), (2, 'y')"})
+      run(s, sql);
+  }
+};
+
+TEST(ExecSessionPrepared, ASelectWithParameters) {
+  PreparedBed b(45);
+  const auto p = prepare(b.s, "SELECT a, b FROM t WHERE a > ? AND b <> ?");
+  EXPECT_EQ(p.id, 1u);
+  ASSERT_EQ(p.params.size(), 2u);
+  EXPECT_EQ(p.params[0].name, "?");
+  EXPECT_EQ(typed(p.params), (std::vector<Typed>{longlong_param, {f::var_string, 45, 65532, 31, 0}}));
+  // The result as the same text query reports it.
+  const auto text = run(b.s, "SELECT a, b FROM t");
+  EXPECT_EQ(typed(p.columns), typed(text.result->columns));
+  EXPECT_EQ(p.columns[1].schema, "kv_prep");
+  EXPECT_EQ(p.columns[1].original_name, "b");
+
+  auto o = b.s.execute_prepared(p.id, b.s.bind(p.id, {bound(f::longlong, int64_t{0}), bound(f::string, std::string("zz"))}));
+  ASSERT_EQ(o.result->rows.size(), 2u);
+  EXPECT_EQ(values(o, 1), (std::vector<std::optional<std::string>>{"2", "y"}));
+  EXPECT_EQ(typed(o.result->columns), typed(text.result->columns));
+  o = b.s.execute_prepared(p.id, b.s.bind(p.id, {bound(f::longlong, int64_t{1}), bound(f::string, std::string("x"))}));
+  ASSERT_EQ(o.result->rows.size(), 1u);
+  EXPECT_EQ(values(o), (std::vector<std::optional<std::string>>{"2", "y"}));
+}
+
+TEST(ExecSessionPrepared, EachParameterTypeAsBound) {
+  PreparedBed b(45);
+  const auto p = prepare(b.s, "SELECT ?, ? + 1, CONCAT(?, 'x'), ?");
+  const Typed string45{f::var_string, 45, 65532, 31, 0};
+  EXPECT_EQ(typed(p.params), (std::vector<Typed>{string45, longlong_param, string45, string45}));
+  EXPECT_EQ(typed(p.columns), (std::vector<Typed>{string45, {f::longlong, binary_set, 22, 0, bin_flag}, {f::medium_blob, 45, 262144, 31, 0}, string45}));
+  const auto o = b.s.execute_prepared(
+      p.id, b.s.bind(p.id, {bound(f::longlong, int64_t{-5}), bound(f::double_, 2.5), bound(f::string, std::string("ab")), bound(f::null, std::monostate{})}));
+  EXPECT_EQ(typed(o.result->columns),
+            (std::vector<Typed>{longlong_param, {f::double_, binary_set, 23, 31, bin_flag}, {f::medium_blob, 45, 262144, 31, 0}, string45}));
+  EXPECT_EQ(values(o), (std::vector<std::optional<std::string>>{"-5", "3.5", "abx", std::nullopt}));
+
+  // Go: an unsigned BIGINT, a float sent as DOUBLE, bytes, a TINY; python: a
+  // DECIMAL.
+  PreparedBed c;
+  const auto q = prepare(c.s, "SELECT ?, ?, ?, ?, ?");
+  const auto r =
+      c.s.execute_prepared(q.id, c.s.bind(q.id, {bound(f::longlong, UINT64_MAX, true), bound(f::double_, 1.5), bound(f::string, std::string("\x01\x02")),
+                                                 bound(f::tiny, int64_t{1}), bound(f::decimal, std::string("1.25"))}));
+  EXPECT_EQ(typed(r.result->columns), (std::vector<Typed>{{f::longlong, binary_set, 21, 0, static_cast<uint16_t>(bin_flag | unsigned_flag)},
+                                                          {f::double_, binary_set, 23, 31, bin_flag},
+                                                          {f::var_string, ai_ci, 65532, 31, 0},
+                                                          longlong_param,
+                                                          {f::newdecimal, binary_set, 67, 30, bin_flag}}));
+  EXPECT_EQ(values(r), (std::vector<std::optional<std::string>>{"18446744073709551615", "1.5", std::string("\x01\x02"), "1", "1.25"}));
+  // Kvasir has no date or time types.
+  EXPECT_EQ(refusal_of([&] {
+              c.s.bind(q.id, {bound(f::date, std::string("\xe8\x07\x0b\x14", 4)), bound(f::null, std::monostate{}), bound(f::null, std::monostate{}),
+                              bound(f::null, std::monostate{}), bound(f::null, std::monostate{})});
+            }).code,
+            1235);
+}
+
+TEST(ExecSessionPrepared, ChangesAndLimits) {
+  PreparedBed b;
+  auto p = prepare(b.s, "INSERT INTO t VALUES (?, ?)");
+  EXPECT_TRUE(p.columns.empty());
+  EXPECT_EQ(typed(p.params), (std::vector<Typed>{longlong_param, {f::var_string, ai_ci, 65532, 31, 0}}));
+  auto o = b.s.execute_prepared(p.id, b.s.bind(p.id, {bound(f::longlong, int64_t{9}), bound(f::null, std::monostate{})}));
+  EXPECT_FALSE(o.result);
+  EXPECT_EQ(o.affected_rows, 1u);
+  EXPECT_EQ(row(run(b.s, "SELECT a, b FROM t WHERE a = 9")), (std::vector<std::string>{"9", "NULL"}));
+  p = prepare(b.s, "DELETE FROM t WHERE a = ?");
+  EXPECT_EQ(typed(p.params), (std::vector<Typed>{longlong_param}));
+  o = b.s.execute_prepared(p.id, b.s.bind(p.id, {bound(f::longlong, int64_t{9})}));
+  EXPECT_EQ(o.affected_rows, 1u);
+
+  p = prepare(b.s, "SELECT ? FROM t LIMIT ?");
+  EXPECT_EQ(typed(p.params),
+            (std::vector<Typed>{{f::var_string, ai_ci, 65532, 31, 0}, {f::longlong, binary_set, 21, 0, static_cast<uint16_t>(bin_flag | unsigned_flag)}}));
+  o = b.s.execute_prepared(p.id, b.s.bind(p.id, {bound(f::longlong, int64_t{1}), bound(f::longlong, int64_t{1})}));
+  EXPECT_EQ(typed(o.result->columns), (std::vector<Typed>{longlong_param}));
+  ASSERT_EQ(o.result->rows.size(), 1u);
+  EXPECT_EQ(values(o), (std::vector<std::optional<std::string>>{"1"}));
+}
+
+TEST(ExecSessionPrepared, WhatIsRefused) {
+  PreparedBed b;
+  // A table that is not there, at the prepare.
+  auto r = refusal_of([&] { prepare(b.s, "SELECT * FROM nope WHERE a = ?"); });
+  EXPECT_EQ(r.code, 1146);
+  EXPECT_EQ(r.message, "Table 'kv_prep.nope' doesn't exist");
+  r = refusal_of([&] { prepare(b.s, "INSERT INTO nope VALUES (?)"); });
+  EXPECT_EQ(r.code, 1146);
+  // An id not prepared, or closed.
+  r = refusal_of([&] { b.s.execute_prepared(5, {}); });
+  EXPECT_EQ(r.code, 1243);
+  EXPECT_EQ(r.sqlstate, "HY000");
+  EXPECT_EQ(r.message, "Unknown prepared statement handler (5) given to mysqld_stmt_execute");
+  const auto p = prepare(b.s, "SELECT 1");
+  EXPECT_EQ(b.s.parameter_types(p.id, "mysqld_stmt_execute").size(), 0u);
+  b.s.close_prepared(p.id);
+  b.s.close_prepared(p.id);
+  EXPECT_EQ(refusal_of([&] { b.s.parameter_types(p.id, "mysqld_stmt_reset"); }).message,
+            "Unknown prepared statement handler (" + std::to_string(p.id) + ") given to mysqld_stmt_reset");
+  // COM_RESET_CONNECTION forgets them.
+  const auto q = prepare(b.s, "SELECT 1");
+  b.s.reset();
+  EXPECT_EQ(refusal_of([&] { b.s.execute_prepared(q.id, {}); }).code, 1243);
+  // At most max_prepared_statements.
+  PreparedBed many;
+  for (size_t i = 0; i < max_prepared_statements; ++i) prepare(many.s, "SELECT 1");
+  r = refusal_of([&] { prepare(many.s, "SELECT 1"); });
+  EXPECT_EQ(r.code, 1461);
+  EXPECT_EQ(r.sqlstate, "42000");
+  EXPECT_EQ(r.message, "Can't create more than max_prepared_stmt_count statements (current value: 16382)");
+}
+
 TEST(ExecSession, TransactionsShowInTheStatusFlags) {
   auto s = make();
   constexpr uint16_t in_trans = 1, autocommit = 2;

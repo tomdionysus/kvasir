@@ -2,6 +2,35 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-20: prepared statements, (b) the session
+
+- Landed: the parser numbers placeholders only for a prepared statement's
+  text (a text query with `?` is 1064, as MySQL: 2 statements added to
+  the gate); a placeholder is typed and read from its bound parameter;
+  Session::prepare (MySQL's refusals at prepare, the parameters' types as
+  MySQL infers them, a SELECT's result typed and stopped before any row,
+  1461 past 16382 per session), bind (each binary type as MySQL reads it,
+  dates and times refused with 1235), execute_prepared (as execute(),
+  diagnostics included; LIMIT ? read from its parameter, 1210 for one
+  that is not a count), close_prepared; COM_RESET_CONNECTION forgets
+  them. Every expected type and value is from the captures.
+- Found: MySQL's server sends no NUM flag (0x8000) in a column definition;
+  its client library adds it. Kvasir's types carry it, and the command
+  phase still sends it: to strip at (c), with a capture.
+- Known differences: parameters are inferred from an integer column or
+  literal beside them, LIMIT, and an INSERT's or UPDATE's column; MySQL
+  infers more cases (a DECIMAL or DOUBLE column, functions' arguments).
+  The prepared-statement limit is per session; MySQL's is per server.
+- Test-first: not held for the session; its four tests were written
+  before its code but could not compile without the new API, so their
+  first run was with it. The parser's change was written before its
+  test. The 2 differential statements failed against HEAD (1235 where
+  MySQL says 1064) only by reasoning, not run. SqlParser.Literals printed
+  a `?` from a text query; it now does so with placeholders allowed, as
+  MySQL refuses it in text.
+- Gate: release on node-d **354 passed, 0 failed**; the
+  differential gate **684 of 684**.
+
 ## 2026-11-20: prepared statements, (a) the protocol's messages
 
 - Captured first: what Go's driver and mysql-connector-python exchange

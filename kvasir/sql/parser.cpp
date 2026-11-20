@@ -76,9 +76,11 @@ class Parser {
     std::vector<Statement> out;
     for (;;) {
       const size_t start = peek().offset;
+      _placeholders = 0;
       auto statement = parse_statement();
       statement.offset = start;
       statement.length = _last_end - start;
+      statement.placeholders = _placeholders;
       out.push_back(std::move(statement));
       if (symbol(";")) {
         take();
@@ -981,8 +983,15 @@ class Parser {
     const auto kind = peek().kind;
     const auto offset = peek().offset;
     if (kind == TokenKind::integer) return node(ExprKind::integer, offset, take().value);
-    if (kind == TokenKind::placeholder) return node(ExprKind::placeholder, take().offset);
+    if (kind == TokenKind::placeholder) return placeholder();
     fail(peek());
+  }
+
+  // A prepared statement's parameter; a syntax error anywhere else.
+  ExprPtr placeholder() {
+    if (!_options.placeholders) fail(peek());
+    const auto offset = take().offset;
+    return node(ExprKind::placeholder, offset, std::to_string(_placeholders++));
   }
 
   SelectItem parse_item() {
@@ -1362,7 +1371,7 @@ class Parser {
       case TokenKind::bits:
         return node(ExprKind::bits, offset, take().value);
       case TokenKind::placeholder:
-        return node(ExprKind::placeholder, take().offset);
+        return placeholder();
       case TokenKind::string:
       case TokenKind::national_string:
         return strings(offset, "");
@@ -1572,6 +1581,7 @@ class Parser {
   std::deque<Token> _ahead;
   size_t _last_end = 0;
   size_t _depth = 0;
+  size_t _placeholders = 0;
 };
 
 std::string quote(std::string_view value) {

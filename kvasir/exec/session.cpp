@@ -103,15 +103,67 @@ ResultType user_variable_type(const ResultType& t) {
   return out;
 }
 
-uint64_t limit_of(const sql::Expr& e) {
-  if (e.kind != sql::ExprKind::integer) throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'placeholders'");
+uint64_t integer_text(const sql::Expr& e) {
   uint64_t v = 0;
   const auto r = std::from_chars(e.value.data(), e.value.data() + e.value.size(), v);
   if (r.ec != std::errc()) return UINT64_MAX;
   return v;
 }
 
+// A string parameter as MySQL types it: 16383 characters of the
+// connection's character set (observed: 65532 under utf8mb4).
+ResultType string_parameter(const EvalSettings& e) {
+  ResultType t;
+  t.field_type = f::var_string;
+  t.collation = e.result_collation;
+  t.length = 16383 * e.result_max_bytes;
+  t.decimals = protocol::not_fixed_decimals;
+  t.flags = static_cast<uint16_t>(e.result_collation_binary ? c::binary : 0);
+  return t;
+}
+
+ResultType longlong_parameter(bool is_unsigned) {
+  ResultType t;
+  t.field_type = f::longlong;
+  t.collation = protocol::collation::binary;
+  t.length = 21;
+  t.precision = 20;
+  t.flags = static_cast<uint16_t>(c::binary | (is_unsigned ? c::unsigned_ : 0));
+  return t;
+}
+
+bool is_integer_kind(catalog::TypeKind k) {
+  using K = catalog::TypeKind;
+  return k == K::tinyint || k == K::smallint || k == K::mediumint || k == K::int_ || k == K::bigint;
+}
+
+// Calls `f` on every expression in the tree under `e`, `e` included.
+template <typename F>
+void each_expr(const sql::Expr* e, F&& f) {
+  if (!e) return;
+  f(*e);
+  for (const auto& a : e->args) each_expr(a.get(), f);
+  each_expr(e->operand.get(), f);
+  each_expr(e->otherwise.get(), f);
+}
+
+// A SELECT stopped once its result is typed, while being prepared.
+Outcome described(ResultSet result) {
+  Outcome o;
+  o.result = std::move(result);
+  return o;
+}
+
 }  // namespace
+
+uint64_t Session::limit_of(const sql::Expr& e) const {
+  if (e.kind != sql::ExprKind::placeholder) return integer_text(e);
+  // A bound integer, at least 0.
+  const auto& v = _parameters->at(std::stoul(e.value)).value;
+  if (const auto* u = std::get_if<uint64_t>(&v)) return *u;
+  if (const auto* i = std::get_if<int64_t>(&v); i && *i >= 0) return static_cast<uint64_t>(*i);
+  throw SqlError(1210, "HY000", "Incorrect arguments to LIMIT");
+}
 
 Session::Session(const VariableRegistry& registry, catalog::Catalog& catalog, txn::Store& rows, SessionInfo info)
     : _registry(registry), _catalog(catalog), _rows(rows), _info(std::move(info)), _variables(registry) {
@@ -169,6 +221,8 @@ void Session::reset() {
   _database.reset();
   _results_collation.clear();
   take_client_collation();
+  // COM_RESET_CONNECTION closes every prepared statement.
+  _prepared.clear();
   _read_only_transaction = false;
   _warnings.clear();
   _last_insert_id = 0;
@@ -206,6 +260,7 @@ void Session::rollback() {
 EvalSettings Session::eval_settings() const {
   EvalSettings e;
   e.variables = this;
+  e.parameters = _parameters;
   e.div_precision_increment = static_cast<int>(_variables.number("div_precision_increment"));
   const auto* collation = find_collation(_variables.text("collation_connection"));
   e.result_collation = collation ? collation->id : protocol::collation::utf8mb4_0900_ai_ci;
@@ -233,6 +288,169 @@ ResultType Session::system_type(const std::string& scope, const std::string& nam
   // Held in utf8mb3_general_ci, as MySQL's are.
   return _variables.type_of(scope, name, system_collation, 3);
 }
+
+std::optional<catalog::Table> Session::named_table(const std::vector<std::string>& name) const {
+  const auto database = database_of(name);
+  auto table = _catalog.table({database, name.back()});
+  if (!table) {
+    if (!_catalog.database(database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
+    throw SqlError(1146, "42S02", "Table '" + database + "." + name.back() + "' doesn't exist");
+  }
+  return table;
+}
+
+std::vector<ResultType> Session::infer_parameters(const sql::Statement& s) const {
+  using K = sql::ExprKind;
+  const auto e = eval_settings();
+  // As MySQL types them at prepare (observed): an integer beside an integer
+  // column or literal, LIMIT's unsigned, an INSERT's or UPDATE's by its
+  // column's kind; anything else a string.
+  std::vector<ResultType> out(s.placeholders, string_parameter(e));
+  const auto set = [&](const sql::Expr* x, const ResultType& t) {
+    if (x && x->kind == K::placeholder) out.at(std::stoul(x->value)) = t;
+  };
+  std::optional<catalog::Table> table;
+  if (s.kind == sql::Statement::Kind::select && s.select.from.size() == 1)
+    table = _catalog.table({database_of(s.select.from[0].name), s.select.from[0].name.back()});
+  if (s.kind == sql::Statement::Kind::insert) table = named_table(s.insert.table);
+  if (s.kind == sql::Statement::Kind::update || s.kind == sql::Statement::Kind::delete_) table = named_table(s.change.table.name);
+  const auto integer_column = [&](const std::string& name) {
+    if (!table) return false;
+    for (const auto& col : table->columns)
+      if (sql::same_word(col.name, name)) return is_integer_kind(col.type.kind);
+    return false;
+  };
+  const auto integer = [&](const sql::Expr& x) { return x.kind == K::integer || (x.kind == K::column && integer_column(x.path.back())); };
+  const auto visit = [&](const sql::Expr* root) {
+    each_expr(root, [&](const sql::Expr& x) {
+      if (x.kind != K::binary || x.args.size() != 2) return;
+      if (integer(*x.args[1])) set(x.args[0].get(), longlong_parameter(false));
+      if (integer(*x.args[0])) set(x.args[1].get(), longlong_parameter(false));
+    });
+  };
+  for (const auto& item : s.select.items) visit(item.expr.get());
+  visit(s.select.where.get());
+  visit(s.select.having.get());
+  visit(s.change.where.get());
+  for (const auto* limit : {s.select.limit.get(), s.select.offset.get(), s.change.limit.get()}) set(limit, longlong_parameter(true));
+  if (s.kind == sql::Statement::Kind::insert && table) {
+    for (const auto& row : s.insert.rows)
+      for (size_t i = 0; i < row.size(); ++i) {
+        const std::string name =
+            s.insert.has_columns ? (i < s.insert.columns.size() ? s.insert.columns[i] : "") : (i < table->columns.size() ? table->columns[i].name : "");
+        if (integer_column(name)) set(row[i].get(), longlong_parameter(false));
+      }
+  }
+  for (const auto& [column, value] : s.change.set)
+    if (integer_column(column.back())) set(value.get(), longlong_parameter(false));
+  return out;
+}
+
+Prepared Session::prepare(sql::Statement statement) {
+  _previous = std::move(_warnings);
+  _warnings.clear();
+  try {
+    if (_prepared.size() >= max_prepared_statements)
+      throw SqlError(1461, "42000",
+                     "Can't create more than max_prepared_stmt_count statements (current value: " + std::to_string(max_prepared_statements) + ")");
+    if (!statement.unsupported.empty())
+      throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support '" + statement.unsupported + "'");
+    auto params = infer_parameters(statement);
+    Prepared p;
+    // Each parameter as the client is told it; a NULL bound later takes it.
+    const auto results = results_collation();
+    for (const auto& t : params) p.params.push_back({"?", reported(t, results)});
+    if (statement.kind == sql::Statement::Kind::select) {
+      // Typed with each parameter as prepared, and stopped before any row.
+      std::vector<Parameter> unbound;
+      for (const auto& t : params) unbound.push_back({t, Value{}});
+      _parameters = &unbound;
+      _describing = true;
+      struct Restore {
+        Session& s;
+        ~Restore() {
+          s._parameters = nullptr;
+          s._describing = false;
+        }
+      } restore{*this};
+      auto outcome = select(statement.select);
+      for (auto& column : outcome.result->columns) column.type = reported(column.type, results);
+      p.columns = std::move(outcome.result->columns);
+    }
+    _warnings.clear();
+    p.id = _next_prepared++;
+    _prepared.emplace(p.id, PreparedStatement{std::move(statement), std::move(params)});
+    return p;
+  } catch (const SqlError& e) {
+    _warnings.push_back({"Error", e.code(), e.what()});
+    throw;
+  }
+}
+
+const std::vector<ResultType>& Session::parameter_types(uint32_t id, const std::string& command) const {
+  const auto it = _prepared.find(id);
+  if (it == _prepared.end()) throw SqlError(1243, "HY000", "Unknown prepared statement handler (" + std::to_string(id) + ") given to " + command);
+  return it->second.params;
+}
+
+std::vector<Parameter> Session::bind(uint32_t id, const std::vector<protocol::BoundValue>& values) const {
+  const auto& prepared = parameter_types(id, "mysqld_stmt_execute");
+  const auto e = eval_settings();
+  std::vector<Parameter> out;
+  for (size_t i = 0; i < values.size() && i < prepared.size(); ++i) {
+    const auto& v = values[i];
+    const auto type = v.type.type;
+    Parameter p;
+    if (std::holds_alternative<std::monostate>(v.value)) {
+      p.type = prepared[i];
+    } else if (type == f::date || type == f::datetime || type == f::timestamp || type == f::time) {
+      throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'date and time values'");
+    } else if (const auto* i64 = std::get_if<int64_t>(&v.value)) {
+      p.type = longlong_parameter(false);
+      p.value = *i64;
+    } else if (const auto* u64 = std::get_if<uint64_t>(&v.value)) {
+      p.type = longlong_parameter(true);
+      p.value = *u64;
+    } else if (const auto* d = std::get_if<double>(&v.value)) {
+      p.type = double_type(23, false);
+      p.type.flags = c::binary;
+      p.value = *d;
+    } else {
+      const auto& bytes = std::get<std::string>(v.value);
+      if (type == f::decimal || type == f::newdecimal) {
+        // Read as its own digits (observed: 1.25 shows as 1.25).
+        p.type = decimal_type(65, 30, false);
+        p.type.flags = c::binary;
+        p.type.own_scale = true;
+        const auto parsed = Decimal::parse(bytes);
+        p.value = parsed ? Value{*parsed} : Value{bytes};
+      } else {
+        p.type = string_parameter(e);
+        p.value = bytes;
+      }
+    }
+    out.push_back(std::move(p));
+  }
+  return out;
+}
+
+Outcome Session::execute_prepared(uint32_t id, const std::vector<Parameter>& parameters) {
+  const auto it = _prepared.find(id);
+  if (it == _prepared.end()) {
+    const SqlError unknown(1243, "HY000", "Unknown prepared statement handler (" + std::to_string(id) + ") given to mysqld_stmt_execute");
+    _previous = std::move(_warnings);
+    _warnings = {{"Error", unknown.code(), unknown.what()}};
+    throw unknown;
+  }
+  _parameters = &parameters;
+  struct Restore {
+    Session& s;
+    ~Restore() { s._parameters = nullptr; }
+  } restore{*this};
+  return execute(it->second.statement);
+}
+
+void Session::close_prepared(uint32_t id) { _prepared.erase(id); }
 
 std::optional<uint16_t> Session::results_collation() const {
   const auto results = _variables.get("", "character_set_results");
@@ -978,6 +1196,7 @@ Outcome Session::select_from_table(const sql::Select& select) {
     sort.collation = order_collation(*e, sort.type, columns, settings.result_collation);
     sorts.push_back(sort);
   }
+  if (_describing) return described(std::move(result));
   const uint64_t limit = select.limit ? limit_of(*select.limit) : _variables.number("sql_select_limit");
   const uint64_t offset = select.offset ? limit_of(*select.offset) : 0;
 
@@ -1256,6 +1475,7 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
     result.columns.push_back({o.name, type});
   }
 
+  if (_describing) return described(std::move(result));
   const uint64_t limit = select.limit ? limit_of(*select.limit) : _variables.number("sql_select_limit");
   const uint64_t offset = select.offset ? limit_of(*select.offset) : 0;
   std::vector<uint16_t> key_collations;
@@ -1650,6 +1870,7 @@ Outcome Session::select(const sql::Select& select) {
       throw SqlError(e.code(), e.sqlstate(), message);
     }
   }
+  if (_describing) return described(std::move(result));
   const uint64_t limit = select.limit ? limit_of(*select.limit) : _variables.number("sql_select_limit");
   const uint64_t offset = select.offset ? limit_of(*select.offset) : 0;
   const bool passes = !select.where || truth(evaluator.value(*select.where));

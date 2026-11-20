@@ -33,7 +33,7 @@ enum class ExprKind : uint8_t {
   column,           // `path`: [schema.][table.]column
   user_variable,    // @name; `value` is the name
   system_variable,  // @@[scope.]name; `scope` upper case or empty, `value` the name
-  placeholder,      // ?
+  placeholder,      // ?, in a prepared statement; `value` its number, from 0
   default_value,    // DEFAULT, in SET
   keyword_value,    // ON, ALL, BINARY, ROW or SYSTEM as SET's value; `value` upper case
   unary,            // `value`: "-", "~", "NOT", "BINARY"; args[0]
@@ -269,6 +269,8 @@ struct Statement {
   // Where it stands in the text sent.
   size_t offset = 0;
   size_t length = 0;
+  // How many placeholders it holds (a prepared statement's parameters).
+  size_t placeholders = 0;
 };
 
 }  // namespace kvasir::sql

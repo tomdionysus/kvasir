@@ -717,3 +717,5 @@ SET collation_connection = 'utf8mb4_0900_ai_ci'
 SELECT 'a', @@sql_mode
 SET NAMES utf8mb4
 DROP DATABASE kv_meta
+SELECT ?
+SELECT 1 LIMIT ?

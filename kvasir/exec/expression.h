@@ -42,8 +42,9 @@
 // result by aggregating their operands' types as MySQL does (observed).
 //
 // Not yet: REGEXP, functions other than the aggregates (aggregate.h), the
-// flow control functions and the session's, and placeholders, each refused
-// with its MySQL error.
+// flow control functions and the session's, each refused with its MySQL
+// error. A placeholder is a prepared statement's bound parameter: its type
+// and value are the binding's, and a string one compares as a literal does.
 // Known difference: arithmetic on a bare NULL literal is typed DOUBLE with
 // length 23 and 31 decimals, where MySQL reports smaller lengths; its value
 // is NULL either way.
@@ -96,7 +97,17 @@ class AggregateSource {
 // Descriptions").
 bool is_aggregate(const sql::Expr& e);
 
+// A prepared statement's parameter as bound: the type it is read as, and its
+// value.
+struct Parameter {
+  ResultType type;
+  Value value;
+};
+
 struct EvalSettings {
+  // A prepared statement's bound parameters, by placeholder number; without
+  // them a placeholder is not supported.
+  const std::vector<Parameter>* parameters = nullptr;
   // Variables; without them a variable is not supported.
   const VariableSource* variables = nullptr;
   // A table's columns; without them a column name is unknown.
@@ -169,6 +180,8 @@ class Evaluator {
   // theirs aggregated when all are strings, else nothing (as numbers).
   std::optional<uint16_t> case_collation(const sql::Expr& e) const;
   Value flow_value(const sql::Expr& e);
+  // A placeholder's bound parameter.
+  const Parameter& parameter(const sql::Expr& e) const;
   // A value of one type as another's, as a merged result shows it.
   Value converted(const Value& v, const ResultType& from, const ResultType& to);
 

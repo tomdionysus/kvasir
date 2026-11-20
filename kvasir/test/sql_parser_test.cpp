@@ -131,7 +131,10 @@ TEST(SqlParser, Literals) {
   EXPECT_EQ(expr("0x41"), "X'41'");
   EXPECT_EQ(expr("b'1'"), "X'01'");
   EXPECT_EQ(expr("'it''s'"), "'it''s'");
-  EXPECT_EQ(expr("?"), "?");
+  // In a prepared statement's text; a text query refuses it (Placeholders).
+  ParserOptions prepared;
+  prepared.placeholders = true;
+  EXPECT_EQ(expr("?", prepared), "?");
 }
 
 TEST(SqlParser, AdjacentStringsAreJoined) {
@@ -357,6 +360,22 @@ TEST(SqlParser, SetScopes) {
   EXPECT_EQ(one("SET PERSIST_ONLY a = 1").assignments[0].scope, "PERSIST_ONLY");
   EXPECT_EQ(one("SET @@a = 1").assignments[0].scope, "");
   EXPECT_EQ(one("SET LOCAL a = 1").assignments[0].scope, "LOCAL");
+}
+
+// A ? is a prepared statement's parameter, numbered in the order written;
+// in a text query it is a syntax error (observed on MySQL 8.4.13: 1064).
+TEST(SqlParser, Placeholders) {
+  EXPECT_THROW(parse("SELECT ?"), SyntaxError);
+  EXPECT_THROW(parse("SELECT 1 LIMIT ?"), SyntaxError);
+  ParserOptions o;
+  o.placeholders = true;
+  const auto s = std::move(parse("SELECT ?, a FROM t WHERE b = ? LIMIT ?", o).at(0));
+  EXPECT_EQ(s.placeholders, 3u);
+  EXPECT_EQ(s.select.items[0].expr->kind, ExprKind::placeholder);
+  EXPECT_EQ(s.select.items[0].expr->value, "0");
+  EXPECT_EQ(s.select.where->args[1]->value, "1");
+  EXPECT_EQ(s.select.limit->value, "2");
+  EXPECT_EQ(parse("SELECT 1", o).at(0).placeholders, 0u);
 }
 
 TEST(SqlParser, SetNamesAndCharacterSet) {

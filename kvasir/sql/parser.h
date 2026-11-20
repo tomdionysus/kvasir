@@ -44,6 +44,9 @@ struct ParserOptions {
   bool pipes_as_concat = false;
   // How deeply expressions may nest before the text is refused.
   size_t max_depth = 200;
+  // A prepared statement's text: each ? is a parameter, numbered from 0 in
+  // the order written. Otherwise ? is a syntax error, as MySQL's.
+  bool placeholders = false;
 };
 
 // Every statement in `text`, split at semicolons. Throws SyntaxError, or

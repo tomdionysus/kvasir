@@ -416,9 +416,17 @@ ResultType Evaluator::type(const Expr& e) const {
     case ExprKind::system_variable:
       if (!_settings.variables) not_yet("variables");
       return _settings.variables->system_type(e.scope, e.value);
+    case ExprKind::placeholder:
+      return parameter(e).type;
     default:
       not_yet("this expression");
   }
+}
+
+const Parameter& Evaluator::parameter(const Expr& e) const {
+  const size_t i = std::stoul(e.value);
+  if (!_settings.parameters || i >= _settings.parameters->size()) not_yet("placeholders");
+  return (*_settings.parameters)[i];
 }
 
 namespace {
@@ -454,6 +462,8 @@ std::string operation_text(const std::string& op) { return op == "!=" ? "<>" : o
 
 std::pair<uint16_t, int> Evaluator::derivation(const Expr& e, const ResultType& t) const {
   switch (e.kind) {
+    case ExprKind::placeholder:
+      return {t.collation, coercible_coercibility};
     case ExprKind::string:
       if (e.charset.empty()) return {t.collation, coercible_coercibility};
       if (sql::same_word(e.charset, "binary")) return {binary_collation, coercible_coercibility};
@@ -939,6 +949,8 @@ Value Evaluator::value(const Expr& e) {
     case ExprKind::system_variable:
       if (!_settings.variables) not_yet("variables");
       return _settings.variables->system_value(e.scope, e.value);
+    case ExprKind::placeholder:
+      return parameter(e).value;
     case ExprKind::column:
       type(e);
       return _settings.columns->column_value(e.path);

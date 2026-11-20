@@ -20,6 +20,7 @@
 #include "kvasir/catalog/catalog.h"
 #include "kvasir/exec/expression.h"
 #include "kvasir/exec/variables.h"
+#include "kvasir/protocol/statements.h"
 #include "kvasir/sql/ast.h"
 #include "kvasir/sql/parser.h"
 #include "kvasir/txn/store.h"
@@ -87,6 +88,19 @@ class LockWaitNeeded : public std::exception {
 inline constexpr uint16_t er_lock_wait_timeout = 1205;
 inline constexpr uint16_t er_lock_deadlock = 1213;
 
+// A prepared statement as COM_STMT_PREPARE answers it: its id, and each
+// parameter's definition (named "?") and each result column's, typed before
+// any value is bound, as the client is told them.
+struct Prepared {
+  uint32_t id = 0;
+  std::vector<Column> params;
+  std::vector<Column> columns;
+};
+
+// The most prepared statements a session holds (MySQL's
+// max_prepared_stmt_count default, which MySQL counts across the server).
+inline constexpr size_t max_prepared_statements = 16382;
+
 struct SessionInfo {
   std::string user;
   std::string host;
@@ -103,6 +117,26 @@ class Session : private VariableSource {
   ~Session();
   Session(Session&&) = default;
   Session& operator=(Session&&) = delete;
+
+  // Prepares one statement, parsed with placeholders: refuses what MySQL
+  // refuses at prepare (a table that is not there), and types its
+  // parameters and its result without running it. Throws SqlError: 1461
+  // past max_prepared_statements, and the statement's own refusals, which
+  // are its diagnostics as a statement's are.
+  Prepared prepare(sql::Statement statement);
+  // A prepared statement's parameters' types as prepared. Throws SqlError
+  // 1243, naming `command`, for an id not prepared.
+  const std::vector<ResultType>& parameter_types(uint32_t id, const std::string& command) const;
+  // The values a COM_STMT_EXECUTE bound, as the statement reads them
+  // (observed): an integer LONGLONG, a FLOAT or DOUBLE DOUBLE, a DECIMAL
+  // NEWDECIMAL, anything else a string in the connection's collation, NULL
+  // its prepared type. Throws SqlError 1235 for a date or time value.
+  std::vector<Parameter> bind(uint32_t id, const std::vector<protocol::BoundValue>& values) const;
+  // Runs a prepared statement with its parameters, as execute() runs one.
+  // Throws SqlError 1243 for an id not prepared.
+  Outcome execute_prepared(uint32_t id, const std::vector<Parameter>& parameters);
+  // Forgets a prepared statement; nothing for one not prepared.
+  void close_prepared(uint32_t id);
 
   // Runs one statement. Throws SqlError; its warnings, and only its, are
   // then in warnings(). Throws LockWaitNeeded for a statement that must wait.
@@ -186,6 +220,13 @@ class Session : private VariableSource {
   void follow_database();
   // The handshake's collation, if a session can speak it, as SET NAMES.
   void take_client_collation();
+  // LIMIT's and OFFSET's count: a literal, or a bound parameter (1210 for
+  // one that is not a count).
+  uint64_t limit_of(const sql::Expr& e) const;
+  // The table a [schema.]name names: 1046, 1049 or 1146 when there is none.
+  std::optional<catalog::Table> named_table(const std::vector<std::string>& name) const;
+  // A statement's parameters' types as MySQL infers them at prepare.
+  std::vector<ResultType> infer_parameters(const sql::Statement& statement) const;
   // The collation results are reported in: character_set_results' default,
   // or the one SET NAMES ... COLLATE named; nothing when it is NULL.
   std::optional<uint16_t> results_collation() const;
@@ -208,6 +249,19 @@ class Session : private VariableSource {
   SessionVariables _variables;
   std::map<std::string, UserVariable> _user;
   std::optional<std::string> _database;
+  // The prepared statements, by id: each statement, and its parameters'
+  // types as prepared.
+  struct PreparedStatement {
+    sql::Statement statement;
+    std::vector<ResultType> params;
+  };
+  std::map<uint32_t, PreparedStatement> _prepared;
+  uint32_t _next_prepared = 1;
+  // While a prepared statement runs: its parameters.
+  const std::vector<Parameter>* _parameters = nullptr;
+  // While a statement is prepared: SELECT types its result and stops before
+  // reading any row.
+  bool _describing = false;
   // The collation SET NAMES ... COLLATE named, which results are reported in
   // while character_set_results is its character set; empty otherwise.
   std::string _results_collation;
