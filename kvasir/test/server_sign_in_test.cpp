@@ -402,6 +402,22 @@ TEST(ServerSignIn, NoncesHaveNoNul) {
   EXPECT_EQ(seen.size(), 200u);
 }
 
+// Observed on MySQL 8.4.13 (2026-11-20, 300 greetings): every nonce byte is
+// from 1 to 127 and never '$', the other 126 values all appearing.
+// Connector/J reads the nonce as ASCII text, so a byte past 127 became '?'
+// and every Connector/J sign-in to Kvasir was refused.
+TEST(ServerSignIn, NoncesAreMySqlsAscii) {
+  std::set<uint8_t> seen;
+  for (int i = 0; i < 300; ++i)
+    for (const auto byte : make_nonce()) {
+      ASSERT_GE(byte, 1);
+      ASSERT_LE(byte, 127);
+      ASSERT_NE(byte, '$');
+      seen.insert(byte);
+    }
+  EXPECT_EQ(seen.size(), 126u);
+}
+
 // The design: back-off per principal and per source before any hashing,
 // with Dannan's Backoff (a growing wait, never a lock); a waiting client is
 // answered as a wrong password is, at once.

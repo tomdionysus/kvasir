@@ -95,7 +95,8 @@ struct SignInSettings {
   std::array<uint8_t, protocol::nonce_size> nonce{};
 };
 
-// Twenty random bytes from Dannan's generator, none of them NUL.
+// Twenty random bytes from Dannan's generator, each from 1 to 127 and never
+// '$', as MySQL's are (observed): Connector/J reads them as ASCII.
 std::array<uint8_t, protocol::nonce_size> make_nonce();
 
 // What the owner does after a step, in this order: write `out`; then, if

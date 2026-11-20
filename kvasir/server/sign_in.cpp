@@ -102,8 +102,13 @@ std::array<uint8_t, protocol::nonce_size> make_nonce() {
   std::array<uint8_t, protocol::nonce_size> nonce{};
   const auto drawn = dannan::identity::random_bytes(nonce.size());
   std::copy(drawn.begin(), drawn.end(), nonce.begin());
-  for (auto& byte : nonce)
-    while (byte == 0) byte = dannan::identity::random_bytes(1)[0];
+  // MySQL's: 1 to 127, never '$' (observed); Connector/J reads it as ASCII.
+  // Drawn again rather than shifted, so each of the 126 values is as likely.
+  const auto allowed = [](uint8_t b) { return b != 0 && b != '$'; };
+  for (auto& byte : nonce) {
+    byte &= 0x7f;
+    while (!allowed(byte)) byte = static_cast<uint8_t>(dannan::identity::random_bytes(1)[0] & 0x7f);
+  }
   return nonce;
 }
 
