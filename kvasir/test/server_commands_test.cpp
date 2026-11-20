@@ -34,7 +34,7 @@ using protocol::Reader;
 namespace capability = protocol::capability;
 
 const exec::VariableRegistry& registry() {
-  static const exec::VariableRegistry r("replicated", "8.4.13-kvasir", "Kvasir - The Distributed Relational Database (in memory, not durable)");
+  static const exec::VariableRegistry r("ephemeral", "8.4.13-kvasir", "Kvasir - The Distributed Relational Database (in memory, not durable)");
   return r;
 }
 

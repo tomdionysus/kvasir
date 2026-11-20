@@ -12,6 +12,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cctype>
 #include <string>
 #include <vector>
 
@@ -22,7 +23,7 @@ namespace kvasir::exec {
 namespace {
 
 const VariableRegistry& registry() {
-  static const VariableRegistry r("replicated", "8.4.13-kvasir", "Kvasir - The Distributed Relational Database (in memory, not durable)");
+  static const VariableRegistry r("ephemeral", "8.4.13-kvasir", "Kvasir - The Distributed Relational Database (in memory, not durable)");
   return r;
 }
 
@@ -67,7 +68,8 @@ TEST(ExecVariables, DefaultsAreMySqls) {
   EXPECT_EQ(text_of(v.get("", "protocol_version")), "10");
   EXPECT_EQ(text_of(v.get("", "version")), "8.4.13-kvasir");
   EXPECT_EQ(text_of(v.get("", "version_comment")), "Kvasir - The Distributed Relational Database (in memory, not durable)");
-  EXPECT_EQ(text_of(v.get("", "ack_level")), "replicated");
+  // The configured default, as the registry was given it.
+  EXPECT_EQ(text_of(v.get("", "ack_level")), "ephemeral");
 }
 
 TEST(ExecVariables, NamesIgnoreCase) {
@@ -197,9 +199,25 @@ TEST(ExecVariables, EnumerationsTakeTheirChoices) {
   EXPECT_EQ(text_of(v.get("", "transaction_isolation")), "READ-COMMITTED");
   EXPECT_EQ(refusal([&] { v.set("", "transaction_isolation", std::string("nope"), false, w); }).message,
             "Variable 'transaction_isolation' can't be set to the value of 'nope'");
-  v.set("", "ack_level", std::string("DECIDED"), false, w);
-  EXPECT_EQ(text_of(v.get("", "ack_level")), "decided");
+  v.set("", "ack_level", std::string("EPHEMERAL"), false, w);
+  EXPECT_EQ(text_of(v.get("", "ack_level")), "ephemeral");
   EXPECT_EQ(refusal([&] { v.set("", "ack_level", std::string("durable"), false, w); }).code, 1231);
+}
+
+// A level this release does not keep is not yet supported, and the session
+// keeps the level it had (the maintainer's ruling for 0.1.0).
+TEST(ExecVariables, AckLevelsNotKeptYetAreRefused) {
+  SessionVariables v(registry());
+  std::vector<Warning> w;
+  for (const char* level : {"persisted", "DECIDED", "replicated"}) {
+    const auto r = refusal([&] { v.set("", "ack_level", std::string(level), false, w); });
+    EXPECT_EQ(r.code, 1235);
+    EXPECT_EQ(r.sqlstate, "42000");
+    std::string lower(level);
+    for (auto& ch : lower) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    EXPECT_EQ(r.message, "This version of Kvasir doesn't yet support 'ack_level " + lower + "'");
+  }
+  EXPECT_EQ(text_of(v.get("", "ack_level")), "ephemeral");
 }
 
 TEST(ExecVariables, CharacterSetsAndCollations) {

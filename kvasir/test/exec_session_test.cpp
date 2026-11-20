@@ -28,7 +28,7 @@ namespace f = protocol::field_type;
 namespace c = protocol::column_flag;
 
 const VariableRegistry& registry() {
-  static const VariableRegistry r("replicated", "8.4.13-kvasir", "Kvasir - The Distributed Relational Database (in memory, not durable)");
+  static const VariableRegistry r("ephemeral", "8.4.13-kvasir", "Kvasir - The Distributed Relational Database (in memory, not durable)");
   return r;
 }
 

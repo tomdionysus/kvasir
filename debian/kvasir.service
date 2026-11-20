@@ -1,0 +1,21 @@
+[Unit]
+Description=Kvasir database node
+Documentation=man:kvasir-node(1)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kvasir
+Group=kvasir
+ExecStart=/usr/bin/kvasir-node --config /etc/kvasir/config.yaml
+Restart=on-failure
+StateDirectory=kvasir
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+
+[Install]
+WantedBy=multi-user.target

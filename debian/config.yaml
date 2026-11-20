@@ -1,0 +1,16 @@
+# kvasir-node's settings. A flag or a KVASIR_* variable overrides each; the
+# accounts are in secrets.yaml beside this file. See kvasir-node(1).
+
+listen:
+  host: 0.0.0.0
+  port: 3306
+
+# Clients sign in only over TLS: the node's certificate chain and private key
+# (PEM), readable by the kvasir user.
+tls:
+  certificate: /etc/kvasir/node.pem
+  key: /etc/kvasir/node.key
+
+# This release is one node in memory, so it keeps only ephemeral: a committed
+# transaction is lost when the node stops.
+ack_level: ephemeral

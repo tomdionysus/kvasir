@@ -47,9 +47,18 @@ struct VariableSpec {
   uint64_t minimum = 0;
   uint64_t maximum = UINT64_MAX;
   std::vector<std::string> choices;
+  // Of `choices`, those this release keeps; empty for all of them. Another
+  // choice is not yet supported (1235).
+  std::vector<std::string> kept;
   // May hold NULL (character_set_results).
   bool nullable = false;
 };
+
+// The acknowledgement levels, weakest first, and those this release keeps:
+// one node in memory keeps `ephemeral`'s promise (lost if the node stops) and
+// no stronger one (the maintainer's ruling for 0.1.0).
+inline const std::vector<std::string> ack_levels{"ephemeral", "persisted", "decided", "replicated"};
+inline const std::vector<std::string> kept_ack_levels{"ephemeral"};
 
 // The variables a node has, and their global values. Built once at start;
 // read-only after, so shared between sessions without a lock.

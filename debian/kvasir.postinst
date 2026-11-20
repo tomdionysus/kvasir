@@ -1,0 +1,31 @@
+#!/bin/sh
+#
+# Kvasir - The Distributed Relational Database
+#
+# Copyright (C) 2026 Tom Cully <mail@tomcully.com>
+# Licensed under the GNU GPLv3 - see <https://www.gnu.org/licenses/gpl-3.0.html>
+#
+# The kvasir user first (debhelper's part), then secrets.yaml: made once,
+# readable by the node alone, and never replaced.
+
+set -e
+
+#DEBHELPER#
+
+if [ "$1" = configure ]; then
+  secrets=/etc/kvasir/secrets.yaml
+  if [ ! -e "$secrets" ]; then
+    (
+      umask 077
+      cat >"$secrets" <<'END'
+# kvasir-node's accounts, each "<name>:<credential>"; make a credential with
+# `kvasir-node hash-password`, which reads the password from standard input.
+# The node refuses to start with none.
+users: []
+END
+    )
+    chown kvasir:kvasir "$secrets"
+  fi
+fi
+
+exit 0

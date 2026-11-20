@@ -23,3 +23,6 @@ target_link_libraries(kvasir-casing PRIVATE kvasir_warnings)
 # kvasir-node: a node that serves the MySQL protocol.
 add_executable(kvasir-node kvasir_node.cpp)
 target_link_libraries(kvasir-node PRIVATE kvasir kvasir_warnings)
+if(KVASIR_SYSTEM_DANNAN)
+  install(TARGETS kvasir-node RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()

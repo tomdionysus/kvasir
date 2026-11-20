@@ -1,265 +1,171 @@
 # Kvasir - The Distributed Relational Database
 
+[![Release](https://img.shields.io/github/v/tag/tomdionysus/kvasir?sort=semver&label=release)](https://github.com/tomdionysus/kvasir/tags)
 [![CI](https://github.com/tomdionysus/kvasir/actions/workflows/ci.yml/badge.svg)](https://github.com/tomdionysus/kvasir/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/tomdionysus/kvasir/branch/develop/graph/badge.svg)](https://codecov.io/gh/tomdionysus/kvasir)
 [![CodeQL](https://github.com/tomdionysus/kvasir/actions/workflows/codeql.yml/badge.svg)](https://github.com/tomdionysus/kvasir/actions/workflows/codeql.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
-Kvasir is a relational database for a cluster of trusted machines. It is a C++20 library
-and a node binary that turn a set of nodes into one MySQL-compatible database: connect to
-any node with any MySQL client, driver or tool, run any statement on any node, and the
-cluster behaves as one server, with ACID transactions and no node in charge. It runs on
-[Dannan](https://github.com/tomdionysus/dannan), the network, and persists in
+Kvasir is a MySQL-compatible relational database. Any MySQL 8.4 client, driver or
+tool connects to a Kvasir node and speaks SQL to it as it would to MySQL. Kvasir is
+written to become a leaderless, multi-master cluster with ACID transactions, on
+[Dannan](https://github.com/tomdionysus/dannan), the network layer, and
 [Dagda](https://github.com/tomdionysus/dagda), the store.
 
-Kvasir is in development: the design is settled, and one node, in memory, serves MySQL
-clients over TLS: sign-in, session statements, databases and tables, rows and
-transactions, expressions, functions, grouping and collations. It has no cluster yet and
-keeps nothing on disk. "Status" below says exactly what is built.
+**This release (0.1) is one node, in memory.** It keeps nothing on disk and does not
+yet join other nodes: everything is lost when the node stops. It therefore starts
+only at the `ephemeral` acknowledgement level, whose promise is exactly that. Use it
+for development, tests and data you can lose; not yet for anything you must keep.
 
-## Why it exists
+## Install
 
-Most systems keep what matters in a relational database, and most of those speak MySQL.
-The usual way to run one is a primary and its replicas: every write goes to one machine,
-and when that machine is rebooted, fills its disk or loses power, writes stop until a
-replica is promoted, by a person or by a failover procedure that must itself be right.
-Aurora shows the better half of the answer, storage replicated by quorum that heals
-itself, but in its usual form it keeps one writer, and it runs only in its provider's
-cloud.
-
-The machines this stack runs on are the opposite of a data centre's: small nodes, Wi-Fi
-between some of them, power that browns out under load, clocks that drift. On them a
-single writer is a single point of failure that fails often.
-
-Kvasir is the database written for this stack: MySQL, but fast, replicated and storage
-scalable like Aurora, with work shared across the cluster; "a soft cluster MySQL that's
-damn near impossible to properly take down with infra failures."
-
-- **No writer node.** Every node takes every statement. There is no leader, no election
-  and no failover procedure; a node lost is a node lost, and the others carry on.
-- **ACID, as other major databases offer it.** A transaction is atomic, isolated and
-  durable whichever node the client talks to. Two transactions never both commit writes
-  to one row unseen by each other, and a committed transaction survives while a majority
-  of its replicas' disks do.
-- **MySQL compatible, not MySQL based.** Clients speak the MySQL 8.4 client/server
-  protocol and SQL, and existing drivers, ORMs and tools connect unchanged.
-  "Compatible" is defined by the MySQL 8.4 manual's documented behaviour, each piece
-  tested, and by a differential gate against a real MySQL 8.4 server. Nothing of MySQL,
-  MariaDB or Aurora is copied; the parser and everything else are written here.
-- **The log is the database.** As in Aurora, only the log is written at commit; the
-  stored form is built from it in the background, storage is replicated across failure
-  domains and heals itself, and a node's SQL state is soft: a node comes back by being
-  restarted.
-- **On the cluster that is already there.** Membership, node identity, placement,
-  agreement and the wire between nodes are Dannan's; what is stored is Dagda's. Kvasir
-  adds only what makes it a database, and has no copy of anything below it.
-
-## What it does, by design
-
-The design is `TODO/2026-11-15-kvasir-design.md`; each statement there is marked as
-ruled or proposed.
-
-- **The MySQL front end.** The client/server protocol, version 10, over Dannan's
-  listener. TLS before any authentication; `caching_sha2_password` only, its full path
-  over TLS, with no RSA exchange and no downgrade to older methods. A built-in user list
-  until the optional Lugh plugin. Every reader of client bytes (packets, SQL text) is
-  bounded and has a fuzz target.
-- **SQL.** A hand-written lexer and parser with MySQL 8.4's grammar, reserved words and
-  operator precedence. The surface grows in a stated order: session statements; DDL;
-  INSERT, SELECT, UPDATE, DELETE, REPLACE; types, expressions and functions; joins,
-  grouping, subqueries, unions, common table expressions and window functions;
-  transactions and locking reads; prepared statements; views; `information_schema` and
-  SHOW; users and grants; stored programs, triggers and events.
-- **Transactions.** REPEATABLE READ by default, READ COMMITTED, and SERIALIZABLE, over
-  multi-version rows. A second writer to a row waits, as InnoDB's does, with MySQL's
-  lock-wait and deadlock errors. When a commit cannot be answered in time the client is
-  told the outcome is unknown, never that it failed, and can ask by transaction id.
-- **The cluster.** A table's rows are split into ranges by primary key, each replicated
-  to a configurable number of nodes across failure domains (one node alone is a working
-  database). Each range is one register in Dannan's leaderless agreement; its commits
-  go to whichever node committed on it last, which batches them, and any node can take
-  a range over at any moment, safely, by ballot alone. A transaction across ranges is
-  decided by one transaction record that any node can finish.
-- **Storage in Dagda.** Each replica's decided commits live in a node-local Dagda log;
-  in the background they are folded into immutable chunks, stored as sealed Dagda
-  objects. Restore to a point in time and clones are claims on the same chunks.
-- **Built to stay up.** Slow is treated as a failure, measured by latency and progress.
-  Every call has a deadline, work is admitted by class (a client's statement before
-  replication catch-up, before folding and backups), queues are bounded, and recovery is
-  paced so that healing cannot brown out the survivors.
-
-### Acknowledgement levels
-
-Each session, or each COMMIT, chooses how far a commit has gone before the client is
-answered. The names are a standard across the stack, shared with Mimir and Dagda:
-
-| `ack_level` | The node answers | An answered commit is lost if |
-|---|---|---|
-| `ephemeral` | after its local checks; the cluster decides after | the node stops first, or the cluster later refuses it |
-| `persisted` | once one node's disk has it; the cluster decides after | that disk is lost first, or the cluster later refuses it |
-| `decided` | once a majority has agreed it, in memory | a majority of its replicas lose power together |
-| `replicated` | once a majority has it on disk | never, while a majority's disks survive |
-
-`ack_level` is a session variable, a per-statement hint
-(`COMMIT /*+ SET_VAR(ack_level='ephemeral') */`) and a configuration key with no
-built-in default: a node without it refuses to start. At every level the database never
-shows part of a transaction or a broken constraint, and nothing is visible to another
-session until the cluster has decided it. At `replicated` a transaction is ACID in full.
-The weaker levels are a session's stated choice to be answered sooner, for data such as
-telemetry, caches and session state.
-
-## The stack
-
-Kvasir is one of a stack of projects, each its own library and repository, written to
-the same conventions. No code is duplicated between them: a piece needed by more than
-one lives in exactly one.
+On Debian 13 (x86-64 or arm64), from the tomcully.com apt repository:
 
 ```
-   Lugh      Lir      Mimir      Kvasir      Macha, ...      hosted systems
-     |         |        |           |            |
-   Dagda: the store  (domains, sealing, objects, heads, logs)
-     |
-   Dannan: the network  (reachability, routes, channels, membership, agreement,
-                         identity, placement, work classes, status)
+sudo curl -fsSLo /etc/apt/sources.list.d/tomcully.sources https://tomcully.com/apt/tomcully.sources
+sudo apt update
+sudo apt install kvasir
 ```
 
-- **[Dannan](https://github.com/tomdionysus/dannan)** is the network: reachability,
-  routes and channels between nodes, membership, leaderless agreement, the hybrid clock,
-  identity, placement, work classes, logging and the shared primitives (crypto, secure
-  memory, the settings reader, the listener). Kvasir uses it for every byte between
-  nodes and to its clients, and its deterministic simulator proves Kvasir's commit
-  protocol before the cluster is built.
-- **[Dagda](https://github.com/tomdionysus/dagda)** is the store: objects, claims, heads
-  and node-local logs, sealed, at a durability level each write chooses. Kvasir keeps
-  its commit logs, its stored chunks and its backups there.
-- **[Mimir](https://github.com/tomdionysus/mimir)** is the stack's key-value database,
-  Kvasir's sibling. They share their concepts and the acknowledgement-level standard.
-- **[Lugh](https://github.com/tomdionysus/lugh)** is the directory and sign-on. To Kvasir
-  it is one possible identity provider, through an optional plugin; Kvasir itself never
-  links it. **[Lir](https://github.com/tomdionysus/lir)** is the event system, which the
-  plugin and a future change feed use as any MQTT client would.
+The package installs `kvasir-node`, its settings in `/etc/kvasir/`, a manual page
+(`man kvasir-node`) and a systemd unit, `kvasir.service`, which is installed
+disabled. `docs/packaging.md` lists every file.
 
-Hosted systems never address one another.
+### From source
 
-## How to use it
-
-### Build
-
-A C++20 compiler (GCC 14 or Clang 19), CMake 3.24 or later, Boost 1.83 or later (Asio),
-OpenSSL 3, yaml-cpp, and GoogleTest for the tests. Dannan is fetched from `../dannan` at
-the pinned release (0.9.0), so clone it beside this repository. On Debian 13:
+A C++20 compiler (GCC 14 or Clang 19), CMake 3.24 or later, Boost 1.83 or later,
+OpenSSL 3 and yaml-cpp; GoogleTest for the tests. Dannan is fetched at its pinned
+release from a checkout beside this one (`../dannan`); to fetch it from GitHub
+instead, add `-DKVASIR_DANNAN_REPOSITORY=https://github.com/tomdionysus/dannan.git`.
+On Debian 13:
 
 ```
-apt-get install g++ cmake ninja-build libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev
+sudo apt install g++ cmake ninja-build libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DKVASIR_BUILD_TESTING=ON
 cmake --build build
 ./build/kvasir_tests
 ```
 
+The node is `build/kvasir-node`.
+
+## Run a node
+
+A node needs a TLS certificate and key (clients sign in only over TLS), at least one
+account, and an acknowledgement level, which has no built-in default.
+
+1. Make a credential for each account. The password is read from standard input:
+
+   ```
+   echo 'a password' | kvasir-node hash-password
+   ```
+
+2. With the package, put the certificate chain and key at `/etc/kvasir/node.pem` and
+   `/etc/kvasir/node.key`, readable by the `kvasir` user, add the account to
+   `/etc/kvasir/secrets.yaml`:
+
+   ```
+   users:
+     - "root:<credential>"
+   ```
+
+   and start it:
+
+   ```
+   sudo systemctl enable --now kvasir
+   ```
+
+   Without the package, give the same on the command line:
+
+   ```
+   kvasir-node --tls-certificate node.pem --tls-key node.key --ack-level ephemeral \
+               --user "root:<credential>" [--listen 0.0.0.0] [--port 3306]
+   ```
+
+3. Connect with any MySQL client:
+
+   ```
+   mysql -h <node> -u root -p --ssl-mode=REQUIRED
+   ```
+
+Every setting is a command-line flag, a key in the settings file (`--config PATH`,
+`$KVASIR_CONFIG`, or `/etc/kvasir/config.yaml`), a key in `secrets.yaml` beside it,
+or a `KVASIR_*` variable; `man kvasir-node` lists them. SIGINT or SIGTERM stops the
+node.
+
+## What a node does
+
+Kvasir is "MySQL compatible, not MySQL based": the MySQL 8.4 Reference Manual and its
+client/server protocol are the specification, and nothing of MySQL is copied. Each
+behaviour is tested, and a differential gate replays 962 statements, among them what
+Connector/J, Python's and Go's drivers send as they connect, and compares every
+column's type, length, flags, value and error with what a MySQL 8.4.13 server
+answered: all 962 match.
+
+- **Connections.** The MySQL client/server protocol over TLS, `caching_sha2_password`
+  only, accounts from the settings with Argon2id credentials, and a back-off on
+  failed sign-ins.
+- **Statements.** SELECT over one table (DISTINCT, WHERE, GROUP BY, HAVING, ORDER BY,
+  LIMIT), INSERT, UPDATE and DELETE (with ORDER BY and LIMIT), CREATE and DROP of
+  databases and tables, SHOW DATABASES, TABLES, WARNINGS and ERRORS,
+  `information_schema`'s tables that drivers read, SET (variables, NAMES, CHARACTER
+  SET), USE, and prepared statements.
+- **Transactions.** BEGIN, START TRANSACTION, COMMIT and ROLLBACK at REPEATABLE READ
+  and READ COMMITTED over multi-version rows, with row locks, lock waits, the lock-wait
+  timeout and deadlock detection, answered with MySQL's errors.
+- **Types and expressions.** MySQL's integer, decimal, float and string types, keys
+  and AUTO_INCREMENT; MySQL's result types, exact decimals, overflow, division and
+  conversion rules.
+- **Functions.** The aggregates (COUNT, SUM, AVG, MIN, MAX, the bit and variance
+  families), the flow control functions, and the common string and number functions.
+- **Collations.** utf8mb4_0900_ai_ci and _as_cs from Unicode's UCA 9.0.0 table, the
+  general_ci collations, and the binary ones, under MySQL's coercibility rules.
+
+Not yet built, and refused with MySQL's "not supported" error: joins, subqueries,
+unions, views, stored programs, users and grants, and any function not listed above.
+
+## Where it is going
+
+The design is `TODO/2026-11-15-kvasir-design.md` and the plan, in order, is
+`TODO/ACTIVE.md`. In short: the node's state in Dagda; the commit protocol proven in
+Dannan's deterministic simulator; then the cluster. A table's rows are split into
+ranges, each replicated across failure domains and decided by Dannan's leaderless
+agreement, so that every node takes every statement with no leader and no failover.
+
+Each session will choose how far a commit has gone before it is answered, a standard
+shared with Mimir and Dagda:
+
+| `ack_level` | The node answers | An answered commit is lost if |
+|---|---|---|
+| `ephemeral` | after its local checks | the node stops first (the only level this release keeps) |
+| `persisted` | once one node's disk has it | that disk is lost first |
+| `decided` | once a majority has agreed it, in memory | a majority of its replicas lose power together |
+| `replicated` | once a majority has it on disk | never, while a majority's disks survive |
+
+## The stack
+
+Kvasir is one of a stack of projects, each its own repository, sharing one set of
+conventions and no duplicated code:
+
+- [Dannan](https://github.com/tomdionysus/dannan), the network layer: reachability,
+  membership, leaderless agreement, identity and the shared primitives.
+- [Dagda](https://github.com/tomdionysus/dagda), the store.
+- [Mimir](https://github.com/tomdionysus/mimir), the key-value database, Kvasir's
+  sibling.
+- [Lugh](https://github.com/tomdionysus/lugh), the directory and sign-on.
+- [Lir](https://github.com/tomdionysus/lir), the event system.
+
+## Development
+
 `tools/ci.sh` runs one step at a time: `check` (header blocks and formatting),
-`release`, `clang` and `coverage`, which hosted CI runs on each push, and `asan` and
-`tsan`, which are run before a release or to hunt a bug. Build options are
-`KVASIR_BUILD_TESTING`, `KVASIR_BUILD_FUZZING` (a clang with libFuzzer) and
-`KVASIR_WARNINGS_AS_ERRORS`.
+`release`, `clang`, `tidy`, `coverage`, `fuzz` and `deb`, which CI runs on each push,
+and `asan` and `tsan`, run before a release. Build options are
+`KVASIR_BUILD_TESTING`, `KVASIR_BUILD_FUZZING` (clang with libFuzzer),
+`KVASIR_WARNINGS_AS_ERRORS` and `KVASIR_SYSTEM_DANNAN` (the packaging build).
 
-### Run a node
-
-Kvasir is a leaderless, multi-master cluster, and a single node is a cluster of one,
-with no special case for it. Today a node keeps its state in memory and is not yet
-durable, and nodes do not yet join one another. Make a credential, then start it with a TLS
-certificate and key (clients sign in only over TLS) and an acknowledgement level, which
-has no built-in default:
-
-```
-echo 'a password' | kvasir-node hash-password        # prints a credential
-kvasir-node --tls-certificate node.pem --tls-key node.key --ack-level replicated \
-            --user "root:<credential>" [--listen 0.0.0.0] [--port 3306]
-mysql -h <node> -u root -p --ssl-mode=REQUIRED
-```
-
-Every setting is also a key in a YAML file (`--config PATH`, `$KVASIR_CONFIG`, or
-`/usr/local/etc/kvasir/config.yaml`), in `secrets.yaml` beside it, or a `KVASIR_*`
-variable. SIGINT or SIGTERM stops it. A cluster and its configuration are written here
-as they are built.
-
-## Repository layout
-
-```
-kvasir/protocol/   the MySQL wire codec, packet framing, connection messages,
-                   caching_sha2_password
-kvasir/server/     the sign-in, the command phase, the connection and its transport over
-                   Dannan's stream, the built-in accounts and the node's settings
-kvasir/sql/        the lexer, reserved words, syntax tree and parser
-kvasir/exec/       values, exact decimals, expressions, functions, aggregates, collations,
-                   variables, table definitions, stored values, sessions
-kvasir/catalog/    the node's databases and tables
-kvasir/txn/        a node's rows as versions, transactions, locks and lock waits
-kvasir/data/       Unicode's data the collations are compiled from, with its license
-kvasir/include/    the public headers (the version)
-kvasir/test/       GoogleTest, one binary (kvasir_tests), and the differential gate's
-                   statements and MySQL 8.4's recorded answers
-kvasir/fuzz/       libFuzzer targets for the packet reader, lexer and parser
-tools/             kvasir-node, the collation table generators, record_mysql.sh, ci.sh
-docs/              the principles and laws shared with the stack
-TODO/              now and next (ACTIVE.md), the design, the level standard, and what
-                   landed (COMPLETED.md)
-```
-
-Conventions, shared with the stack: [CONTRIBUTING.md](CONTRIBUTING.md). Everyone
-taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
-
-## Status
-
-Version 0.1.0, in development; no release is cut yet. Built and tested (342 tests), and
-tried with MySQL 8.4's own `mysql` client, whose `status` command it answers in full:
-
-- The MySQL client/server protocol's codec: its integer and string encodings, packet
-  framing with every length bounded, and the connection phase's messages, OK, ERR, EOF,
-  column definitions and text rows.
-- `caching_sha2_password` and the sign-in, as a state machine with no I/O: the greeting,
-  the TLS request, the auth switch, the fast path against verifiers held only in memory,
-  the full path over TLS, and MySQL's refusals in MySQL's words.
-- The built-in accounts, with Argon2id credentials, checked with the same work whether
-  or not a name exists.
-- The SQL lexer, MySQL 8.4's 262 reserved words, and the parser for the statements a
-  client sends as it connects and the first data statements: SELECT (DISTINCT, a select
-  list, FROM DUAL or one table, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT), INSERT,
-  UPDATE, DELETE, CREATE and DROP TABLE and DATABASE, SHOW DATABASES, TABLES, WARNINGS
-  and ERRORS, SET (variables, NAMES, CHARACTER SET), USE, BEGIN, START TRANSACTION,
-  COMMIT and ROLLBACK, with MySQL's operator precedence. Joins, subqueries and prepared
-  statements are not built yet.
-- Typing and evaluating expressions with MySQL's result types, exact decimals, overflow
-  and division rules; the session's system and user variables; the command phase.
-- Tables with MySQL's integer, decimal, float and string types, keys and AUTO_INCREMENT;
-  rows as versions in memory, with transactions at REPEATABLE READ and READ COMMITTED,
-  row locks, lock waits, the lock-wait timeout and deadlock detection.
-- Aggregates (COUNT, SUM, AVG, MIN, MAX, the bit and variance families) with GROUP BY
-  and HAVING; the flow control functions (IF, IFNULL, NULLIF, COALESCE, CASE); string
-  functions (CONCAT, SUBSTRING, TRIM, REPLACE, LOCATE, LPAD, REPEAT and their kin) and
-  number functions (ABS, SIGN, FLOOR, CEILING, ROUND, TRUNCATE, MOD). Any other
-  function is refused.
-- Collations: utf8mb4_0900_ai_ci and _as_cs from Unicode's UCA 9.0.0 table, the
-  general_ci collations derived from Unicode 3.0.0's character database, the binary
-  ones; comparison, LIKE and COLLATE under MySQL's coercibility rules.
-- The node's catalog of databases and tables, and `kvasir-node` serving clients over
-  Dannan's listener, the Argon2id check on a worker pool, with a back-off on failed
-  sign-ins.
-
-The differential gate replays 682 statements, among them what Connector/J, Python's and
-Go's drivers send as they connect, and compares every column's type, length, flags,
-value and error with what a MySQL 8.4.13 server answered: 682 of 682 match.
-
-Next, in order (`TODO/ACTIVE.md`):
-
-1. A cluster of one, continued: the rest of the SQL and transactions real drivers and
-   tools use, with the differential gate; then its state in Dagda, in the cluster's
-   shape (per-range manifests in a head space every node shares).
-2. The commit protocol written down and passed through Dannan's deterministic simulator.
-3. The cluster at `decided` and `replicated`.
-4. Backup and restore in Dagda to a point in time.
-5. `ephemeral`, `persisted` and held commits; range splits and merges; work shared
-   across the cluster; the Lugh plugin and a change feed.
+Conventions: [CONTRIBUTING.md](CONTRIBUTING.md). Everyone taking part follows the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Licence
 
-Copyright (C) 2026 Tom Cully. Licensed under the GNU GPLv3; see `LICENSE`.
+Copyright (C) 2026 Tom Cully. Licensed under the GNU GPLv3; see `LICENSE`. Unicode's
+data files in `kvasir/data/unicode/` are under the Unicode License v3, beside them.

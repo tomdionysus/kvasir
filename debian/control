@@ -1,0 +1,33 @@
+Source: kvasir
+Section: database
+Priority: optional
+Maintainer: tomdionysus <tomdionysus@users.noreply.github.com>
+Build-Depends:
+ debhelper-compat (= 13),
+ cmake,
+ libdannan-dev (>= 0.9.2),
+ libdannan-dev (<< 0.10~),
+ libboost-dev (>= 1.83),
+ libssl-dev,
+ libyaml-cpp-dev,
+ libgtest-dev <!nocheck>,
+Standards-Version: 4.7.0
+Homepage: https://github.com/tomdionysus/kvasir
+Vcs-Git: https://github.com/tomdionysus/kvasir.git
+Vcs-Browser: https://github.com/tomdionysus/kvasir
+Rules-Requires-Root: no
+
+Package: kvasir
+Architecture: any
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+Description: MySQL-compatible distributed relational database (one node, in memory)
+ Kvasir is a relational database that speaks the MySQL 8.4 client/server
+ protocol and SQL: any MySQL client, driver or tool connects to a node over
+ TLS. It is a hosted system on Dannan, the network layer.
+ .
+ This package holds kvasir-node, one node that keeps its databases in
+ memory. It keeps nothing on disk and does not yet join other nodes, so it
+ starts only at the ephemeral acknowledgement level: a committed transaction
+ is lost when the node stops. Its systemd unit is installed disabled.

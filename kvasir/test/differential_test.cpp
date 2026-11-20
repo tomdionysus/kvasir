@@ -125,7 +125,7 @@ std::vector<std::string> answer(exec::Session& session, const std::string& state
 }
 
 void run(const std::string& name) {
-  static const exec::VariableRegistry registry("replicated", "8.4.13-kvasir", "Kvasir - The Distributed Relational Database (in memory, not durable)");
+  static const exec::VariableRegistry registry("ephemeral", "8.4.13-kvasir", "Kvasir - The Distributed Relational Database (in memory, not durable)");
   catalog::Catalog node;
   txn::Store rows;
   exec::Session session(registry, node, rows, exec::SessionInfo{"root", "localhost", 1});

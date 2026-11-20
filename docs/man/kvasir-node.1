@@ -1,0 +1,108 @@
+.\" Kvasir - The Distributed Relational Database
+.\" Copyright (C) 2026 Tom Cully <mail@tomcully.com>
+.\" Licensed under the GNU GPLv3 - see <https://www.gnu.org/licenses/gpl-3.0.html>
+.TH KVASIR-NODE 1 2026-11-20 Kvasir "Kvasir"
+.SH NAME
+kvasir-node \- a Kvasir database node, serving the MySQL protocol
+.SH SYNOPSIS
+.B kvasir-node
+.RB [ \-\-config
+.IR PATH ]
+.RB [ \-\-listen
+.IR HOST ]
+.RB [ \-\-port
+.IR PORT ]
+.RB [ \-\-tls-certificate
+.IR PEM ]
+.RB [ \-\-tls-key
+.IR PEM ]
+.RB [ \-\-ack-level
+.IR LEVEL ]
+.RB [ \-\-user
+.IR NAME : CREDENTIAL ]...
+.br
+.B kvasir-node hash-password
+.br
+.B kvasir-node \-\-version
+.SH DESCRIPTION
+.B kvasir-node
+is one node of Kvasir, a MySQL-compatible relational database. Any MySQL 8.4
+client, driver or tool connects to it; clients sign in with
+.B caching_sha2_password
+only after TLS.
+.PP
+This release keeps its databases in memory: nothing is written to disk, and a
+node does not yet join other nodes. Everything committed is lost when the node
+stops, which is the promise of the
+.B ephemeral
+acknowledgement level, the only one this release starts at.
+.PP
+SIGINT or SIGTERM stops the node.
+.SH COMMANDS
+.TP
+.B hash-password
+Reads one line, a password, from standard input and prints a credential for
+.BR \-\-user .
+.SH OPTIONS
+Every option is also a key in the settings file, in
+.B secrets.yaml
+beside it, or an environment variable; an option wins over the variable, and
+the variable over the file.
+.TP
+.BI \-\-config " PATH"
+The settings file (YAML). Otherwise
+.BR $KVASIR_CONFIG ,
+else
+.I /etc/kvasir/config.yaml
+when it exists.
+.TP
+.BI \-\-listen " HOST"
+The address to listen on (key
+.BR listen.host ,
+.BR $KVASIR_LISTEN );
+0.0.0.0 by default.
+.TP
+.BI \-\-port " PORT"
+The port (key
+.BR listen.port ,
+.BR $KVASIR_PORT );
+3306 by default.
+.TP
+.BI \-\-tls-certificate " PEM"
+The node's certificate chain (key
+.BR tls.certificate ,
+.BR $KVASIR_TLS_CERTIFICATE ).
+Required.
+.TP
+.BI \-\-tls-key " PEM"
+The node's private key (key
+.BR tls.key ,
+.BR $KVASIR_TLS_KEY ).
+Required.
+.TP
+.BI \-\-ack-level " LEVEL"
+How far a commit has gone before the client is answered (key
+.BR ack_level ,
+.BR $KVASIR_ACK_LEVEL ).
+Required, with no built-in default; this release accepts only
+.BR ephemeral .
+.TP
+.BI \-\-user " NAME" : CREDENTIAL
+An account (key
+.BR users ,
+a list); at least one is required.
+.TP
+.B \-\-version
+Prints the version and exits.
+.SH FILES
+.TP
+.I /etc/kvasir/config.yaml
+The settings.
+.TP
+.I /etc/kvasir/secrets.yaml
+The accounts, readable by the node's user alone.
+.SH EXIT STATUS
+0 when stopped by a signal; 2 for settings that cannot be used; 1 for any other
+failure.
+.SH SEE ALSO
+.BR mysql (1)

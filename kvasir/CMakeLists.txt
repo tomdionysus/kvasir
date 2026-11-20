@@ -44,7 +44,14 @@ add_custom_command(
   COMMENT "Compiling Unicode 3.0.0's case mappings"
 )
 
-add_library(kvasir SHARED
+# Shared for the tests and tools; linked into kvasir-node for the package,
+# which ships no library of Kvasir's.
+if(KVASIR_SYSTEM_DANNAN)
+  set(kvasir_library_type STATIC)
+else()
+  set(kvasir_library_type SHARED)
+endif()
+add_library(kvasir ${kvasir_library_type}
   ${kvasir_ducet_table}
   ${kvasir_general_ci_table}
   ${kvasir_casing9_table}
@@ -93,4 +100,4 @@ target_link_libraries(kvasir
   PUBLIC dannan::dannan Boost::headers OpenSSL::SSL OpenSSL::Crypto Threads::Threads
   PRIVATE kvasir_warnings
 )
-set_target_properties(kvasir PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR})
+set_target_properties(kvasir PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR} POSITION_INDEPENDENT_CODE ON)

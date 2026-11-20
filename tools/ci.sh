@@ -15,13 +15,17 @@
 #   tools/ci.sh asan       AddressSanitizer and UndefinedBehaviorSanitizer
 #   tools/ci.sh tsan       ThreadSanitizer
 #   tools/ci.sh coverage   a coverage build's tests; lcov report build-ci/coverage.info
+#   tools/ci.sh fuzz       each libFuzzer target for KVASIR_FUZZ_SECONDS (60), side by side
+#   tools/ci.sh deb        Dannan's packages from its tag by its own tools/build-deb.sh,
+#                          installed; then Kvasir's, its tests inside the build, and lintian
+#                          (as root in a clean trixie: it installs packages)
 #
 # Builds go under build-ci/ (KVASIR_CI_OUT to move it), one job per CPU
-# (KVASIR_CI_JOBS to set it: 2 on the shared Pis). Dannan is fetched at the
-# pinned tag from the sibling checkout when there is one, else from its
+# (KVASIR_CI_JOBS to set it: 2 on the shared build nodes). Dannan is fetched at
+# the pinned tag from the sibling checkout when there is one, else from its
 # repository (KVASIR_DANNAN_REPOSITORY to name another). Needs g++ cmake
 # ninja-build libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev, and for its
-# step clang, clang-format, clang-tidy or lcov.
+# step clang, libclang-rt-19-dev, clang-format, clang-tidy or lcov.
 
 set -eu
 
@@ -29,6 +33,8 @@ top=$(cd "$(dirname "$0")/.." && pwd)
 out=${KVASIR_CI_OUT:-$top/build-ci}
 jobs=${KVASIR_CI_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}
 step=${1:-}
+# The pin, read where it is set.
+dannan_tag=$(sed -n 's/^set(KVASIR_DANNAN_TAG "\([0-9.]*\)")/\1/p' "$top/CMakeLists.txt")
 if [ -z "${KVASIR_DANNAN_REPOSITORY:-}" ]; then
   if [ -d "$top/../dannan/.git" ]; then
     KVASIR_DANNAN_REPOSITORY=$top/../dannan
@@ -99,8 +105,44 @@ case "$step" in
     tidy=$(command -v run-clang-tidy || command -v run-clang-tidy-19)
     "$tidy" -p "$out/tidy" -j "$jobs" -quiet -checks='-*,bugprone-use-after-move' -warnings-as-errors='*' -header-filter="$top/kvasir/.*" "$top/kvasir/.*"
     ;;
+  fuzz)
+    CXX=clang++ configure fuzz -DCMAKE_BUILD_TYPE=RelWithDebInfo -DKVASIR_BUILD_TESTING=OFF -DKVASIR_BUILD_FUZZING=ON -DKVASIR_WARNINGS_AS_ERRORS=OFF
+    mkdir -p "$out/fuzz/findings"
+    # The targets side by side, one process each: libFuzzer's -fork mode
+    # leaks in its own driver, which would hide a leak in Kvasir's code.
+    targets="packet lexer parser execute"
+    pids=""
+    for target in $targets; do
+      mkdir -p "$out/fuzz/corpus/$target"
+      "$out/fuzz/${target}_fuzz" -max_total_time="${KVASIR_FUZZ_SECONDS:-60}" -max_len=4096 -timeout=10 \
+        -artifact_prefix="$out/fuzz/findings/$target-" "$out/fuzz/corpus/$target" > "$out/fuzz/$target.log" 2>&1 &
+      pids="$pids $!"
+    done
+    failed=0
+    for pid in $pids; do
+      wait "$pid" || failed=1
+    done
+    for target in $targets; do
+      echo "== $target"
+      tail -n 3 "$out/fuzz/$target.log"
+    done
+    if [ "$failed" != 0 ]; then
+      grep -h -A 30 '^==[0-9]*==ERROR\|deadly signal\|uncaught exception' "$out"/fuzz/*.log || true
+      exit 1
+    fi
+    ;;
+  deb)
+    rm -rf "$out/deb"
+    git clone --quiet --depth 1 --branch "$dannan_tag" "$KVASIR_DANNAN_REPOSITORY" "$out/deb/dannan"
+    (cd "$out/deb/dannan" && apt-get build-dep -y ./ && DEB_BUILD_OPTIONS="nocheck parallel=$jobs" tools/build-deb.sh)
+    apt-get install -y "$out"/deb/dannan/build-deb/libdannan*.deb
+    cd "$top"
+    apt-get build-dep -y ./
+    DEB_BUILD_OPTIONS="parallel=$jobs" tools/build-deb.sh
+    lintian --fail-on error,warning build-deb/*.changes
+    ;;
   *)
-    echo "usage: tools/ci.sh check|release|clang|tidy|asan|tsan|coverage" >&2
+    echo "usage: tools/ci.sh check|release|clang|tidy|asan|tsan|coverage|fuzz|deb" >&2
     exit 2
     ;;
 esac

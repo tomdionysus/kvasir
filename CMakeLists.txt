@@ -22,10 +22,25 @@ endif()
 option(KVASIR_BUILD_TESTING "Build kvasir_tests (GoogleTest)" OFF)
 option(KVASIR_BUILD_FUZZING "Build the libFuzzer targets in kvasir/fuzz; needs a clang that ships libFuzzer" OFF)
 option(KVASIR_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+# On: Dannan is the installed package (find_package), never a copy; the
+# library is linked into kvasir-node, and the install rules are defined, as
+# the Debian build has it (docs/packaging.md).
+option(KVASIR_SYSTEM_DANNAN "Build against the installed Dannan and define the install rules" OFF)
 
 find_package(Boost 1.83 CONFIG REQUIRED COMPONENTS headers)
 find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto SSL)
 find_package(Threads REQUIRED)
+
+# A fuzz build runs under its sanitizers, Dannan included: instrumented and
+# plain code sharing containers give ASan false reports. AddressSanitizer
+# cannot start on a kernel with a 39-bit address space; there, "undefined".
+set(KVASIR_FUZZ_SANITIZERS "address,undefined" CACHE STRING "The -fsanitize= list a fuzz build is compiled with")
+if(KVASIR_BUILD_FUZZING)
+  add_compile_options(-fsanitize=${KVASIR_FUZZ_SANITIZERS} -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
+  # Clang's UBSan checks a widening multiply with __muloti4, which only
+  # compiler-rt's builtins hold (libclang-rt-19-dev).
+  add_link_options(-fsanitize=${KVASIR_FUZZ_SANITIZERS} --rtlib=compiler-rt -unwindlib=libgcc)
+endif()
 
 # Dannan, the network layer, at its tag, cloned from the sibling checkout into
 # the build tree, so building Kvasir never touches ../dannan.
@@ -35,10 +50,21 @@ set(KVASIR_DANNAN_REPOSITORY "${CMAKE_CURRENT_SOURCE_DIR}/../dannan" CACHE STRIN
 # already exists.
 set(KVASIR_DANNAN_TAG "0.9.2")
 include(FetchContent)
-if(NOT TARGET dannan::dannan)
+include(GNUInstallDirs)
+# The installed one is found by minor, at least the pinned patch (Dannan's
+# SameMinorVersion).
+if(KVASIR_SYSTEM_DANNAN)
+  find_package(dannan ${KVASIR_DANNAN_TAG} CONFIG REQUIRED)
+elseif(NOT TARGET dannan::dannan)
   FetchContent_Declare(dannan GIT_REPOSITORY "${KVASIR_DANNAN_REPOSITORY}" GIT_TAG "${KVASIR_DANNAN_TAG}")
   set(DANNAN_BUILD_TESTING OFF CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(dannan)
+endif()
+
+# Only Kvasir's own code is instrumented for libFuzzer's coverage, so the
+# fuzzer explores Kvasir's parsers and not Dannan's internals.
+if(KVASIR_BUILD_FUZZING)
+  add_compile_options(-fsanitize=fuzzer-no-link)
 endif()
 
 add_library(kvasir_warnings INTERFACE)

@@ -43,7 +43,7 @@ std::string user() {
   return "root:" + make_credential({reinterpret_cast<const uint8_t*>(password.data()), password.size()}, cheap);
 }
 
-std::vector<std::string> complete() { return {"--ack-level", "replicated", "--tls-certificate", "node.pem", "--tls-key", "node.key", "--user", user()}; }
+std::vector<std::string> complete() { return {"--ack-level", "ephemeral", "--tls-certificate", "node.pem", "--tls-key", "node.key", "--user", user()}; }
 
 std::string refusal(std::vector<std::string> arguments) {
   try {
@@ -62,7 +62,7 @@ TEST(ServerNodeSettings, ACompleteSetIsRead) {
   EXPECT_EQ(s.port, 13306);
   EXPECT_EQ(s.certificate, "node.pem");
   EXPECT_EQ(s.key, "node.key");
-  EXPECT_EQ(s.ack_level, "replicated");
+  EXPECT_EQ(s.ack_level, "ephemeral");
   ASSERT_EQ(s.users.size(), 1u);
 }
 
@@ -81,14 +81,24 @@ TEST(ServerNodeSettings, AckLevelHasNoDefault) {
 }
 
 TEST(ServerNodeSettings, AckLevelIsOneOfTheFour) {
-  for (const char* level : {"ephemeral", "persisted", "decided", "replicated"}) {
-    auto args = complete();
-    args[1] = level;
-    EXPECT_EQ(read_node_settings(settings_of(args)).ack_level, level);
-  }
   auto args = complete();
   args[1] = "durable";
   EXPECT_NE(refusal(args).find("ack_level"), std::string::npos);
+}
+
+// This release is one node in memory: it keeps `ephemeral`'s promise (lost if
+// the node stops) and no stronger one, so a node refuses to start at another
+// (the maintainer's ruling for 0.1.0).
+TEST(ServerNodeSettings, OnlyTheLevelsThisReleaseKeeps) {
+  auto args = complete();
+  args[1] = "ephemeral";
+  EXPECT_EQ(read_node_settings(settings_of(args)).ack_level, "ephemeral");
+  for (const char* level : {"persisted", "decided", "replicated"}) {
+    args[1] = level;
+    const auto message = refusal(args);
+    EXPECT_NE(message.find(std::string("ack_level ") + level + " is not kept yet"), std::string::npos) << message;
+    EXPECT_NE(message.find("only ephemeral"), std::string::npos) << message;
+  }
 }
 
 TEST(ServerNodeSettings, TlsIsRequired) {

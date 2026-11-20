@@ -235,7 +235,8 @@ VariableRegistry::VariableRegistry(std::string ack_level, std::string version, s
   _specs.push_back(read_only(text("version_compile_machine", "x86_64")));
 #endif
   auto ack = text("ack_level", std::move(ack_level), VariableType::enumeration);
-  ack.choices = {"ephemeral", "persisted", "decided", "replicated"};
+  ack.choices = ack_levels;
+  ack.kept = kept_ack_levels;
   _specs.push_back(ack);
 }
 
@@ -371,6 +372,8 @@ void SessionVariables::set(std::string_view scope, std::string_view name, const 
       if (!str) cannot_take(s.name, value);
       const auto it = std::find_if(s.choices.begin(), s.choices.end(), [&](const std::string& c) { return sql::same_word(c, *str); });
       if (it == s.choices.end()) cannot_take(s.name, value);
+      if (!s.kept.empty() && std::find(s.kept.begin(), s.kept.end(), *it) == s.kept.end())
+        throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support '" + s.name + " " + *it + "'");
       result = *it;
       break;
     }

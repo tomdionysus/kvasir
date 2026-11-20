@@ -5,18 +5,17 @@
 // Licensed under the GNU GPLv3 - see <https://www.gnu.org/licenses/gpl-3.0.html>
 //
 
-// kvasir-node: one Kvasir node, in memory (step 2). It reads and checks its
-// settings, then serves the MySQL protocol on listen.host:listen.port over
-// Dannan's listener, clients signing in only after TLS. SIGINT or SIGTERM
-// stops it.
+// kvasir-node: one Kvasir node, in memory. It reads and checks its settings,
+// then serves the MySQL protocol on listen.host:listen.port over Dannan's
+// listener, clients signing in only after TLS. SIGINT or SIGTERM stops it.
 //
 // Every setting is also a key in a YAML file (--config PATH, $KVASIR_CONFIG, or
-// /usr/local/etc/kvasir/config.yaml when it exists), in secrets.yaml beside
-// it, or a KVASIR_* variable, the flags winning.
+// /etc/kvasir/config.yaml when it exists), in secrets.yaml beside it, or a
+// KVASIR_* variable, the flags winning.
 //
 //   kvasir-node --version
 //   kvasir-node hash-password < password     a credential for the users setting
-//   kvasir-node --ack-level replicated --tls-certificate node.pem --tls-key node.key --user "root:<credential>"
+//   kvasir-node --ack-level ephemeral --tls-certificate node.pem --tls-key node.key --user "root:<credential>"
 
 #include <algorithm>
 #include <atomic>
@@ -45,7 +44,7 @@ namespace {
 dannan::config::Reader reader() {
   dannan::config::Reader r;
   r.config_variable = "KVASIR_CONFIG";
-  r.default_path = "/usr/local/etc/kvasir/config.yaml";
+  r.default_path = "/etc/kvasir/config.yaml";
   r.settings = kvasir::server::node_settings();
   return r;
 }

@@ -1,0 +1,20 @@
+#!/bin/sh
+#
+# Kvasir - The Distributed Relational Database
+#
+# Copyright (C) 2026 Tom Cully <mail@tomcully.com>
+# Licensed under the GNU GPLv3 - see <https://www.gnu.org/licenses/gpl-3.0.html>
+#
+# Purging removes what postinst made; the certificate and key are the
+# operator's and stay.
+
+set -e
+
+if [ "$1" = purge ]; then
+  rm -f /etc/kvasir/secrets.yaml
+  rm -rf /var/lib/kvasir
+fi
+
+#DEBHELPER#
+
+exit 0

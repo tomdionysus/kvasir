@@ -7,8 +7,10 @@
 
 #include "kvasir/server/node_settings.h"
 
+#include <algorithm>
 #include <stdexcept>
 
+#include "kvasir/exec/variables.h"
 #include "kvasir/server/accounts.h"
 
 namespace kvasir::server {
@@ -40,8 +42,10 @@ NodeSettings read_node_settings(const dannan::config::Settings& settings) {
   out.certificate = *certificate;
   out.key = *key;
 
-  const auto level = settings.choice("ack_level", {"ephemeral", "persisted", "decided", "replicated"});
+  const auto level = settings.choice("ack_level", exec::ack_levels);
   if (!level) throw ConfigError("ack_level is required: ephemeral, persisted, decided or replicated; Kvasir has no built-in default");
+  if (std::find(exec::kept_ack_levels.begin(), exec::kept_ack_levels.end(), *level) == exec::kept_ack_levels.end())
+    throw ConfigError("ack_level " + *level + " is not kept yet: this release is one node in memory, so only ephemeral");
   out.ack_level = *level;
 
   out.users = settings.list("users");
