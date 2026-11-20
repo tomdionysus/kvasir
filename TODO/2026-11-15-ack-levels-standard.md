@@ -3,9 +3,9 @@
 The maintainer, 2026-11-15, to the Kvasir session, on how the acknowledgement level is
 named and switched in Kvasir and Mimir: names, not numbers, and "have
 everyone concerned adopt the nomcleature, as a group standard". Written by
-the Kvasir session for the sessions concerned. Dagda is to copy it into the
-stack document (`../dagda/TODO/2026-11-03-stack.md`) when its own change
-lands; until it is there, this file is the text.
+the Kvasir session for the sessions concerned. This file is the text; the
+stack document (`../dagda/TODO/2026-11-03-stack.md`) points at it rather
+than holding a copy (agreed with Dagda, 2026-11-20).
 
 ## The names
 
@@ -30,6 +30,13 @@ far, not where (the maintainer to Dagda, relayed by Dagda). Four, in order of st
   catch up just after, and the answer's evidence says which replicas had the
   write. So "on every available replica" is not a level: it promises no
   fixed number (the maintainer, confirming this reading).
+- **A store may offer a subset of the levels.** A level it offers keeps
+  exactly the meaning above. A level it does not offer is refused, naming
+  the level, and never served quietly as another, even a stronger one.
+  Where the reason is structural it says so, in the refusal and in its
+  docs (Kvasir and Dagda, 2026-11-20). Kvasir 0.1.0, one node in memory,
+  offers only `ephemeral`. Dagda offers no `decided` for content-addressed
+  objects, which have no agreement step; a caller asks for `replicated`.
 
 ## What is each project's own
 
