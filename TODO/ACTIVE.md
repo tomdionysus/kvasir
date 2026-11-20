@@ -169,14 +169,20 @@ outside that rule (the maintainer, 2026-11-17).
 **Coverage** (the maintainer, 2026-11-20, to the stack: "You will maintain ~100%
 code coverage on all code."). Baseline at 09f8693, from GitHub CI's
 coverage job: lines 95.6% (7,662 of 8,011), functions 97.7% (804 of 823),
-over 49 files. On `feature/coverage` at round 5, 92a71c1 (node-a,
-coverage build): lines **98.9% (8,116 of 8,208)**, functions 97.9%; 375
-passed, 955 of 955. CI has a `tidy` step (clang-tidy
+over 49 files. On `feature/coverage` at round 6, efb5bb7 (node-a,
+coverage build): lines **99.1% (8,140 of 8,213)**, functions 98.0%; 378
+passed, 962 of 962. CI has a `tidy` step (clang-tidy
 bugprone-use-after-move, warnings as errors; zero findings, Lir's request
-2026-11-20). Left: session.cpp 19, expression.cpp 22, connection.cpp 15
-(four of them the lock-wait timer, which waits on Dannan's injected
-time), stream_transport 13 (waits on the Connector/C++ tests), rows.cpp
-8, a handful elsewhere. variables.cpp:367 (a string variable other than
+2026-11-20). Left: session.cpp 16 (a table made by another session
+between the check and the create, the lock already let go, a negative
+bound LIMIT), expression.cpp 14, connection.cpp 15 (four of them the
+lock-wait timer, which waits on Dannan's injected time), stream_transport
+13 (waits on the Connector/C++ tests), a handful elsewhere. A negative
+integer bound to `LIMIT ?` is 1690 from SQL's EXECUTE (observed) and 1210
+in Kvasir; the binary protocol's answer waits on the Connector/C++ tests.
+session.cpp's CREATE DATABASE collation check (charset given, collation
+of another) answers as MySQL but its line is not reached: something
+earlier refuses it; find what. variables.cpp:367 (a string variable other than
 time_zone) is reached only by SET GLOBAL, not yet supported (cluster-wide
 state, waits on persistence). Found, not yet matched:
 - MySQL takes a character past U+FFFF in a name and converts the name to
@@ -190,8 +196,7 @@ state, waits on persistence). Found, not yet matched:
 - MySQL keeps more than 65 digits in an
 intermediate DECIMAL (`99…99.0 * 10`, 65 nines, answers 66 digits; Kvasir
 refuses with 1690 DECIMAL); to probe and build as its own item.
-ddl.cpp:222 may be dead (the parser refuses an unknown type
-first); check before removing. Work:
+Work:
 - take the per-file report from `tools/ci.sh coverage` on a Pi;
 - for each uncovered line, a test from the manual or the reference
   server, or else the line is dead code and goes;
