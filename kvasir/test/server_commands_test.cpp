@@ -640,5 +640,77 @@ TEST(ServerCommands, PreparedStatementsAndQuestions) {
   EXPECT_EQ(stats.text(), line(0, 0, 2, "0.000"));
 }
 
+// COM_INIT_DB of a database that exists answers OK and makes it current
+// (the manual, COM_INIT_DB).
+TEST(ServerCommands, InitDbMakesADatabaseCurrent) {
+  Fixture f;
+  f.query("CREATE DATABASE shop");
+  const auto sent = packets(f.phase.received(command(command::init_db, "shop")).out);
+  ASSERT_EQ(sent.size(), 1u);
+  EXPECT_EQ(sent[0].payload.at(0), 0x00);
+  EXPECT_EQ(f.session.database(), std::optional<std::string>("shop"));
+}
+
+// What COM_STMT_PREPARE and COM_STMT_EXECUTE refuse, in MySQL's words: an
+// empty query (1065), what the statement itself refuses (1146), more
+// placeholders than the answer can count (1390); a statement refused as it
+// runs; a parameter typed NULL is NULL whatever the bitmap says (the
+// manual, COM_STMT_EXECUTE); a body too short to name a statement (1835).
+TEST(ServerCommands, PreparedRefusals) {
+  PreparedBed b;
+  auto sent = b.prepare("INSERT INTO t VALUES (?, 'z')");
+  ASSERT_EQ(sent[0].payload.at(0), 0x00);
+  sent = b.send(command::stmt_execute, hex("01000000 00 01000000 00 01 0800 0100000000000000"));
+  ASSERT_EQ(sent.size(), 1u);
+  EXPECT_EQ(err(sent[0]).code, 1062);
+  EXPECT_EQ(err(sent[0]).message, "Duplicate entry '1' for key 't.PRIMARY'");
+
+  sent = b.prepare("SELECT ?");
+  ASSERT_EQ(sent[0].payload.at(0), 0x00);
+  sent = b.send(command::stmt_execute, hex("02000000 00 01000000 00 01 0600"));
+  ASSERT_EQ(sent.size(), 5u);
+  EXPECT_EQ(sent[3].payload, hex("00 04"));
+
+  sent = b.prepare("");
+  ASSERT_EQ(sent.size(), 1u);
+  EXPECT_EQ(err(sent[0]).code, 1065);
+  EXPECT_EQ(err(sent[0]).message, "Query was empty");
+  sent = b.prepare("SELECT * FROM nope");
+  EXPECT_EQ(err(sent[0]).code, 1146);
+  EXPECT_EQ(err(sent[0]).message, "Table 'kv_prep.nope' doesn't exist");
+  std::string many = "SELECT ?";
+  for (int i = 0; i < 65535; ++i) many += ",?";
+  sent = b.prepare(many);
+  ASSERT_EQ(sent.size(), 1u);
+  EXPECT_EQ(err(sent[0]).code, 1390);
+  EXPECT_EQ(err(sent[0]).message, "Prepared statement contains too many placeholders");
+
+  sent = b.send(command::stmt_close, hex("0100"));
+  ASSERT_EQ(sent.size(), 1u);
+  EXPECT_EQ(err(sent[0]).code, 1835);
+}
+
+// A prepared statement that meets another transaction's lock waits as a
+// query does, then answers as MySQL would have (here 1062).
+TEST(ServerCommands, APreparedWriterWaitsForAnothersLock) {
+  TwoClients c;
+  TwoClients::ran(c.pa, "CREATE DATABASE d");
+  TwoClients::ran(c.pa, "USE d");
+  TwoClients::ran(c.pb, "USE d");
+  TwoClients::ran(c.pa, "CREATE TABLE t (a INT PRIMARY KEY)");
+  TwoClients::ran(c.pa, "BEGIN");
+  TwoClients::ran(c.pa, "INSERT INTO t VALUES (7)");
+  c.pb.received(command(command::stmt_prepare, "INSERT INTO t VALUES (?)"));
+  const Bytes execute = hex("01000000 00 01000000 00 01 0800 0700000000000000");
+  auto step = c.pb.received(command(command::stmt_execute, std::string_view(reinterpret_cast<const char*>(execute.data()), execute.size())));
+  EXPECT_TRUE(step.waiting);
+  EXPECT_TRUE(step.out.empty());
+  EXPECT_TRUE(c.pb.wait([] {}).waiting);
+  TwoClients::ran(c.pa, "COMMIT");
+  const auto sent = packets(c.pb.resume().out);
+  ASSERT_EQ(sent.size(), 1u);
+  EXPECT_EQ(err(sent[0]).code, 1062);
+}
+
 }  // namespace
 }  // namespace kvasir::server

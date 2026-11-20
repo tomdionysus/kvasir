@@ -54,14 +54,11 @@ bool has_mode(const std::string& modes, std::string_view name) {
   return false;
 }
 
-bool truth(const Value& v) {
-  if (is_null(v)) return false;
-  if (const auto* i = std::get_if<int64_t>(&v)) return *i != 0;
-  if (const auto* u = std::get_if<uint64_t>(&v)) return *u != 0;
-  if (const auto* d = std::get_if<Decimal>(&v)) return !d->is_zero();
-  if (const auto* r = std::get_if<double>(&v)) return *r != 0;
-  const auto& s = std::get<std::string>(v);
-  return std::strtod(s.c_str(), nullptr) != 0;
+// Whether a condition (WHERE, HAVING) holds: true only for a true value, a
+// string read as a number (warning 1292 for what is left over).
+bool holds(Evaluator& evaluator, const sql::Expr& condition) {
+  const auto b = evaluator.truth(evaluator.value(condition), evaluator.type(condition));
+  return b && *b;
 }
 
 // The type a user variable takes from the value assigned to it (observed).
@@ -341,8 +338,16 @@ std::vector<ResultType> Session::infer_parameters(const sql::Statement& s) const
         if (integer_column(name)) set(row[i].get(), longlong_parameter(false));
       }
   }
-  for (const auto& [column, value] : s.change.set)
+  // An unknown column SET names is refused at the prepare (observed); a
+  // qualifier that names another table, at the execute.
+  for (const auto& [column, value] : s.change.set) {
+    if (table && !table->column(column.back())) {
+      std::string name;
+      for (size_t k = 0; k < column.size(); ++k) name += (k ? "." : "") + column[k];
+      throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + name + "' in 'field list'");
+    }
     if (integer_column(column.back())) set(value.get(), longlong_parameter(false));
+  }
   return out;
 }
 
@@ -762,6 +767,12 @@ class TableColumns : public ColumnSource {
     return value_of(_table.columns[*i].type, *(*_row)[*i]);
   }
 
+  std::string written(const std::vector<std::string>& path) const override {
+    const auto i = index(path);
+    if (!i) return ColumnSource::written(path);
+    return "`" + _database + "`.`" + qualifier() + "`.`" + _table.columns[*i].name + "`";
+  }
+
   void set_row(const txn::Row* row) { _row = row; }
 
   Value value_at(size_t i) const {
@@ -835,7 +846,8 @@ bool mentions_column(const sql::Expr& e) {
 }
 
 // Text a column's character set cannot hold, as error 1366 shows it: from
-// the first byte past ASCII, each such byte as \xHH, at most six.
+// the first byte past ASCII, each such byte as \xHH, at most six, then
+// "..." when more follow (observed).
 std::string escaped_bytes(const std::string& s) {
   size_t i = 0;
   while (i < s.size() && static_cast<uint8_t>(s[i]) < 0x80) ++i;
@@ -851,6 +863,7 @@ std::string escaped_bytes(const std::string& s) {
       out.push_back(hex[b & 0xf]);
     }
   }
+  if (i < s.size()) out += "...";
   return out;
 }
 
@@ -900,7 +913,7 @@ std::vector<std::string> unique_names(const catalog::Table& table, std::optional
   const auto name = duplicate.substr(0, duplicate.find('\0'));
   const auto& key =
       duplicate.empty() ? table.keys[*primary] : *std::find_if(table.keys.begin(), table.keys.end(), [&](const catalog::Key& k) { return k.name == name; });
-  throw SqlError(1062, "23000", "Duplicate entry '" + key_text(key, row) + "' for key '" + table.name + "." + key.name + "'");
+  throw SqlError(1062, "23000", "Duplicate entry '" + key_text(table, key, row) + "' for key '" + table.name + "." + key.name + "'");
 }
 
 // The collation an ORDER BY value sorts under: a column's own, else the
@@ -1105,6 +1118,10 @@ class HavingColumns : public ColumnSource {
     if (!*e) return _table->column_value(path);
     return _items.value(**e);
   }
+  std::string written(const std::vector<std::string>& path) const override {
+    const auto e = resolve(path);
+    return e && !*e && _table ? _table->written(path) : ColumnSource::written(path);
+  }
 
  private:
   // Nothing for a name HAVING cannot read; a null expression for a table's
@@ -1240,13 +1257,22 @@ Outcome Session::select_from_table(const sql::Select& select) {
     bool descending = false;
   };
   std::vector<Sort> sorts;
+  // A position counts the columns a star gives (observed); one of those is
+  // sorted by as its column named.
+  std::vector<std::unique_ptr<sql::Expr>> star_columns;
   for (const auto& order : select.order) {
     const sql::Expr* e = order.expr.get();
     if (e->kind == sql::ExprKind::integer) {
       const uint64_t position = limit_of(*e);
-      if (position < 1 || position > select.items.size() || select.items[position - 1].star)
-        throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + e->value + "' in 'order clause'");
-      e = select.items[position - 1].expr.get();
+      if (position < 1 || position > outputs.size()) throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + e->value + "' in 'order clause'");
+      const auto& o = outputs[position - 1];
+      if (!o.expr) {
+        auto named = std::make_unique<sql::Expr>();
+        named->kind = sql::ExprKind::column;
+        named->path = {table->columns[*o.column].name};
+        star_columns.push_back(std::move(named));
+      }
+      e = o.expr ? o.expr : star_columns.back().get();
     } else if (e->kind == sql::ExprKind::column && e->path.size() == 1) {
       for (const auto& item : select.items)
         if (item.has_alias && sql::same_word(item.alias, e->path[0])) e = item.expr.get();
@@ -1271,9 +1297,19 @@ Outcome Session::select_from_table(const sql::Select& select) {
       std::vector<Value> keys;
     };
     std::vector<Chosen> chosen;
+    // WHERE as the evaluator reads a condition (a string that is not wholly a
+    // number warns 1292); one that names no column is read once, as MySQL
+    // folds it (observed: WHERE 'x' over three rows warns once).
+    const auto where_type = select.where ? evaluator.type(*select.where) : ResultType{};
+    const auto passes = [&] {
+      const auto b = evaluator.truth(evaluator.value(*select.where), where_type);
+      return b && *b;
+    };
+    std::optional<bool> constant_where;
+    if (select.where && !mentions_column(*select.where)) constant_where = passes();
     for (const auto& row : rows) {
       columns.set_row(&row);
-      if (select.where && !truth(evaluator.value(*select.where))) continue;
+      if (select.where && !(constant_where ? *constant_where : passes())) continue;
       Chosen c{&row, {}};
       for (const auto& sort : sorts) c.keys.push_back(evaluator.value(*sort.expr));
       chosen.push_back(std::move(c));
@@ -1502,10 +1538,21 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
       }
   }
 
+  // A condition that names no column (nor, in HAVING, an aggregate) is read
+  // once, as MySQL folds it (observed: WHERE '1abc' over three rows warns
+  // once).
+  std::optional<bool> constant_where, constant_having;
+  if (!_describing) {
+    if (select.where && !mentions_column(*select.where)) constant_where = holds(rows, *select.where);
+    if (select.having && !mentions_column(*select.having) && !contains_aggregate(*select.having)) constant_having = holds(having, *select.having);
+  }
+  const bool impossible = (constant_where && !*constant_where) || (constant_having && !*constant_having);
+
   // What the columns report. Grouping through a temporary table (the usual
   // way) reports what it holds as that table's fields; a group WHERE fixes,
-  // or a DISTINCT aggregate, needs none.
-  bool temporary = !groups_by.empty();
+  // a DISTINCT aggregate, or a condition found false needs none (observed:
+  // HAVING FALSE reports COUNT(*) BINARY, as its own type).
+  bool temporary = !groups_by.empty() && !impossible;
   if (temporary) {
     bool all_fixed = true;
     for (const auto* g : groups_by) all_fixed = all_fixed && g->kind == sql::ExprKind::column && has(fixed, *columns->index(g->path));
@@ -1575,7 +1622,7 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
     }
     for (const auto& row : table_rows) {
       if (columns) table_columns->set_row(&row);
-      if (select.where && !truth(rows.value(*select.where))) continue;
+      if (select.where && !(constant_where ? *constant_where : holds(rows, *select.where))) continue;
       size_t g = 0;
       if (per_row) {
         g = new_group(&row);
@@ -1608,7 +1655,7 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
     for (const auto& g : groups) {
       if (columns) table_columns->set_row(g.row);
       aggregates.set_group(&g.sums);
-      if (select.having && !truth(having.value(*select.having))) continue;
+      if (select.having && !(constant_having ? *constant_having : holds(having, *select.having))) continue;
       Chosen ch;
       for (const auto& sort : sorts) ch.keys.push_back(items.value(*sort.expr));
       for (size_t k = 0; k < outputs.size(); ++k) {
@@ -1842,9 +1889,24 @@ Outcome Session::change_rows(const sql::Statement& statement) {
       std::vector<Value> keys;
     };
     std::vector<Chosen> chosen;
+    // Strict mode makes a string WHERE reads as a number with text left over
+    // an error (observed: 1292, SQLSTATE 22007); a WHERE that names no
+    // column is read once.
+    const auto modes = _variables.text("sql_mode");
+    const bool strict = has_mode(modes, "STRICT_TRANS_TABLES") || has_mode(modes, "STRICT_ALL_TABLES");
+    const auto passes = [&] {
+      const size_t held = evaluator.warnings().size();
+      const bool b = holds(evaluator, *c.where);
+      if (strict)
+        for (size_t k = held; k < evaluator.warnings().size(); ++k)
+          if (evaluator.warnings()[k].code == er_truncated_wrong_value) throw SqlError(er_truncated_wrong_value, "22007", evaluator.warnings()[k].message);
+      return b;
+    };
+    std::optional<bool> constant_where;
+    if (c.where && !mentions_column(*c.where)) constant_where = passes();
     for (size_t i = 0; i < rows.size(); ++i) {
       columns.set_row(&rows[i].row);
-      if (c.where && !truth(evaluator.value(*c.where))) continue;
+      if (c.where && !(constant_where ? *constant_where : passes())) continue;
       Chosen ch{i, {}};
       for (const auto& sort : sorts) ch.keys.push_back(evaluator.value(*sort.first));
       chosen.push_back(std::move(ch));
@@ -1944,7 +2006,7 @@ Outcome Session::select(const sql::Select& select) {
   if (_describing) return described(std::move(result));
   const uint64_t limit = select.limit ? limit_of(*select.limit) : _variables.number("sql_select_limit");
   const uint64_t offset = select.offset ? limit_of(*select.offset) : 0;
-  const bool passes = !select.where || truth(evaluator.value(*select.where));
+  const bool passes = !select.where || holds(evaluator, *select.where);
   if (passes && offset == 0 && limit > 0) {
     std::vector<std::optional<std::string>> row;
     for (size_t i = 0; i < select.items.size(); ++i) row.push_back(to_text(evaluator.value(*select.items[i].expr), result.columns[i].type));
@@ -1993,8 +2055,11 @@ void Session::set(const std::vector<sql::Assignment>& assignments) {
     const auto* collation = default_collation(charset);
     if (!collation_name.empty()) {
       collation = find_collation(collation_name);
-      if (!collation) throw SqlError(1273, "HY000", "Unknown collation: '" + collation_name + "'");
-      if (!sql::same_word(collation->charset, charset))
+      // One of a character set MySQL has, though Kvasir does not convert to
+      // it, is still another set's (observed: 1253, not 1273).
+      const bool foreign = !collation && charset_not_converted(std::string_view(collation_name).substr(0, collation_name.find('_')));
+      if (!collation && !foreign) throw SqlError(1273, "HY000", "Unknown collation: '" + collation_name + "'");
+      if (foreign || !sql::same_word(collation->charset, charset))
         throw SqlError(1253, "42000", "COLLATION '" + collation_name + "' is not valid for CHARACTER SET '" + charset + "'");
     }
     return collation;
@@ -2182,8 +2247,6 @@ Outcome Session::create_table(const sql::Statement& statement) {
   const auto database = database_of(spec.name);
   refuse_information_schema(database);
   check_table_name(name);
-  if (sql::same_word(database, "information_schema"))
-    throw SqlError(1044, "42000", "Access denied for user '" + _info.user + "'@'" + _info.host + "' to database '" + database + "'");
   // The deprecations come as the statement is read, whatever follows.
   type_warnings(spec, _warnings);
   const auto held = _catalog.database(database);

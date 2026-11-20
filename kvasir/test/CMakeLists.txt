@@ -13,6 +13,7 @@ add_executable(kvasir_tests
   exec_collation_test.cpp
   exec_decimal_test.cpp
   exec_expression_test.cpp
+  exec_rows_test.cpp
   exec_session_test.cpp
   exec_variables_test.cpp
   protocol_caching_sha2_test.cpp

@@ -11,6 +11,7 @@
 #   tools/ci.sh check      the header block on every source, and clang-format
 #   tools/ci.sh release    g++ release build, warnings as errors, and the tests
 #   tools/ci.sh clang      the same with clang++ (and -Wthread-safety)
+#   tools/ci.sh tidy       clang-tidy's use-after-move check, warnings as errors
 #   tools/ci.sh asan       AddressSanitizer and UndefinedBehaviorSanitizer
 #   tools/ci.sh tsan       ThreadSanitizer
 #   tools/ci.sh coverage   a coverage build's tests; lcov report build-ci/coverage.info
@@ -20,7 +21,7 @@
 # pinned tag from the sibling checkout when there is one, else from its
 # repository (KVASIR_DANNAN_REPOSITORY to name another). Needs g++ cmake
 # ninja-build libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev, and for its
-# step clang, clang-format or lcov.
+# step clang, clang-format, clang-tidy or lcov.
 
 set -eu
 
@@ -81,14 +82,25 @@ case "$step" in
     find "$out/coverage" -name '*.gcda' -delete
     (cd "$out/coverage" && ./kvasir_tests)
     ignore=inconsistent,inconsistent,mismatch,negative,unused
-    lcov --quiet --capture --directory "$out/coverage" --ignore-errors "$ignore" --output-file "$out/all.info"
+    # A closing brace after a returned object is a line gcov counts and never
+    # runs; it is not code.
+    lcov --quiet --capture --directory "$out/coverage" --ignore-errors "$ignore" --filter brace,blank --output-file "$out/all.info"
     lcov --quiet --extract "$out/all.info" "$top/kvasir/*" --ignore-errors "$ignore" --output-file "$out/library.info"
     lcov --quiet --remove "$out/library.info" "$top/kvasir/test/*" "$top/kvasir/fuzz/*" --ignore-errors "$ignore" --output-file "$out/coverage.info"
     rm "$out/all.info" "$out/library.info"
     lcov --summary "$out/coverage.info" --ignore-errors "$ignore"
     ;;
+  tidy)
+    # Configured, not built: clang-tidy reads the compile commands. Use after
+    # move counts the unsequenced kind too, a value moved into one argument
+    # and read in another (the stack's rule, 2026-11-20).
+    CXX=clang++ cmake -S "$top" -B "$out/tidy" -G Ninja -DKVASIR_BUILD_TESTING=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+      -DKVASIR_DANNAN_REPOSITORY="$KVASIR_DANNAN_REPOSITORY"
+    tidy=$(command -v run-clang-tidy || command -v run-clang-tidy-19)
+    "$tidy" -p "$out/tidy" -j "$jobs" -quiet -checks='-*,bugprone-use-after-move' -warnings-as-errors='*' -header-filter="$top/kvasir/.*" "$top/kvasir/.*"
+    ;;
   *)
-    echo "usage: tools/ci.sh check|release|clang|asan|tsan|coverage" >&2
+    echo "usage: tools/ci.sh check|release|clang|tidy|asan|tsan|coverage" >&2
     exit 2
     ;;
 esac

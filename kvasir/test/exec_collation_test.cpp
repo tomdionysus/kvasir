@@ -265,6 +265,16 @@ TEST(ExecCollation, BytesThatAreNotUtf8CountAsReplacementCharacters) {
   const auto* c = collation_by_id(ai_ci);
   EXPECT_EQ(c->compare("\xff", bytes("EFBFBD")), 0);
   EXPECT_EQ(c->sort_key("\xc3"), c->sort_key(bytes("EFBFBD")));
+  // A lead byte without its continuation is one replacement, and what
+  // follows is read on its own.
+  EXPECT_EQ(c->sort_key("\xc3"
+                        "A"),
+            c->sort_key(bytes("EFBFBD") + "A"));
+  // An overlong form, a surrogate and a point past U+10FFFF are each a
+  // replacement per byte.
+  EXPECT_EQ(c->sort_key("\xc0\x80"), c->sort_key(bytes("EFBFBDEFBFBD")));
+  EXPECT_EQ(c->sort_key("\xed\xa0\x80"), c->sort_key(bytes("EFBFBDEFBFBDEFBFBD")));
+  EXPECT_EQ(c->sort_key("\xf4\x90\x80\x80"), c->sort_key(bytes("EFBFBDEFBFBDEFBFBDEFBFBD")));
 }
 
 }  // namespace

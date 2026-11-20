@@ -8,6 +8,7 @@
 #include "kvasir/exec/aggregate.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -62,21 +63,24 @@ Decimal exact_of(const Value& v) {
 
 AggregateSpec::AggregateSpec(const sql::Expr& call, std::vector<ResultType> args, std::vector<uint16_t> collations, bool column, const EvalSettings& settings)
     : _call(&call), _kind(kind_of(call.value)), _args(std::move(args)), _collations(std::move(collations)), _increment(settings.div_precision_increment) {
+  // DISTINCT is only parsed where MySQL's grammar has it.
   if (_kind != Kind::count && _args.size() != 1) not_yet(call.value + " of more than one value");
-  if (call.distinct && _kind != Kind::count && _kind != Kind::sum && _kind != Kind::avg && _kind != Kind::min && _kind != Kind::max)
-    not_yet(call.value + "(DISTINCT)");
   const ResultType* a = _args.empty() ? nullptr : &_args[0];
   const bool exact = a && a->field_type != f::null && (is_integer_type(*a) || a->field_type == f::newdecimal);
   const int scale = a && a->field_type == f::newdecimal ? a->decimals : 0;
+  // A hex or bit literal's digits are its largest value's (observed: SUM of
+  // a one-byte literal has precision 3 + 22, AVG of two bytes 5 + 4).
+  static constexpr std::array<int, 9> literal_digits = {1, 3, 5, 8, 10, 13, 15, 17, 20};
+  const int precision = a && a->number_string ? literal_digits[std::min<size_t>(a->length, 8)] : a ? a->precision : 0;
   switch (_kind) {
     case Kind::count:
       _type = integer_type(20, false, true);
       break;
     case Kind::sum:
-      _type = exact ? decimal_type(std::min(a->precision + 22, static_cast<int>(decimal_max_precision)), scale, false) : double_type(23, false);
+      _type = exact ? decimal_type(std::min(precision + 22, static_cast<int>(decimal_max_precision)), scale, false) : double_type(23, false);
       break;
     case Kind::avg:
-      _type = exact ? decimal_type(std::min(a->precision + _increment, static_cast<int>(decimal_max_precision)),
+      _type = exact ? decimal_type(std::min(precision + _increment, static_cast<int>(decimal_max_precision)),
                                    std::min(scale + _increment, static_cast<int>(decimal_max_scale)), false)
                     : double_type(23, false);
       break;
@@ -137,13 +141,7 @@ void Accumulator::add(const std::vector<Value>& args, Evaluator& evaluator) {
     case Kind::bit_and:
     case Kind::bit_or:
     case Kind::bit_xor: {
-      uint64_t bits = 0;
-      if (const auto* i = std::get_if<int64_t>(&v))
-        bits = static_cast<uint64_t>(*i);
-      else if (const auto* u = std::get_if<uint64_t>(&v))
-        bits = *u;
-      else
-        bits = static_cast<uint64_t>(std::llround(evaluator.real(v, _spec->args()[0])));
+      const uint64_t bits = bit_operand(v, _spec->args()[0]);
       if (_spec->kind() == Kind::bit_and) _bits = _count == 1 ? bits : _bits & bits;
       if (_spec->kind() == Kind::bit_or) _bits |= bits;
       if (_spec->kind() == Kind::bit_xor) _bits ^= bits;

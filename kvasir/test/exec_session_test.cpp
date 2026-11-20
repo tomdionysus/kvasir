@@ -477,6 +477,12 @@ TEST(ExecSessionPrepared, ChangesAndLimits) {
   EXPECT_EQ(typed(p.params), (std::vector<Typed>{longlong_param}));
   o = b.s.execute_prepared(p.id, b.s.bind(p.id, {bound(f::longlong, int64_t{9})}));
   EXPECT_EQ(o.affected_rows, 1u);
+  // A value set into an integer column is a BIGINT parameter.
+  p = prepare(b.s, "UPDATE t SET a = ? WHERE a = 2");
+  EXPECT_EQ(typed(p.params), (std::vector<Typed>{longlong_param}));
+  o = b.s.execute_prepared(p.id, b.s.bind(p.id, {bound(f::longlong, int64_t{7})}));
+  EXPECT_EQ(o.affected_rows, 1u);
+  EXPECT_EQ(row(run(b.s, "SELECT a, b FROM t WHERE a = 7")), (std::vector<std::string>{"7", "y"}));
 
   p = prepare(b.s, "SELECT ? FROM t LIMIT ?");
   EXPECT_EQ(typed(p.params),
@@ -495,6 +501,15 @@ TEST(ExecSessionPrepared, WhatIsRefused) {
   EXPECT_EQ(r.message, "Table 'kv_prep.nope' doesn't exist");
   r = refusal_of([&] { prepare(b.s, "INSERT INTO nope VALUES (?)"); });
   EXPECT_EQ(r.code, 1146);
+  // A column that is not there, at the prepare (observed).
+  r = refusal_of([&] { prepare(b.s, "UPDATE t SET nope = ?"); });
+  EXPECT_EQ(r.code, 1054);
+  EXPECT_EQ(r.sqlstate, "42S22");
+  EXPECT_EQ(r.message, "Unknown column 'nope' in 'field list'");
+  // What the text query refuses as not built, the prepare refuses alike.
+  r = refusal_of([&] { prepare(b.s, "INSERT INTO t SELECT ?, ?"); });
+  EXPECT_EQ(r.code, 1235);
+  EXPECT_EQ(r.message, "This version of Kvasir doesn't yet support 'INSERT ... SELECT'");
   // An id not prepared, or closed.
   r = refusal_of([&] { b.s.execute_prepared(5, {}); });
   EXPECT_EQ(r.code, 1243);
@@ -1966,6 +1981,41 @@ TEST(ExecSessionFunctions, SubstringOverColumns) {
                                {f::var_string, bin, 1, 31, binflag},
                                {f::var_string, ai, 4, 31, 0},
                                {f::var_string, ai, 8, 31, 0}}));
+}
+
+// information_schema's views Kvasir does not build yet are refused as not
+// yet supported, in any case, where MySQL would answer them (the design,
+// plan 1c); a name MySQL does not have is MySQL's 1109.
+TEST(ExecSessionInformationSchema, ViewsNotBuiltAreRefused) {
+  TableBed b;
+  b.expect_refused("SELECT * FROM information_schema.VIEWS", 1235, "42000", "This version of Kvasir doesn't yet support 'information_schema.VIEWS'");
+  b.expect_refused("SELECT * FROM INFORMATION_SCHEMA.routines", 1235, "42000", "This version of Kvasir doesn't yet support 'information_schema.ROUTINES'");
+  b.expect_refused("SELECT * FROM information_schema.NOPE", 1109, "42S02", "Unknown table 'NOPE' in information_schema");
+}
+
+// A type Kvasir does not build yet is refused as not yet supported, where
+// MySQL would create the table (the date and time types wait on step 2).
+TEST(ExecSessionDdl, TypesNotBuiltAreRefused) {
+  TableBed b;
+  b.expect_refused("CREATE TABLE d (a DATE)", 1235, "42000", "This version of Kvasir doesn't yet support 'the DATE type'");
+}
+
+// Index and column options Kvasir does not build yet are refused as not yet
+// supported, where MySQL would take them.
+TEST(ExecSessionDdl, OptionsNotBuiltAreRefused) {
+  TableBed b;
+  b.expect_refused("CREATE TABLE o1 (a INT, KEY (a) INVISIBLE)", 1235, "42000", "This version of Kvasir doesn't yet support 'index option INVISIBLE'");
+  b.expect_refused("CREATE TABLE o2 (a INT ON UPDATE 1)", 1235, "42000", "This version of Kvasir doesn't yet support 'ON UPDATE'");
+  b.expect_refused("CREATE TABLE o3 (a INT VISIBLE)", 1235, "42000", "This version of Kvasir doesn't yet support 'column attribute VISIBLE'");
+}
+
+// ASCII is CHARACTER SET latin1 and UNICODE is ucs2 (the manual's "String
+// Data Type Syntax"; MySQL creates both), character sets a column cannot yet
+// hold.
+TEST(ExecSessionDdl, CharacterSetsNotBuiltAreRefused) {
+  TableBed b;
+  b.expect_refused("CREATE TABLE c1 (a CHAR(1) ASCII)", 1235, "42000", "This version of Kvasir doesn't yet support 'character set latin1'");
+  b.expect_refused("CREATE TABLE c2 (a CHAR(1) UNICODE)", 1235, "42000", "This version of Kvasir doesn't yet support 'character set ucs2'");
 }
 
 }  // namespace

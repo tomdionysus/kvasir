@@ -216,10 +216,10 @@ catalog::ColumnType column_type(const sql::ColumnSpec& column, const CollationIn
     kind = TypeKind::tinyblob;
   } else if (d.name == "MEDIUMBLOB") {
     kind = TypeKind::mediumblob;
-  } else if (d.name == "LONGBLOB") {
-    kind = TypeKind::longblob;
   } else {
-    not_yet("the " + d.name + " type");
+    // LONGBLOB: the parser gives no other name (one not built is refused
+    // there).
+    kind = TypeKind::longblob;
   }
   const bool binary_type = catalog::is_binary(kind) || d.name == "BLOB";
   std::string charset = "binary";

@@ -8,6 +8,7 @@
 #pragma once
 
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -80,6 +81,9 @@ class ColumnSource {
   virtual std::optional<Found> find_column(const std::vector<std::string>& path) const = 0;
   // Its value in the row at hand.
   virtual Value column_value(const std::vector<std::string>& path) const = 0;
+  // The column as an error message names it: by default its path as
+  // written, each name backquoted (observed: a HAVING alias is `x`).
+  virtual std::string written(const std::vector<std::string>& path) const;
 };
 
 // Where aggregates are read from: the group at hand's, each call by its
@@ -127,6 +131,12 @@ struct EvalSettings {
   bool result_collation_binary = false;
 };
 
+// A value as the bit operators and BIT_AND, BIT_OR and BIT_XOR take it, a
+// negative as its two's complement (observed): a DECIMAL rounded half away
+// from zero, a DOUBLE half to even, a string by its integer prefix, a hex or
+// bit literal as its bytes, big-endian.
+uint64_t bit_operand(const Value& v, const ResultType& from);
+
 class Evaluator {
  public:
   explicit Evaluator(EvalSettings settings = {});
@@ -142,6 +152,9 @@ class Evaluator {
   // A value read as a DOUBLE: a string by its longest numeric prefix, with
   // warning 1292 when anything but trailing space is left.
   double real(const Value& v, const ResultType& t);
+  // A value as a condition: nothing for NULL; a string read as real() reads
+  // it.
+  std::optional<bool> truth(const Value& v, const ResultType& t);
 
   const std::vector<Warning>& warnings() const noexcept { return _warnings; }
   void clear_warnings() { _warnings.clear(); }
@@ -162,10 +175,9 @@ class Evaluator {
   // binary string, then a _bin collation), or 1267 or 1270.
   Derivation aggregate_collations(const std::vector<Derivation>& strings, const std::string& operation) const;
   // -1, 0 or 1, or nothing when either is NULL; two strings compare under
-  // `collation`.
-  std::optional<int> compare_values(const Value& x, const ResultType& tx, const Value& y, const ResultType& ty, std::optional<uint16_t> collation);
-  // A value as a condition: nothing for NULL.
-  std::optional<bool> truth(const Value& v, const ResultType& t);
+  // `collation`. A quiet operand read as a number gives no warning.
+  std::optional<int> compare_values(const Value& x, const ResultType& tx, const Value& y, const ResultType& ty, std::optional<uint16_t> collation,
+                                    bool quiet_x = false, bool quiet_y = false);
 
   // The flow control functions (IFNULL, COALESCE, NULLIF, IF and CASE):
   // the type several operands give together, NULL aside, and the collation
@@ -211,6 +223,9 @@ class Evaluator {
 
   EvalSettings _settings;
   std::vector<Warning> _warnings;
+  // The literals a comparison has read as numbers: MySQL converts a
+  // constant operand once for the statement, so warns for it once.
+  std::set<const sql::Expr*> _converted;
 };
 
 // Computed result types, as MySQL reports them: a BIGINT of `precision`
@@ -246,8 +261,9 @@ uint32_t widest_character(uint16_t collation);
 ResultType reported(const ResultType& type, std::optional<uint16_t> results);
 
 // The expression as MySQL writes it in an error message:
-// (9223372036854775807 + 1), (-(9223372036854775808) - 1).
-std::string mysql_text(const sql::Expr& expr);
+// (9223372036854775807 + 1), (-(9223372036854775808) - 1); a column as
+// `columns` writes it.
+std::string mysql_text(const sql::Expr& expr, const ColumnSource* columns = nullptr);
 
 // A result column's name, as MySQL gives it: the alias; else a string
 // literal's value; else the item as written.

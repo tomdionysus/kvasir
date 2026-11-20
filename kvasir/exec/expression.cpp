@@ -599,6 +599,32 @@ Decimal as_decimal(const Value& v) {
 
 }  // namespace
 
+uint64_t bit_operand(const Value& v, const ResultType& from) {
+  const auto signed_text = [](std::string_view text) -> uint64_t {
+    if (!text.empty() && text[0] == '-') {
+      int64_t i = 0;
+      std::from_chars(text.data(), text.data() + text.size(), i);
+      return static_cast<uint64_t>(i);
+    }
+    uint64_t u = 0;
+    std::from_chars(text.data() + (!text.empty() && text[0] == '+'), text.data() + text.size(), u);
+    return u;
+  };
+  if (const auto* i = std::get_if<int64_t>(&v)) return static_cast<uint64_t>(*i);
+  if (const auto* u = std::get_if<uint64_t>(&v)) return *u;
+  if (const auto* d = std::get_if<Decimal>(&v)) return signed_text(d->rounded(0).to_string());
+  if (const auto* r = std::get_if<double>(&v)) {
+    const double x = std::rint(*r);
+    return x < 0 ? static_cast<uint64_t>(static_cast<int64_t>(x)) : static_cast<uint64_t>(x);
+  }
+  if (is_null(v)) return 0;
+  const auto& s = std::get<std::string>(v);
+  if (from.number_string) return static_cast<uint64_t>(as_int(v));
+  size_t start = 0;
+  while (start < s.size() && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n')) ++start;
+  return signed_text(std::string_view(s).substr(start));
+}
+
 bool is_aggregate(const Expr& e) {
   static constexpr std::array<std::string_view, 18> names{"AVG",           "BIT_AND",        "BIT_OR", "BIT_XOR",  "COUNT",   "GROUP_CONCAT",
                                                           "JSON_ARRAYAGG", "JSON_OBJECTAGG", "MAX",    "MIN",      "STD",     "STDDEV",
@@ -648,7 +674,8 @@ std::optional<bool> Evaluator::truth(const Value& v, const ResultType& t) {
   return real(v, t) != 0;
 }
 
-std::optional<int> Evaluator::compare_values(const Value& x, const ResultType& tx, const Value& y, const ResultType& ty, std::optional<uint16_t> collation) {
+std::optional<int> Evaluator::compare_values(const Value& x, const ResultType& tx, const Value& y, const ResultType& ty, std::optional<uint16_t> collation,
+                                             bool quiet_x, bool quiet_y) {
   if (is_null(x) || is_null(y)) return std::nullopt;
   if (collation) {
     const auto* sx = std::get_if<std::string>(&x);
@@ -661,7 +688,13 @@ std::optional<int> Evaluator::compare_values(const Value& x, const ResultType& t
     return a < b ? -1 : a > b ? 1 : 0;
   }
   if (dx == Domain::real || dy == Domain::real) {
-    const double a = real(x, tx), b = real(y, ty);
+    const auto quietly = [&](const Value& v, const ResultType& t, bool quiet) {
+      const auto held = _warnings.size();
+      const double r = real(v, t);
+      if (quiet) _warnings.erase(_warnings.begin() + static_cast<std::ptrdiff_t>(held), _warnings.end());
+      return r;
+    };
+    const double a = quietly(x, tx, quiet_x), b = quietly(y, ty, quiet_y);
     return a < b ? -1 : a > b ? 1 : 0;
   }
   return compare(as_decimal(x), as_decimal(y));
@@ -678,7 +711,7 @@ Value Evaluator::value(const Expr& e) {
     return {};
   };
   const auto out_of_range = [&](const char* what) -> SqlError {
-    return SqlError(er_data_out_of_range, "22003", std::string(what) + " value is out of range in '" + mysql_text(e) + "'");
+    return SqlError(er_data_out_of_range, "22003", std::string(what) + " value is out of range in '" + mysql_text(e, _settings.columns) + "'");
   };
 
   switch (e.kind) {
@@ -748,7 +781,11 @@ Value Evaluator::value(const Expr& e) {
         if (op == "<=>") {
           if (is_null(a) || is_null(b)) return int64_t{is_null(a) && is_null(b) ? 1 : 0};
         }
-        const auto c3 = compare_values(a, ta, b, tb, string_collation({{e.args[0].get(), ta}, {e.args[1].get(), tb}}, op));
+        // A literal is converted once for the statement (observed: WHERE
+        // a > '1x' over three rows warns once, where a + '1x' warns thrice).
+        const auto once = [&](const Expr& arg) { return arg.kind == ExprKind::string && !_converted.insert(&arg).second; };
+        const bool quiet_a = once(*e.args[0]), quiet_b = once(*e.args[1]);
+        const auto c3 = compare_values(a, ta, b, tb, string_collation({{e.args[0].get(), ta}, {e.args[1].get(), tb}}, op), quiet_a, quiet_b);
         if (!c3) return {};
         const int r = *c3;
         bool result = false;
@@ -762,12 +799,7 @@ Value Evaluator::value(const Expr& e) {
       }
       if (is_null(a) || is_null(b)) return {};
       if (bitwise(op)) {
-        const auto bits = [&](const Value& v) -> uint64_t {
-          if (const auto* d = std::get_if<Decimal>(&v)) return static_cast<uint64_t>(d->rounded(0).to_int().value_or(0));
-          if (const auto* r = std::get_if<double>(&v)) return static_cast<uint64_t>(std::llround(*r));
-          return static_cast<uint64_t>(as_int(v));
-        };
-        const uint64_t x = bits(a), y = bits(b);
+        const uint64_t x = bit_operand(a, ta), y = bit_operand(b, tb);
         if (op == "&") return x & y;
         if (op == "|") return x | y;
         if (op == "^") return x ^ y;
@@ -1195,8 +1227,59 @@ Value Evaluator::flow_value(const Expr& e) {
   return {};
 }
 
-std::string mysql_text(const Expr& e) {
+std::string ColumnSource::written(const std::vector<std::string>& path) const {
+  std::string out;
+  for (size_t i = 0; i < path.size(); ++i) out += (i ? ".`" : "`") + path[i] + "`";
+  return out;
+}
+
+namespace {
+
+std::string lower_text(const std::string& s) {
+  std::string out;
+  for (const char ch : s) out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+  return out;
+}
+
+// (1 in (1,2)), (1 not in (1,2)) (observed).
+std::string in_text(const ColumnSource* c, const Expr& e, bool negated) {
+  std::string out = "(" + mysql_text(*e.args[0], c) + (negated ? " not in (" : " in (");
+  for (size_t i = 1; i < e.args.size(); ++i) out += (i > 1 ? "," : "") + mysql_text(*e.args[i], c);
+  return out + "))";
+}
+
+// (2 between 1 and 3), (2 not between 1 and 3) (observed).
+std::string between_text(const ColumnSource* c, const Expr& e, bool negated) {
+  return "(" + mysql_text(*e.args[0], c) + (negated ? " not between " : " between ") + mysql_text(*e.args[1], c) + " and " + mysql_text(*e.args[2], c) + ")";
+}
+
+// NOT of an expression as MySQL writes it once it has folded the negation
+// in (observed): a comparison inverted, AND and OR by De Morgan, IN and
+// BETWEEN as NOT IN and NOT BETWEEN, a value that is not a condition as its
+// comparison (0 = x), anything else as not(x).
+std::string negated_text(const ColumnSource* c, const Expr& a) {
+  if (a.kind == ExprKind::binary) {
+    static const std::vector<std::pair<std::string, std::string>> inverse = {{"=", "<>"}, {"!=", "="}, {"<", ">="}, {"<=", ">"}, {">", "<="}, {">=", "<"}};
+    for (const auto& [op, inverted] : inverse)
+      if (a.value == op) return "(" + mysql_text(*a.args[0], c) + " " + inverted + " " + mysql_text(*a.args[1], c) + ")";
+    if (a.value == "AND" || a.value == "OR")
+      return "(" + negated_text(c, *a.args[0]) + (a.value == "AND" ? " or " : " and ") + negated_text(c, *a.args[1]) + ")";
+  }
+  if (a.kind == ExprKind::in) return in_text(c, a, !a.negated);
+  if (a.kind == ExprKind::between) return between_text(c, a, !a.negated);
+  const bool condition = a.kind == ExprKind::is || a.kind == ExprKind::like || (a.kind == ExprKind::binary && (logical(a.value) || comparison(a.value))) ||
+                         (a.kind == ExprKind::unary && a.value == "NOT");
+  if (!condition) return "(0 = " + mysql_text(a, c) + ")";
+  return "(not(" + mysql_text(a, c) + "))";
+}
+
+}  // namespace
+
+std::string mysql_text(const Expr& e, const ColumnSource* c) {
   switch (e.kind) {
+    case ExprKind::column:
+      // `db`.`table`.`column`, the table by its alias (observed).
+      return c ? c->written(e.path) : sql::to_string(e);
     case ExprKind::null:
       return "NULL";
     case ExprKind::boolean:
@@ -1208,24 +1291,44 @@ std::string mysql_text(const Expr& e) {
       return e.value;
     case ExprKind::string:
       return "'" + e.value + "'";
-    case ExprKind::unary:
-      if (e.value == "-") return "-(" + mysql_text(*e.args[0]) + ")";
-      if (e.value == "NOT") return "(not(" + mysql_text(*e.args[0]) + "))";
-      return e.value + "(" + mysql_text(*e.args[0]) + ")";
+    case ExprKind::unary: {
+      if (e.value == "-") return "-(" + mysql_text(*e.args[0], c) + ")";
+      if (e.value == "NOT") return negated_text(c, *e.args[0]);
+      return e.value + "(" + mysql_text(*e.args[0], c) + ")";
+    }
+    case ExprKind::is:
+      // (NULL is null), as MySQL writes it (observed).
+      return "(" + mysql_text(*e.args[0], c) + " is " + (e.negated ? "not " : "") + lower_text(e.value) + ")";
+    case ExprKind::in:
+      return in_text(c, e, e.negated);
+    case ExprKind::between:
+      return between_text(c, e, e.negated);
+    case ExprKind::like: {
+      // ('a' like 'a' escape '|'); NOT LIKE as not(...) (observed).
+      const std::string text =
+          "(" + mysql_text(*e.args[0], c) + " like " + mysql_text(*e.args[1], c) + (e.args.size() > 2 ? " escape " + mysql_text(*e.args[2], c) : "") + ")";
+      return e.negated ? "(not(" + text + "))" : text;
+    }
+    case ExprKind::case_when: {
+      // (case 1 when 1 then 1 else 3 end) (observed).
+      std::string out = "(case ";
+      if (e.operand) out += mysql_text(*e.operand, c) + " ";
+      for (size_t i = 0; i + 1 < e.args.size(); i += 2) out += "when " + mysql_text(*e.args[i], c) + " then " + mysql_text(*e.args[i + 1], c) + " ";
+      if (e.otherwise) out += "else " + mysql_text(*e.otherwise, c) + " ";
+      return out + "end)";
+    }
     case ExprKind::binary: {
       std::string op = e.value;
       if (op == "!=") op = "<>";
       if (op == "AND") op = "and";
       if (op == "OR") op = "or";
       if (op == "XOR") op = "xor";
-      return "(" + mysql_text(*e.args[0]) + " " + op + " " + mysql_text(*e.args[1]) + ")";
+      return "(" + mysql_text(*e.args[0], c) + " " + op + " " + mysql_text(*e.args[1], c) + ")";
     }
     case ExprKind::call: {
       // abs(-(9223372036854775808)): the name in lower case.
-      std::string out;
-      for (const char ch : e.value) out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
-      out += "(";
-      for (size_t i = 0; i < e.args.size(); ++i) out += (i ? "," : "") + mysql_text(*e.args[i]);
+      std::string out = lower_text(e.value) + "(";
+      for (size_t i = 0; i < e.args.size(); ++i) out += (i ? "," : "") + mysql_text(*e.args[i], c);
       return out + ")";
     }
     default:

@@ -281,6 +281,22 @@ TEST(TxnStore, WaitsAndDeadlocks) {
   EXPECT_EQ(woken, 3);
   EXPECT_EQ(s.wait(w.id(), r.id(), [&] { ++woken; }), Store::Wait::free);
   EXPECT_EQ(woken, 3);
+
+  // A transaction's end wakes only those waiting on it.
+  auto h1 = s.begin();
+  auto h2 = s.begin();
+  auto w1 = s.begin();
+  auto w2 = s.begin();
+  s.insert(h1, 4, "m", {}, row("m"), nullptr);
+  s.insert(h2, 4, "n", {}, row("n"), nullptr);
+  int woken1 = 0, woken2 = 0;
+  EXPECT_EQ(s.wait(w1.id(), h1.id(), [&] { ++woken1; }), Store::Wait::waiting);
+  EXPECT_EQ(s.wait(w2.id(), h2.id(), [&] { ++woken2; }), Store::Wait::waiting);
+  s.commit(h1);
+  EXPECT_EQ(woken1, 1);
+  EXPECT_EQ(woken2, 0);
+  s.commit(h2);
+  EXPECT_EQ(woken2, 1);
 }
 
 }  // namespace

@@ -31,6 +31,15 @@ Server-side prepared statements work with Go's, Python's and Java's
 drivers, answering as MySQL does. node-c and node-d each
 hold a tree in `/root/kvasir-work/kvasir`.
 
+Releases (the maintainer, 2026-11-20, to the stack): "When you have completed all
+current tasks, you may cut versions by rationalising docs - README should
+always be focused on installation and use - creating deb packages,
+running full tests including sanitation and fuzzing, and tagging and
+merging to main, pushing. You must maintain a release badge." This is
+The maintainer's standing word for tags once the current tasks are done; until then
+CLAUDE.md's "only at the maintainer's word" holds. And: "You may only bump minor or
+patch versions." (the maintainer, 2026-11-20): never the major.
+
 Next, in order:
 1. Coverage to ~100% (below).
 2. Step 1d: Connector/J's getTables and getColumns against a node.
@@ -160,15 +169,43 @@ outside that rule (the maintainer, 2026-11-17).
 **Coverage** (the maintainer, 2026-11-20, to the stack: "You will maintain ~100%
 code coverage on all code."). Baseline at 09f8693, from GitHub CI's
 coverage job: lines 95.6% (7,662 of 8,011), functions 97.7% (804 of 823),
-over 49 files. Work:
+over 49 files. On `feature/coverage` at round 6, efb5bb7 (node-a,
+coverage build): lines **99.1% (8,140 of 8,213)**, functions 98.0%; 378
+passed, 962 of 962. CI has a `tidy` step (clang-tidy
+bugprone-use-after-move, warnings as errors; zero findings, Lir's request
+2026-11-20). Left: session.cpp 16 (a table made by another session
+between the check and the create, the lock already let go, a negative
+bound LIMIT), expression.cpp 14, connection.cpp 15 (four of them the
+lock-wait timer, which waits on Dannan's injected time), stream_transport
+13 (waits on the Connector/C++ tests), a handful elsewhere. A negative
+integer bound to `LIMIT ?` is 1690 from SQL's EXECUTE (observed) and 1210
+in Kvasir; the binary protocol's answer waits on the Connector/C++ tests.
+session.cpp's CREATE DATABASE collation check (charset given, collation
+of another) answers as MySQL but its line is not reached: utf8mb3_bin is
+not a collation Kvasir holds, so the unknown-collation branch answers;
+`CHARACTER SET utf8mb3 COLLATE utf8mb4_bin` reaches it (next round). variables.cpp:367 (a string variable other than
+time_zone) is reached only by SET GLOBAL, not yet supported (cluster-wide
+state, waits on persistence). Found, not yet matched:
+- MySQL takes a character past U+FFFF in a name and converts the name to
+  utf8mb3 with `?` for it: `SELECT 1 AS a<U+20000>` names the column
+  `a?`, a quoted alias of one warns 1300 for the first such column, a
+  string alias is error 3854, and an unknown column's 1054 names it with
+  `?`. Kvasir's lexer now takes the character (round 4) but keeps it in
+  the name; to probe and build as its own item.
+- ASCII (latin1) and UNICODE (ucs2) column attributes parse but are
+  refused 1235, as their character sets are.
+- MySQL keeps more than 65 digits in an
+intermediate DECIMAL (`99…99.0 * 10`, 65 nines, answers 66 digits; Kvasir
+refuses with 1690 DECIMAL); to probe and build as its own item.
+Work:
 - take the per-file report from `tools/ci.sh coverage` on a Pi;
 - for each uncovered line, a test from the manual or the reference
   server, or else the line is dead code and goes;
 - the coverage job then fails below the bar, so it holds;
 - Codecov's upload has been refused ("Token required - not valid
   tokenless upload"), so the badge has not moved: the repository has no
-  CODECOV_TOKEN secret. The maintainer set it on 2026-11-20 (02:25Z). Check the next
-  push's upload succeeds and the badge moves.
+  CODECOV_TOKEN secret. The maintainer set it on 2026-11-20 (02:25Z); fc75865's upload
+  was accepted and the badge reads 96%.
 
 **A real MySQL client in the tests** (the maintainer, 2026-11-20: "You will use a
 real mysql library for C++, only in tests."; asked which, "Connector/C++

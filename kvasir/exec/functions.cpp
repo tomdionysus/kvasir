@@ -621,7 +621,7 @@ Value Evaluator::number_function_value(const Expr& e) {
     if (exact) return exact->negative() ? exact->negated() : *exact;
     if (signed_) {
       if (*signed_ == std::numeric_limits<int64_t>::min())
-        throw SqlError(er_data_out_of_range, "22003", "BIGINT value is out of range in '" + mysql_text(e) + "'");
+        throw SqlError(er_data_out_of_range, "22003", "BIGINT value is out of range in '" + mysql_text(e, _settings.columns) + "'");
       return *signed_ < 0 ? -*signed_ : *signed_;
     }
     return v;

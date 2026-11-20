@@ -119,9 +119,9 @@ bool Lexer::word_byte(size_t at) const noexcept {
   if (at >= _text.size()) return false;
   const char c = _text[at];
   if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '$') return true;
-  // U+0080 to U+FFFF, as the manual permits in an unquoted name.
-  const auto length = utf8_length(at);
-  return length == 2 || length == 3;
+  // U+0080 up: the manual permits U+FFFF at most in an unquoted name, but
+  // MySQL takes past it too (observed).
+  return utf8_length(at) > 1;
 }
 
 void Lexer::skip_space_and_comments() {
