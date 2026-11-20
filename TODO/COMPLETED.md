@@ -2,6 +2,23 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-20: Release 0.1.0, one node in memory
+
+- Kvasir's first release, on Dannan 0.9.2: one node, in memory, MySQL
+  compatible as the README lists, at `ephemeral` only (the maintainer's
+  ruling: a stable release keeps no promise it cannot keep).
+- Coverage to 99.1% of lines (8,145 of 8,218), functions 98.0%, in six
+  rounds of tests from the manual and the reference server; what they found
+  is matched (be176c6). CI's tidy step checks use after move.
+- Packaged as `kvasir` for Debian trixie on x86-64 and arm64, lintian clean
+  (`docs/packaging.md`); CI fuzzes each target and builds the package.
+- The gate (a build node, 2026-11-20): release, clang, ASan with UBSan, TSan
+  (Dannan built from source, instrumented: `__asan_` and `__tsan_` imports
+  in its library) and coverage each pass 380 tests and 962 of 962
+  statements; the four fuzz targets ran 60 seconds each clean; a build
+  against an installed Dannan passes the suite. CI green on 4a11b14.
+- Next release: Dannan 0.10.0 and its DANNAN_SANITIZE option.
+
 ## 2026-11-20: information_schema's SCHEMATA, TABLES and COLUMNS (plan 1c)
 
 - What JDBC's metadata calls read, observed on MySQL 8.4.13 first: each
