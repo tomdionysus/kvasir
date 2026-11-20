@@ -42,9 +42,9 @@ NodeSettings read_node_settings(const dannan::config::Settings& settings) {
   out.certificate = *certificate;
   out.key = *key;
 
-  const auto level = settings.choice("ack_level", exec::ack_levels);
+  const auto level = settings.choice("ack_level", exec::ack_level_names());
   if (!level) throw ConfigError("ack_level is required: ephemeral, persisted, decided or replicated; Kvasir has no built-in default");
-  if (std::find(exec::kept_ack_levels.begin(), exec::kept_ack_levels.end(), *level) == exec::kept_ack_levels.end())
+  if (!exec::ack_level_kept(*dannan::contract::parse_ack_level(*level)))
     throw ConfigError("ack_level " + *level + " is not kept yet: this release is one node in memory, so only ephemeral");
   out.ack_level = *level;
 

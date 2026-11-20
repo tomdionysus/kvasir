@@ -24,6 +24,7 @@
 #include <string>
 #include <string_view>
 
+#include "dannan/encoding/base.h"
 #include "dannan/identity/crypto.h"
 #include "kvasir/protocol/caching_sha2.h"
 
@@ -38,7 +39,7 @@ std::array<uint8_t, nonce_size> counting_nonce() {
   return nonce;
 }
 
-std::string hex(std::span<const uint8_t> bytes) { return dannan::identity::hex(bytes); }
+std::string hex(std::span<const uint8_t> bytes) { return dannan::encoding::hex(bytes); }
 
 TEST(CachingSha2, StatusBytesAreTheManuals) {
   EXPECT_EQ(plugin_name, "caching_sha2_password");

@@ -101,7 +101,7 @@ class Lexer {
   Token symbol(size_t start);
   Token make(TokenKind kind, std::string value, size_t start) const;
   // The length of the UTF-8 character at `at`, or 0 for bytes that are not
-  // one.
+  // one (Dannan's encoding::utf8_length).
   size_t utf8_length(size_t at) const noexcept;
   bool word_byte(size_t at) const noexcept;
   [[noreturn]] void fail(size_t at) const;

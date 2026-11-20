@@ -48,7 +48,7 @@ endif()
 set(KVASIR_DANNAN_REPOSITORY "${CMAKE_CURRENT_SOURCE_DIR}/../dannan" CACHE STRING "Dannan's repository: a path or a URL")
 # Not a cache variable: a moved pin must take effect in a build tree that
 # already exists.
-set(KVASIR_DANNAN_TAG "0.9.2")
+set(KVASIR_DANNAN_TAG "0.10.0")
 include(FetchContent)
 include(GNUInstallDirs)
 # The installed one is found by minor, at least the pinned patch (Dannan's
@@ -58,6 +58,8 @@ if(KVASIR_SYSTEM_DANNAN)
 elseif(NOT TARGET dannan::dannan)
   FetchContent_Declare(dannan GIT_REPOSITORY "${KVASIR_DANNAN_REPOSITORY}" GIT_TAG "${KVASIR_DANNAN_TAG}")
   set(DANNAN_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+  # The library alone: Kvasir runs none of Dannan's tools.
+  set(DANNAN_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(dannan)
 endif()
 

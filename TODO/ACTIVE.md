@@ -239,26 +239,44 @@ Kvasir).
     19, React Router 7, Vite 7, TypeScript 5.9, plain CSS, Vitest).
 - Kvasir designs its own screens and API now, and builds once those land.
 
-**Dannan 0.10.0** has started (the maintainer's word, relayed 2026-11-20; plan
-`../dannan/TODO/2026-11-20-stack-plan.md`), in order:
-- the contract vocabulary with the ack-level enum;
-- logging;
-- the in-memory AcceptorStore;
-- dannan::testing, with the fuzz export and a client Stream;
-- the clock rules.
-Kvasir pins 0.10.0 once it is tagged, which needs the maintainer's word. Then it:
-- replaces its own ack-level enum with Dannan's;
-- moves kvasir-node's std::cerr output onto Dannan's logging;
-- moves its fuzz targets onto the exported driver;
-- takes the fake Stream for connection tests;
-- builds ASan and TSan with DANNAN_SANITIZE (address, thread) in place of
-  global flags, and reruns both before its next release.
-Before the repin commit, read 0.10.0's release notes and changelog in full,
-not only the fixes, and re-examine Kvasir's code against them: a new API
-that replaces a workaround, a helper that replaces code Kvasir wrote itself
-(the no-duplication rule), a fixed bug Kvasir works around that can now go.
-The repin commit says what changed and what was left, and why (the
-maintainer, 2026-11-20).
+**Dannan 0.10.0** is tagged (2026-11-20). Read before the repin, in full: its
+CHANGELOG's "Adopting 0.10.0" and docs/building.md, against Kvasir's code
+(the maintainer, 2026-11-20: a new API that replaces a workaround, a helper
+that replaces Kvasir's own code, a fixed bug worked around).
+
+The repin (feature/dannan-0.10.0) takes:
+- the pin, 0.10.0, and the Debian range libdannan-dev (>= 0.10.0, << 0.11~);
+- the ack-level names from `contract/ack_level.h`, in place of Kvasir's own
+  list; which levels Kvasir keeps stays Kvasir's;
+- `encoding::utf8_length` in place of three UTF-8 scanners of Kvasir's own
+  (the lexer's, store.cpp's valid_utf8, LIKE's), and `encoding::hex` and
+  `unhex` in place of their old `identity::` names;
+- DANNAN_SANITIZE for the asan and tsan steps, which now check both
+  libraries carry the runtime's symbols;
+- Dannan's `tools/ci.sh install-debs <tag>` in the deb step, in place of
+  building Dannan's packages itself;
+- DANNAN_BUILD_TOOLS off: Kvasir runs none of Dannan's tools.
+
+Each its own change, after the repin:
+- kvasir-node's std::cerr lines onto `status::SwappableSink` and a scoped
+  logger;
+- the fuzz targets registered with `dannan::testing`, run by
+  `dannan::fuzz::smoke` inside kvasir_tests as well (so g++ builds and the
+  sanitizer steps run them too).
+
+Left, and why:
+- `Completion<T>` and `Outcome<T>`: Kvasir has no callback result type or
+  fault enum of its own to replace; a lock wait's wake is a plain posted
+  call. They come with the cluster's calls.
+- `agree::MemoryStore`, `RetryPolicy::unbounded`, `RandomId`, `sha1`, the
+  durable directory helpers, base64 and base32: nothing in Kvasir yet does
+  their work.
+- `listen::Prefix::parse`'s stricter reading: Kvasir parses no prefixes.
+- The two Agreement lifetime fixes: Kvasir uses no Agreement yet, so there
+  is no teardown workaround to remove.
+- The fuzz build keeps its own global sanitizer flags, which reach the
+  fetched Dannan too: KVASIR_FUZZ_SANITIZERS may be "undefined" alone where
+  ASan cannot start, which DANNAN_SANITIZE does not offer.
 The credential and node helpers come in the second minor.
 
 **The stack's converged plan** (2026-11-20, agreed by Kvasir; the record

@@ -10,6 +10,7 @@
 #include <array>
 #include <cctype>
 
+#include "dannan/encoding/base.h"
 #include "kvasir/sql/keywords.h"
 
 namespace kvasir::sql {
@@ -86,34 +87,7 @@ void Lexer::fail(size_t at) const {
   throw SyntaxError(_text, at, line);
 }
 
-size_t Lexer::utf8_length(size_t at) const noexcept {
-  const auto byte = [&](size_t i) { return static_cast<uint8_t>(_text[i]); };
-  const uint8_t lead = byte(at);
-  if (lead < 0x80) return 1;
-  size_t length = 0;
-  uint32_t point = 0;
-  if ((lead & 0xe0) == 0xc0) {
-    length = 2;
-    point = lead & 0x1f;
-  } else if ((lead & 0xf0) == 0xe0) {
-    length = 3;
-    point = lead & 0x0f;
-  } else if ((lead & 0xf8) == 0xf0) {
-    length = 4;
-    point = lead & 0x07;
-  } else {
-    return 0;
-  }
-  if (at + length > _text.size()) return 0;
-  for (size_t i = 1; i < length; ++i) {
-    if ((byte(at + i) & 0xc0) != 0x80) return 0;
-    point = (point << 6) | (byte(at + i) & 0x3f);
-  }
-  // Overlong forms, surrogates, and past U+10FFFF.
-  if ((length == 2 && point < 0x80) || (length == 3 && point < 0x800) || (length == 4 && point < 0x10000)) return 0;
-  if ((point >= 0xd800 && point <= 0xdfff) || point > 0x10ffff) return 0;
-  return length;
-}
+size_t Lexer::utf8_length(size_t at) const noexcept { return dannan::encoding::utf8_length(_text, at); }
 
 bool Lexer::word_byte(size_t at) const noexcept {
   if (at >= _text.size()) return false;

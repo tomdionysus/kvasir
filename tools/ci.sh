@@ -52,6 +52,21 @@ configure() {
   cmake --build "$out/$dir" -j "$jobs"
 }
 
+# Both libraries carry the sanitizer, not only the tests that link them:
+# their undefined symbols name the runtime's entry points (`prefix`, __asan_
+# or __tsan_). Dannan's is checked because it is built from source here,
+# never the installed package.
+instrumented() {
+  for library in "$(find "$1/_deps/dannan-build" -name 'libdannan.so.*.*.*' -type f | head -n 1)" "$(find "$1/kvasir" -maxdepth 1 -name 'libkvasir.so.*.*.*' -type f | head -n 1)"; do
+    count=$(nm -D --undefined-only "$library" | grep -c "$2" || true)
+    if [ "$count" -eq 0 ]; then
+      echo "$library is not instrumented: no $2 symbols" >&2
+      exit 1
+    fi
+    echo "$library: $count $2 symbols"
+  done
+}
+
 case "$step" in
   check)
     cd "$top"
@@ -74,13 +89,19 @@ case "$step" in
     "$out/clang/kvasir_tests"
     ;;
   asan)
+    # Dannan is built from source and instrumented by its own switch,
+    # DANNAN_SANITIZE; Kvasir's own targets take the same flags.
     flags="-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined"
-    configure asan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DKVASIR_WARNINGS_AS_ERRORS=OFF -DCMAKE_CXX_FLAGS="$flags" -DCMAKE_EXE_LINKER_FLAGS="$flags" -DCMAKE_SHARED_LINKER_FLAGS="$flags"
+    configure asan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DKVASIR_WARNINGS_AS_ERRORS=OFF -DDANNAN_SANITIZE=address \
+      -DCMAKE_CXX_FLAGS="$flags" -DCMAKE_EXE_LINKER_FLAGS="$flags" -DCMAKE_SHARED_LINKER_FLAGS="$flags"
+    instrumented "$out/asan" __asan_
     ASAN_OPTIONS=detect_stack_use_after_return=1 UBSAN_OPTIONS=print_stacktrace=1 "$out/asan/kvasir_tests"
     ;;
   tsan)
     flags="-fsanitize=thread -fno-omit-frame-pointer"
-    configure tsan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DKVASIR_WARNINGS_AS_ERRORS=OFF -DCMAKE_CXX_FLAGS="$flags" -DCMAKE_EXE_LINKER_FLAGS="$flags" -DCMAKE_SHARED_LINKER_FLAGS="$flags"
+    configure tsan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DKVASIR_WARNINGS_AS_ERRORS=OFF -DDANNAN_SANITIZE=thread \
+      -DCMAKE_CXX_FLAGS="$flags" -DCMAKE_EXE_LINKER_FLAGS="$flags" -DCMAKE_SHARED_LINKER_FLAGS="$flags"
+    instrumented "$out/tsan" __tsan_
     TSAN_OPTIONS="halt_on_error=1 second_deadlock_stack=1" "$out/tsan/kvasir_tests"
     ;;
   coverage)
@@ -133,9 +154,9 @@ case "$step" in
     ;;
   deb)
     rm -rf "$out/deb"
+    # Dannan's own step builds and installs its pinned release's packages.
     git clone --quiet --depth 1 --branch "$dannan_tag" "$KVASIR_DANNAN_REPOSITORY" "$out/deb/dannan"
-    (cd "$out/deb/dannan" && apt-get build-dep -y ./ && DEB_BUILD_OPTIONS="nocheck parallel=$jobs" tools/build-deb.sh)
-    apt-get install -y "$out"/deb/dannan/build-deb/libdannan*.deb
+    DANNAN_REPOSITORY="$KVASIR_DANNAN_REPOSITORY" DANNAN_CI_OUT="$out/deb/dannan-ci" sh "$out/deb/dannan/tools/ci.sh" install-debs "$dannan_tag"
     cd "$top"
     apt-get build-dep -y ./
     DEB_BUILD_OPTIONS="parallel=$jobs" tools/build-deb.sh

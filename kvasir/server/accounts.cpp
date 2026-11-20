@@ -12,6 +12,7 @@
 #include <string_view>
 #include <utility>
 
+#include "dannan/encoding/base.h"
 #include "dannan/identity/crypto.h"
 
 namespace kvasir::server {
@@ -55,7 +56,7 @@ std::string make_credential(std::span<const uint8_t> password, const Argon2Costs
   const auto salt = dannan::identity::random_bytes(credential_salt_bytes);
   const auto tag = dannan::identity::argon2id(password, salt, costs, credential_tag_bytes);
   return std::string(scheme) + "$m=" + std::to_string(costs.memory_kib) + ",t=" + std::to_string(costs.iterations) + ",p=" + std::to_string(costs.lanes) + "$" +
-         dannan::identity::hex(salt) + "$" + dannan::identity::hex(tag.reveal());
+         dannan::encoding::hex(salt) + "$" + dannan::encoding::hex(tag.reveal());
 }
 
 Credential parse_credential(const std::string& text) {
@@ -69,10 +70,10 @@ Credential parse_credential(const std::string& text) {
   credential.costs.lanes = parameter(costs[2], 'p');
   if (!credential.costs.valid()) throw std::invalid_argument("a credential's costs are not ones Argon2id takes");
 
-  auto salt = dannan::identity::unhex(parts[2]);
+  auto salt = dannan::encoding::unhex(parts[2]);
   if (!salt || salt->size() < credential_salt_bytes) throw std::invalid_argument("a credential's salt is at least 16 bytes in hex");
   credential.salt = std::move(*salt);
-  auto tag = dannan::identity::unhex(parts[3]);
+  auto tag = dannan::encoding::unhex(parts[3]);
   if (!tag || tag->size() != credential_tag_bytes) {
     if (tag) dannan::identity::cleanse(*tag);
     throw std::invalid_argument("a credential's tag is 32 bytes in hex");

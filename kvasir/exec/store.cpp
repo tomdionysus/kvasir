@@ -15,6 +15,8 @@
 #include <optional>
 #include <string_view>
 
+#include "dannan/encoding/base.h"
+
 namespace kvasir::exec {
 
 namespace {
@@ -247,38 +249,12 @@ Stored store_real(const catalog::ColumnType& type, const Value& value, const Res
   return {Result::stored, type.kind == TypeKind::float_ ? format_float(static_cast<float>(d)) : format_double(d)};
 }
 
-// Well-formed UTF-8, with no character past the BMP for utf8mb3.
+// Well-formed UTF-8 (Dannan's RFC 3629 check), with no character past the
+// BMP for utf8mb3.
 bool valid_utf8(const std::string& s, bool three_bytes_at_most) {
-  size_t i = 0;
-  while (i < s.size()) {
-    const auto b = static_cast<uint8_t>(s[i]);
-    size_t length = 0;
-    uint32_t cp = 0;
-    if (b < 0x80) {
-      ++i;
-      continue;
-    }
-    if ((b & 0xe0) == 0xc0) {
-      length = 2;
-      cp = b & 0x1f;
-    } else if ((b & 0xf0) == 0xe0) {
-      length = 3;
-      cp = b & 0x0f;
-    } else if ((b & 0xf8) == 0xf0) {
-      length = 4;
-      cp = b & 0x07;
-    } else {
-      return false;
-    }
-    if (i + length > s.size()) return false;
-    for (size_t k = 1; k < length; ++k) {
-      const auto c = static_cast<uint8_t>(s[i + k]);
-      if ((c & 0xc0) != 0x80) return false;
-      cp = (cp << 6) | (c & 0x3f);
-    }
-    if ((length == 2 && cp < 0x80) || (length == 3 && cp < 0x800) || (length == 4 && cp < 0x10000)) return false;
-    if (cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) return false;
-    if (length == 4 && three_bytes_at_most) return false;
+  for (size_t i = 0; i < s.size();) {
+    const size_t length = dannan::encoding::utf8_length(s, i);
+    if (length == 0 || (length == 4 && three_bytes_at_most)) return false;
     i += length;
   }
   return true;

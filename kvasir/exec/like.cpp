@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "dannan/encoding/base.h"
 #include "kvasir/exec/collation.h"
 
 namespace kvasir::exec {
@@ -18,12 +19,8 @@ namespace {
 // The length of the UTF-8 character at `i`; a byte that begins none is a
 // character of its own.
 size_t utf8_length(std::string_view s, size_t i) {
-  const auto lead = static_cast<uint8_t>(s[i]);
-  const size_t n = lead < 0x80 ? 1 : (lead & 0xe0) == 0xc0 ? 2 : (lead & 0xf0) == 0xe0 ? 3 : (lead & 0xf8) == 0xf0 ? 4 : 1;
-  if (i + n > s.size()) return 1;
-  for (size_t k = 1; k < n; ++k)
-    if ((static_cast<uint8_t>(s[i + k]) & 0xc0) != 0x80) return 1;
-  return n;
+  const size_t n = dannan::encoding::utf8_length(s, i);
+  return n ? n : 1;
 }
 
 std::vector<std::string_view> characters(std::string_view s, bool bytes) {

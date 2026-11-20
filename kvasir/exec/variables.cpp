@@ -178,6 +178,20 @@ bool charset_not_converted(std::string_view charset) {
   return std::find_if(other_charsets.begin(), other_charsets.end(), [&](std::string_view c) { return sql::same_word(c, charset); }) != other_charsets.end();
 }
 
+std::vector<std::string> ack_level_names() {
+  const auto names = dannan::contract::ack_level_names();
+  return {names.begin(), names.end()};
+}
+
+bool ack_level_kept(dannan::contract::AckLevel level) noexcept { return level == dannan::contract::AckLevel::ephemeral; }
+
+std::vector<std::string> kept_ack_level_names() {
+  std::vector<std::string> out;
+  for (const auto& name : ack_level_names())
+    if (ack_level_kept(*dannan::contract::parse_ack_level(name))) out.push_back(name);
+  return out;
+}
+
 VariableRegistry::VariableRegistry(std::string ack_level, std::string version, std::string version_comment) {
   constexpr uint64_t year = 31536000;
   _specs.push_back(boolean("autocommit", true));
@@ -235,8 +249,8 @@ VariableRegistry::VariableRegistry(std::string ack_level, std::string version, s
   _specs.push_back(read_only(text("version_compile_machine", "x86_64")));
 #endif
   auto ack = text("ack_level", std::move(ack_level), VariableType::enumeration);
-  ack.choices = ack_levels;
-  ack.kept = kept_ack_levels;
+  ack.choices = ack_level_names();
+  ack.kept = kept_ack_level_names();
   _specs.push_back(ack);
 }
 

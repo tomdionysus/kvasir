@@ -5,7 +5,7 @@ Kvasir is packaged for Debian trixie, on x86-64 and arm64, as:
 - `kvasir`: `kvasir-node`, its settings, its systemd unit and its manual page.
   Kvasir's own library is linked into the binary: no other program links it, so
   there is no library or development package. Dannan's shared library comes
-  from Dannan's package, `libdannan0.9`, through `${shlibs:Depends}`.
+  from Dannan's package, `libdannan0.10`, through `${shlibs:Depends}`.
 - `kvasir-dbgsym`: its debug symbols.
 
 The package is built with debhelper from `debian/`, driving the CMake build.
@@ -46,8 +46,8 @@ The packages are written to `build-deb/`. The tests run inside the build;
 
 `tools/ci.sh deb` does all of it in a clean trixie (GitHub's container, or
 `docker run debian:trixie` on a build node): Dannan's packages from its pinned
-tag by Dannan's own `tools/build-deb.sh`, installed, then Kvasir's, then
-lintian. CI runs it on x86-64 and arm64 and fails on any lintian error or
+tag, built and installed by Dannan's own `tools/ci.sh install-debs <tag>`, then
+Kvasir's, then lintian. CI runs it on x86-64 and arm64 and fails on any lintian error or
 warning.
 
 ## Versions
