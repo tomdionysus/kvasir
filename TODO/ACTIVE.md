@@ -164,6 +164,9 @@ is "The converged plan" -> "Kvasir" in
    MySQL, SQL, decimal and collation code.
 Dannan's keyed map and Backoff get a hard bound (least recently touched
 evicted); Kvasir already keys by name and address together.
+Items 2 to 4 wait on Dannan's next minors, which have not started: the maintainer told
+Dannan to stop until he has answered every open question (relayed by Lir
+coordinating session, 2026-11-20). Kvasir's own SQL work is not held.
 
 **Next, in order**, each with its tests written from the MySQL 8.4 manual
 and the reference server first, and watched to fail:
