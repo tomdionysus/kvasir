@@ -279,6 +279,11 @@ Left, and why:
 - The fuzz build keeps its own global sanitizer flags, which reach the
   fetched Dannan too: KVASIR_FUZZ_SANITIZERS may be "undefined" alone where
   ASan cannot start, which DANNAN_SANITIZE does not offer.
+Dannan 0.10.1 (2026-11-20, 0.10.0's ABI), read: a scheduled node's stop
+waits for a running step, MemoryStore::each_held, install-debs keeps the
+caller's DEB_BUILD_OPTIONS. None reaches Kvasir (no Dannan node, no
+MemoryStore, no DEB_BUILD_OPTIONS of its own given), so the pin moves to
+0.10.1 at the next release gate, whose ASan and TSan cover it.
 The credential and node helpers come in the second minor.
 
 **The stack's converged plan** (2026-11-20, agreed by Kvasir; the record
