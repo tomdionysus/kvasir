@@ -2,6 +2,23 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-20: the handshake's collation
+
+- Found while capturing Go's prepared statements: Kvasir read the
+  collation a client asks for in its handshake and ignored it. Observed on
+  MySQL 8.4.13 (Go's driver through a capturing proxy, collations 45, 46,
+  latin1, binary): the session starts as SET NAMES <its character set>
+  COLLATE <it> would leave it, results reported in it. Go asks for
+  utf8mb4_general_ci (45) by default, so its clients saw 255 where MySQL
+  says 45. Now the session takes it at start and again at
+  COM_RESET_CONNECTION; a character set no session speaks (latin1, which
+  the `mysql` client sends in a POSIX locale, utf8mb3) leaves the
+  server's, a known difference.
+- Test-first on node-d: the new session test failed with the
+  field and no behaviour.
+- Gate: release on node-d **343 passed, 0 failed**; the
+  differential gate **682 of 682**.
+
 ## 2026-11-19: result metadata in character_set_results
 
 - Observed on MySQL 8.4.13 first (four probe rounds, written out with

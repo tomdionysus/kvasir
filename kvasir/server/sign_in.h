@@ -146,6 +146,8 @@ class SignIn {
   const std::string& user() const noexcept { return _user; }
   const std::optional<std::string>& database() const noexcept { return _database; }
   uint32_t client_capabilities() const noexcept { return _client_capabilities; }
+  // The collation the client asked for.
+  uint8_t client_collation() const noexcept { return _client_collation; }
   // The capabilities offered, which with the client's govern the session.
   uint32_t server_capabilities() const noexcept { return _server_capabilities; }
   // The sequence id the next packet the server sends takes.
@@ -175,6 +177,7 @@ class SignIn {
   std::string _user;
   std::optional<std::string> _database;
   uint32_t _client_capabilities = 0;
+  uint8_t _client_collation = 0;
   // Whether the client sent a password, as an access-denied message says.
   bool _password_given = false;
   // Made from the password the full path received, kept until it is checked.

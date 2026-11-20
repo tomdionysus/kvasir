@@ -314,6 +314,42 @@ TEST(ExecSession, TheDatabaseCharacterSet) {
   EXPECT_EQ(pair(), (V{"utf8mb4", "utf8mb4_0900_ai_ci"}));
 }
 
+// Observed on MySQL 8.4.13 (2026-11-20, Go's driver through a capturing
+// proxy): the collation a client asks for in its handshake is the session's
+// as SET NAMES <its character set> COLLATE <it> makes it, and results are
+// reported in it. Go asks for utf8mb4_general_ci (45) by default. A
+// character set Kvasir does not convert (latin1) leaves the server's
+// (MySQL takes it: a known difference).
+TEST(ExecSession, TheHandshakesCollation) {
+  using V = std::vector<std::string>;
+  const auto with = [](uint16_t collation) { return Session(registry(), node_catalog(), node_store(), SessionInfo{"root", "10.0.0.1", 7, collation}); };
+  const std::string sql = "SELECT @@character_set_client, @@character_set_connection, @@character_set_results, @@collation_connection, 'a'";
+  auto s = with(45);
+  auto o = run(s, sql);
+  EXPECT_EQ(row(o), (V{"utf8mb4", "utf8mb4", "utf8mb4", "utf8mb4_general_ci", "a"}));
+  for (const auto& c : o.result->columns) EXPECT_EQ(c.type.collation, 45) << c.name;
+  EXPECT_EQ(o.result->columns[0].type.length, 87380u);
+  EXPECT_EQ(o.result->columns[4].type.flags, c::not_null);
+  // COM_RESET_CONNECTION keeps it.
+  run(s, "SET NAMES utf8mb4");
+  s.reset();
+  EXPECT_EQ(row(run(s, "SELECT @@collation_connection")), (V{"utf8mb4_general_ci"}));
+
+  auto bin = with(46);
+  o = run(bin, sql);
+  EXPECT_EQ(row(o), (V{"utf8mb4", "utf8mb4", "utf8mb4", "utf8mb4_bin", "a"}));
+  for (const auto& c : o.result->columns) EXPECT_EQ(c.type.collation, 46) << c.name;
+  EXPECT_EQ(o.result->columns[4].type.flags, c::not_null | c::binary);
+
+  auto binary = with(63);
+  EXPECT_EQ(row(run(binary, sql)), (V{"binary", "binary", "binary", "binary", "a"}));
+
+  for (const uint16_t other : {uint16_t{8}, uint16_t{0}, uint16_t{255}}) {
+    auto s2 = with(other);
+    EXPECT_EQ(row(run(s2, sql)), (V{"utf8mb4", "utf8mb4", "utf8mb4", "utf8mb4_0900_ai_ci", "a"})) << other;
+  }
+}
+
 TEST(ExecSession, TransactionsShowInTheStatusFlags) {
   auto s = make();
   constexpr uint16_t in_trans = 1, autocommit = 2;

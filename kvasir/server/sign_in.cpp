@@ -174,6 +174,7 @@ SignInStep SignIn::response(const protocol::Packet& packet) {
   _user = answer.user;
   _database = answer.database;
   _client_capabilities = answer.capabilities;
+  _client_collation = answer.character_set;
   if (!answer.auth_plugin) return refuse(protocol::er_handshake_error, "08S01", "Bad handshake");
   if (*answer.auth_plugin != sha2::plugin_name) {
     Bytes data(_settings.nonce.begin(), _settings.nonce.end());

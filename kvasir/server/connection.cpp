@@ -215,8 +215,8 @@ void Connection::sign_in_step(SignInStep step) {
     return;
   }
   if (_sign_in.signed_in() && !_session) {
-    _session =
-        std::make_unique<exec::Session>(_registry, _catalog, _rows, exec::SessionInfo{_sign_in.user(), _transport->peer_host(), _settings.connection_id});
+    _session = std::make_unique<exec::Session>(
+        _registry, _catalog, _rows, exec::SessionInfo{_sign_in.user(), _transport->peer_host(), _settings.connection_id, _sign_in.client_collation()});
     _commands = std::make_unique<CommandPhase>(*_session, _sign_in.client_capabilities() & _sign_in.server_capabilities(), _statistics);
     _reader.restrict(false);
   }

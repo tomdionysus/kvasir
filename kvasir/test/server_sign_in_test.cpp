@@ -228,6 +228,8 @@ TEST(ServerSignIn, TheFullPathAsksForThePasswordAndRemembersItsVerifier) {
   EXPECT_TRUE(bed.sign_in.signed_in());
   EXPECT_EQ(bed.sign_in.user(), "root");
   EXPECT_EQ(bed.sign_in.database(), "shop");
+  // The collation the response asked for, which the session takes.
+  EXPECT_EQ(bed.sign_in.client_collation(), 255);
   EXPECT_EQ(bed.sign_in.sequence(), 6);
   EXPECT_EQ(bed.cache.check("root", scramble_for("secret"), settings().nonce), VerifierCache::Check::matched);
 }

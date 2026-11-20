@@ -114,7 +114,21 @@ uint64_t limit_of(const sql::Expr& e) {
 }  // namespace
 
 Session::Session(const VariableRegistry& registry, catalog::Catalog& catalog, txn::Store& rows, SessionInfo info)
-    : _registry(registry), _catalog(catalog), _rows(rows), _info(std::move(info)), _variables(registry) {}
+    : _registry(registry), _catalog(catalog), _rows(rows), _info(std::move(info)), _variables(registry) {
+  take_client_collation();
+}
+
+void Session::take_client_collation() {
+  // As SET NAMES <its character set> COLLATE <it> (observed); one whose
+  // character set no session speaks leaves the server's.
+  const auto* collation = find_collation(_info.client_collation);
+  if (!collation || !default_collation(collation->charset)) return;
+  std::vector<Warning> ignored;
+  for (const char* name : {"character_set_client", "character_set_connection", "character_set_results"})
+    _variables.set("", name, collation->charset, false, ignored);
+  _variables.set("", "collation_connection", collation->name, false, ignored);
+  _results_collation = collation->name;
+}
 
 Session::~Session() {
   if (_waiting) _rows.stop_waiting(*_waiting);
@@ -154,6 +168,7 @@ void Session::reset() {
   _user.clear();
   _database.reset();
   _results_collation.clear();
+  take_client_collation();
   _read_only_transaction = false;
   _warnings.clear();
   _last_insert_id = 0;

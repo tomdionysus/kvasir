@@ -91,6 +91,8 @@ struct SessionInfo {
   std::string user;
   std::string host;
   uint32_t connection_id = 0;
+  // The collation the client asked for in its handshake; 0 for none.
+  uint16_t client_collation = 0;
 };
 
 class Session : private VariableSource {
@@ -182,6 +184,8 @@ class Session : private VariableSource {
   // character_set_database and collation_database: the current database's
   // defaults, else the server's.
   void follow_database();
+  // The handshake's collation, if a session can speak it, as SET NAMES.
+  void take_client_collation();
   // The collation results are reported in: character_set_results' default,
   // or the one SET NAMES ... COLLATE named; nothing when it is NULL.
   std::optional<uint16_t> results_collation() const;

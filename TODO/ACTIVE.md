@@ -21,7 +21,7 @@ it.
 ## Resume here
 
 Step 2a, one node speaking the MySQL protocol, is in hand. Last gate
-(2026-11-19, node-d): release **342 passed, 0 failed**, the
+(2026-11-20, node-d): release **343 passed, 0 failed**, the
 differential gate **682 of 682**. No claim is held and no wait is queued.
 The evaluator's types are each expression's own; what a client is told is
 `reported()`'s, in character_set_results (COMPLETED, 2026-11-19).
@@ -169,6 +169,8 @@ decision:
   control functions (Kvasir merges them as DOUBLE); the type of LPAD or
   RPAD with a NULL length (Kvasir: a LONG BLOB, as REPEAT with a NULL
   count).
+- A handshake asking for a character set no session speaks (latin1,
+  utf8mb3) leaves the server's utf8mb4; MySQL takes it.
 - REPEAT of a utf8mb3 system variable past 16 MB is a LONG_BLOB; MySQL
   reports a MEDIUM_BLOB of 16777215.
 - A constant string argument read as an integer ('2x' as a position)
