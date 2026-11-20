@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "dannan/config/config.h"
+#include "dannan/status/log.h"
 
 // What a Kvasir node reads at start, through Dannan's settings reader (a YAML
 // file, secrets.yaml beside it, KVASIR_* variables, then flags). A setting it
@@ -29,6 +30,9 @@ struct NodeSettings {
   std::string ack_level;
   // "<name>:<credential>" items (server/accounts.h); at least one.
   std::vector<std::string> users;
+  // The log's filter and form (the stack's log.level and log.format).
+  dannan::status::LogLevel log_level = dannan::status::LogLevel::info;
+  dannan::status::LogFormat log_format = dannan::status::LogFormat::text;
 };
 
 // The settings, for the reader and its usage text.

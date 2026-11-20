@@ -11,6 +11,12 @@ tls:
   certificate: /etc/kvasir/node.pem
   key: /etc/kvasir/node.key
 
+# What the node logs to standard error, which journald keeps: level debug,
+# info, warn or error; format text, or json for a log shipper.
+log:
+  level: info
+  format: text
+
 # This release is one node in memory, so it keeps only ephemeral: a committed
 # transaction is lost when the node stops.
 ack_level: ephemeral

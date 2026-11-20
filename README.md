@@ -51,7 +51,7 @@ account, and an acknowledgement level, which has no built-in default.
 
    ```
    kvasir-node --tls-certificate node.pem --tls-key node.key --ack-level ephemeral \
-               --user "root:<credential>" [--listen 0.0.0.0] [--port 3306]
+               --users "root:<credential>" [--listen-host 0.0.0.0] [--listen-port 3306]
    ```
 
 3. Connect with any MySQL client:

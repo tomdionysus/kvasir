@@ -8,9 +8,9 @@ kvasir-node \- a Kvasir database node, serving the MySQL protocol
 .B kvasir-node
 .RB [ \-\-config
 .IR PATH ]
-.RB [ \-\-listen
+.RB [ \-\-listen-host
 .IR HOST ]
-.RB [ \-\-port
+.RB [ \-\-listen-port
 .IR PORT ]
 .RB [ \-\-tls-certificate
 .IR PEM ]
@@ -18,7 +18,7 @@ kvasir-node \- a Kvasir database node, serving the MySQL protocol
 .IR PEM ]
 .RB [ \-\-ack-level
 .IR LEVEL ]
-.RB [ \-\-user
+.RB [ \-\-users
 .IR NAME : CREDENTIAL ]...
 .br
 .B kvasir-node hash-password
@@ -42,12 +42,17 @@ SIGINT or SIGTERM stops the node.
 .TP
 .B hash-password
 Reads one line, a password, from standard input and prints a credential for
-.BR \-\-user .
+.BR \-\-users .
 .SH OPTIONS
 Every option is also a key in the settings file, in
 .B secrets.yaml
 beside it, or an environment variable; an option wins over the variable, and
-the variable over the file.
+the variable over the file. A key
+.I a.b
+is the option
+.BI \-\- a-b
+and the variable
+.BR KVASIR_ \fIA_B\fR.
 .TP
 .BI \-\-config " PATH"
 The settings file (YAML). Otherwise
@@ -56,16 +61,16 @@ else
 .I /etc/kvasir/config.yaml
 when it exists.
 .TP
-.BI \-\-listen " HOST"
+.BI \-\-listen-host " HOST"
 The address to listen on (key
 .BR listen.host ,
-.BR $KVASIR_LISTEN );
+.BR $KVASIR_LISTEN_HOST );
 0.0.0.0 by default.
 .TP
-.BI \-\-port " PORT"
+.BI \-\-listen-port " PORT"
 The port (key
 .BR listen.port ,
-.BR $KVASIR_PORT );
+.BR $KVASIR_LISTEN_PORT );
 3306 by default.
 .TP
 .BI \-\-tls-certificate " PEM"
@@ -87,10 +92,33 @@ How far a commit has gone before the client is answered (key
 Required, with no built-in default; this release accepts only
 .BR ephemeral .
 .TP
-.BI \-\-user " NAME" : CREDENTIAL
+.BI \-\-users " NAME" : CREDENTIAL
 An account (key
 .BR users ,
-a list); at least one is required.
+a list; the option repeats); at least one is required. It has no
+environment variable: the reader splits a list variable on commas, which a
+credential holds.
+.TP
+.BI \-\-log-level " LEVEL"
+The least a logged line is (key
+.BR log.level ,
+.BR $KVASIR_LOG_LEVEL ):
+.BR debug ,
+.BR info ,
+.B warn
+or
+.BR error ;
+.B info
+by default.
+.TP
+.BI \-\-log-format " FORMAT"
+How lines are written to standard error (key
+.BR log.format ,
+.BR $KVASIR_LOG_FORMAT ):
+.BR text ,
+UTC-stamped, by default, or
+.BR json ,
+one object per line for a log shipper.
 .TP
 .B \-\-version
 Prints the version and exits.

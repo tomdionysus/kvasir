@@ -11,11 +11,12 @@
 //
 // Every setting is also a key in a YAML file (--config PATH, $KVASIR_CONFIG, or
 // /etc/kvasir/config.yaml when it exists), in secrets.yaml beside it, or a
-// KVASIR_* variable, the flags winning.
+// KVASIR_* variable, the flags winning: a key a.b is --a-b and KVASIR_A_B
+// (Dannan's docs/config.md).
 //
 //   kvasir-node --version
 //   kvasir-node hash-password < password     a credential for the users setting
-//   kvasir-node --ack-level ephemeral --tls-certificate node.pem --tls-key node.key --user "root:<credential>"
+//   kvasir-node --ack-level ephemeral --tls-certificate node.pem --tls-key node.key --users "root:<credential>"
 
 #include <algorithm>
 #include <atomic>
@@ -23,6 +24,7 @@
 #include <boost/asio/signal_set.hpp>
 #include <csignal>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -30,6 +32,7 @@
 #include "dannan/config/config.h"
 #include "dannan/listen/listener.h"
 #include "dannan/sched/worker_pool.h"
+#include "dannan/status/log.h"
 #include "kvasir/catalog/catalog.h"
 #include "kvasir/exec/variables.h"
 #include "kvasir/server/accounts.h"
@@ -67,7 +70,7 @@ int hash_password() {
 constexpr const char* server_version = "8.4.13-kvasir";
 constexpr const char* version_comment = "Kvasir - The Distributed Relational Database (in memory, not durable)";
 
-int serve(const kvasir::server::NodeSettings& node) {
+int serve(const kvasir::server::NodeSettings& node, const dannan::status::ScopedLogger& log) {
   // What every connection refers to, made before the io context and gone
   // after it.
   const kvasir::exec::VariableRegistry registry(node.ack_level, server_version, version_comment);
@@ -115,8 +118,8 @@ int serve(const kvasir::server::NodeSettings& node) {
     listener.stop();
     io.stop();
   });
-  std::cerr << "kvasir-node: " << kvasir::version << " serving MySQL on " << node.host << ":" << listener.port() << " (" << accounts.size()
-            << " accounts, ack_level " << node.ack_level << ")" << std::endl;
+  log.info(std::string(kvasir::version) + " serving MySQL on " + node.host + ":" + std::to_string(listener.port()) + " (" + std::to_string(accounts.size()) +
+           " accounts, ack_level " + node.ack_level + ")");
 
   std::vector<std::thread> threads;
   const unsigned count = std::max(2u, std::thread::hardware_concurrency());
@@ -125,13 +128,18 @@ int serve(const kvasir::server::NodeSettings& node) {
   for (auto& t : threads) t.join();
   // The pool posts its answers to the io context: it stops while that lives.
   pool.stop();
-  std::cerr << "kvasir-node: stopped" << std::endl;
+  log.info("stopped");
   return 0;
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
+  // The process's sink from its first line, text at INFO on stderr; what is
+  // behind it may be swapped later without the loggers handed out changing.
+  const auto sink =
+      std::make_shared<dannan::status::SwappableSink>(dannan::status::console_sink(dannan::status::LogFormat::text, dannan::status::LogLevel::info));
+  const dannan::status::ScopedLogger log(sink, "kvasir-node");
   try {
     const auto settings = reader().read(std::vector<std::string>(argv + 1, argv + argc));
     if (settings.toggle("version").value_or(false)) {
@@ -144,13 +152,15 @@ int main(int argc, char** argv) {
       return 2;
     }
     const auto node = kvasir::server::read_node_settings(settings);
-    for (const auto& warning : settings.warnings) std::cerr << "kvasir-node: " << warning << std::endl;
-    return serve(node);
+    // From here, the node's own level and format.
+    sink->set(dannan::status::console_sink(node.log_format, node.log_level));
+    for (const auto& warning : settings.warnings) log.warn(warning);
+    return serve(node, log);
   } catch (const dannan::config::ConfigError& e) {
-    std::cerr << "kvasir-node: " << e.what() << std::endl;
+    log.error(e.what());
     return 2;
   } catch (const std::exception& e) {
-    std::cerr << "kvasir-node: " << e.what() << std::endl;
+    log.error(e.what());
     return 1;
   }
 }
