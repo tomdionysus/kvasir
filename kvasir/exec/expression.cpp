@@ -711,7 +711,7 @@ Value Evaluator::value(const Expr& e) {
     return {};
   };
   const auto out_of_range = [&](const char* what) -> SqlError {
-    return SqlError(er_data_out_of_range, "22003", std::string(what) + " value is out of range in '" + mysql_text(e) + "'");
+    return SqlError(er_data_out_of_range, "22003", std::string(what) + " value is out of range in '" + mysql_text(e, _settings.columns) + "'");
   };
 
   switch (e.kind) {
@@ -1227,8 +1227,59 @@ Value Evaluator::flow_value(const Expr& e) {
   return {};
 }
 
-std::string mysql_text(const Expr& e) {
+std::string ColumnSource::written(const std::vector<std::string>& path) const {
+  std::string out;
+  for (size_t i = 0; i < path.size(); ++i) out += (i ? "." : "") + path[i];
+  return out;
+}
+
+namespace {
+
+std::string lower_text(const std::string& s) {
+  std::string out;
+  for (const char ch : s) out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+  return out;
+}
+
+// (1 in (1,2)), (1 not in (1,2)) (observed).
+std::string in_text(const ColumnSource* c, const Expr& e, bool negated) {
+  std::string out = "(" + mysql_text(*e.args[0], c) + (negated ? " not in (" : " in (");
+  for (size_t i = 1; i < e.args.size(); ++i) out += (i > 1 ? "," : "") + mysql_text(*e.args[i], c);
+  return out + "))";
+}
+
+// (2 between 1 and 3), (2 not between 1 and 3) (observed).
+std::string between_text(const ColumnSource* c, const Expr& e, bool negated) {
+  return "(" + mysql_text(*e.args[0], c) + (negated ? " not between " : " between ") + mysql_text(*e.args[1], c) + " and " + mysql_text(*e.args[2], c) + ")";
+}
+
+// NOT of an expression as MySQL writes it once it has folded the negation
+// in (observed): a comparison inverted, AND and OR by De Morgan, IN and
+// BETWEEN as NOT IN and NOT BETWEEN, a value that is not a condition as its
+// comparison (0 = x), anything else as not(x).
+std::string negated_text(const ColumnSource* c, const Expr& a) {
+  if (a.kind == ExprKind::binary) {
+    static const std::vector<std::pair<std::string, std::string>> inverse = {{"=", "<>"}, {"!=", "="}, {"<", ">="}, {"<=", ">"}, {">", "<="}, {">=", "<"}};
+    for (const auto& [op, inverted] : inverse)
+      if (a.value == op) return "(" + mysql_text(*a.args[0], c) + " " + inverted + " " + mysql_text(*a.args[1], c) + ")";
+    if (a.value == "AND" || a.value == "OR")
+      return "(" + negated_text(c, *a.args[0]) + (a.value == "AND" ? " or " : " and ") + negated_text(c, *a.args[1]) + ")";
+  }
+  if (a.kind == ExprKind::in) return in_text(c, a, !a.negated);
+  if (a.kind == ExprKind::between) return between_text(c, a, !a.negated);
+  const bool condition = a.kind == ExprKind::is || a.kind == ExprKind::like || (a.kind == ExprKind::binary && (logical(a.value) || comparison(a.value))) ||
+                         (a.kind == ExprKind::unary && a.value == "NOT");
+  if (!condition) return "(0 = " + mysql_text(a, c) + ")";
+  return "(not(" + mysql_text(a, c) + "))";
+}
+
+}  // namespace
+
+std::string mysql_text(const Expr& e, const ColumnSource* c) {
   switch (e.kind) {
+    case ExprKind::column:
+      // `db`.`table`.`column`, the table by its alias (observed).
+      return c ? c->written(e.path) : sql::to_string(e);
     case ExprKind::null:
       return "NULL";
     case ExprKind::boolean:
@@ -1241,23 +1292,30 @@ std::string mysql_text(const Expr& e) {
     case ExprKind::string:
       return "'" + e.value + "'";
     case ExprKind::unary: {
-      if (e.value == "-") return "-(" + mysql_text(*e.args[0]) + ")";
-      if (e.value == "NOT") {
-        // NOT of a value that is not a condition is written as its
-        // comparison with 0 (observed: NOT 0 is "(0 = 0)").
-        const auto& a = *e.args[0];
-        const bool condition = a.kind == ExprKind::is || (a.kind == ExprKind::binary && (logical(a.value) || comparison(a.value))) ||
-                               (a.kind == ExprKind::unary && a.value == "NOT");
-        if (!condition) return "(" + mysql_text(a) + " = 0)";
-        return "(not(" + mysql_text(a) + "))";
-      }
-      return e.value + "(" + mysql_text(*e.args[0]) + ")";
+      if (e.value == "-") return "-(" + mysql_text(*e.args[0], c) + ")";
+      if (e.value == "NOT") return negated_text(c, *e.args[0]);
+      return e.value + "(" + mysql_text(*e.args[0], c) + ")";
     }
-    case ExprKind::is: {
+    case ExprKind::is:
       // (NULL is null), as MySQL writes it (observed).
-      std::string what = e.value;
-      for (auto& ch : what) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-      return "(" + mysql_text(*e.args[0]) + " is " + (e.negated ? "not " : "") + what + ")";
+      return "(" + mysql_text(*e.args[0], c) + " is " + (e.negated ? "not " : "") + lower_text(e.value) + ")";
+    case ExprKind::in:
+      return in_text(c, e, e.negated);
+    case ExprKind::between:
+      return between_text(c, e, e.negated);
+    case ExprKind::like: {
+      // ('a' like 'a' escape '|'); NOT LIKE as not(...) (observed).
+      const std::string text =
+          "(" + mysql_text(*e.args[0], c) + " like " + mysql_text(*e.args[1], c) + (e.args.size() > 2 ? " escape " + mysql_text(*e.args[2], c) : "") + ")";
+      return e.negated ? "(not(" + text + "))" : text;
+    }
+    case ExprKind::case_when: {
+      // (case 1 when 1 then 1 else 3 end) (observed).
+      std::string out = "(case ";
+      if (e.operand) out += mysql_text(*e.operand, c) + " ";
+      for (size_t i = 0; i + 1 < e.args.size(); i += 2) out += "when " + mysql_text(*e.args[i], c) + " then " + mysql_text(*e.args[i + 1], c) + " ";
+      if (e.otherwise) out += "else " + mysql_text(*e.otherwise, c) + " ";
+      return out + "end)";
     }
     case ExprKind::binary: {
       std::string op = e.value;
@@ -1265,14 +1323,12 @@ std::string mysql_text(const Expr& e) {
       if (op == "AND") op = "and";
       if (op == "OR") op = "or";
       if (op == "XOR") op = "xor";
-      return "(" + mysql_text(*e.args[0]) + " " + op + " " + mysql_text(*e.args[1]) + ")";
+      return "(" + mysql_text(*e.args[0], c) + " " + op + " " + mysql_text(*e.args[1], c) + ")";
     }
     case ExprKind::call: {
       // abs(-(9223372036854775808)): the name in lower case.
-      std::string out;
-      for (const char ch : e.value) out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
-      out += "(";
-      for (size_t i = 0; i < e.args.size(); ++i) out += (i ? "," : "") + mysql_text(*e.args[i]);
+      std::string out = lower_text(e.value) + "(";
+      for (size_t i = 0; i < e.args.size(); ++i) out += (i ? "," : "") + mysql_text(*e.args[i], c);
       return out + ")";
     }
     default:

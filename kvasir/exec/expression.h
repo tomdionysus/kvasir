@@ -81,6 +81,9 @@ class ColumnSource {
   virtual std::optional<Found> find_column(const std::vector<std::string>& path) const = 0;
   // Its value in the row at hand.
   virtual Value column_value(const std::vector<std::string>& path) const = 0;
+  // The column as an error message names it: by default its path as
+  // written.
+  virtual std::string written(const std::vector<std::string>& path) const;
 };
 
 // Where aggregates are read from: the group at hand's, each call by its
@@ -258,8 +261,9 @@ uint32_t widest_character(uint16_t collation);
 ResultType reported(const ResultType& type, std::optional<uint16_t> results);
 
 // The expression as MySQL writes it in an error message:
-// (9223372036854775807 + 1), (-(9223372036854775808) - 1).
-std::string mysql_text(const sql::Expr& expr);
+// (9223372036854775807 + 1), (-(9223372036854775808) - 1); a column as
+// `columns` writes it.
+std::string mysql_text(const sql::Expr& expr, const ColumnSource* columns = nullptr);
 
 // A result column's name, as MySQL gives it: the alias; else a string
 // literal's value; else the item as written.

@@ -759,6 +759,12 @@ class TableColumns : public ColumnSource {
     return value_of(_table.columns[*i].type, *(*_row)[*i]);
   }
 
+  std::string written(const std::vector<std::string>& path) const override {
+    const auto i = index(path);
+    if (!i) return ColumnSource::written(path);
+    return "`" + _database + "`.`" + qualifier() + "`.`" + _table.columns[*i].name + "`";
+  }
+
   void set_row(const txn::Row* row) { _row = row; }
 
   Value value_at(size_t i) const {
@@ -832,7 +838,8 @@ bool mentions_column(const sql::Expr& e) {
 }
 
 // Text a column's character set cannot hold, as error 1366 shows it: from
-// the first byte past ASCII, each such byte as \xHH, at most six.
+// the first byte past ASCII, each such byte as \xHH, at most six, then
+// "..." when more follow (observed).
 std::string escaped_bytes(const std::string& s) {
   size_t i = 0;
   while (i < s.size() && static_cast<uint8_t>(s[i]) < 0x80) ++i;
@@ -848,6 +855,7 @@ std::string escaped_bytes(const std::string& s) {
       out.push_back(hex[b & 0xf]);
     }
   }
+  if (i < s.size()) out += "...";
   return out;
 }
 
@@ -1102,6 +1110,10 @@ class HavingColumns : public ColumnSource {
     if (!*e) return _table->column_value(path);
     return _items.value(**e);
   }
+  std::string written(const std::vector<std::string>& path) const override {
+    const auto e = resolve(path);
+    return e && !*e && _table ? _table->written(path) : ColumnSource::written(path);
+  }
 
  private:
   // Nothing for a name HAVING cannot read; a null expression for a table's
@@ -1237,13 +1249,22 @@ Outcome Session::select_from_table(const sql::Select& select) {
     bool descending = false;
   };
   std::vector<Sort> sorts;
+  // A position counts the columns a star gives (observed); one of those is
+  // sorted by as its column named.
+  std::vector<std::unique_ptr<sql::Expr>> star_columns;
   for (const auto& order : select.order) {
     const sql::Expr* e = order.expr.get();
     if (e->kind == sql::ExprKind::integer) {
       const uint64_t position = limit_of(*e);
-      if (position < 1 || position > select.items.size() || select.items[position - 1].star)
-        throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + e->value + "' in 'order clause'");
-      e = select.items[position - 1].expr.get();
+      if (position < 1 || position > outputs.size()) throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + e->value + "' in 'order clause'");
+      const auto& o = outputs[position - 1];
+      if (!o.expr) {
+        auto named = std::make_unique<sql::Expr>();
+        named->kind = sql::ExprKind::column;
+        named->path = {table->columns[*o.column].name};
+        star_columns.push_back(std::move(named));
+      }
+      e = o.expr ? o.expr : star_columns.back().get();
     } else if (e->kind == sql::ExprKind::column && e->path.size() == 1) {
       for (const auto& item : select.items)
         if (item.has_alias && sql::same_word(item.alias, e->path[0])) e = item.expr.get();
@@ -2026,8 +2047,11 @@ void Session::set(const std::vector<sql::Assignment>& assignments) {
     const auto* collation = default_collation(charset);
     if (!collation_name.empty()) {
       collation = find_collation(collation_name);
-      if (!collation) throw SqlError(1273, "HY000", "Unknown collation: '" + collation_name + "'");
-      if (!sql::same_word(collation->charset, charset))
+      // One of a character set MySQL has, though Kvasir does not convert to
+      // it, is still another set's (observed: 1253, not 1273).
+      const bool foreign = !collation && charset_not_converted(std::string_view(collation_name).substr(0, collation_name.find('_')));
+      if (!collation && !foreign) throw SqlError(1273, "HY000", "Unknown collation: '" + collation_name + "'");
+      if (foreign || !sql::same_word(collation->charset, charset))
         throw SqlError(1253, "42000", "COLLATION '" + collation_name + "' is not valid for CHARACTER SET '" + charset + "'");
     }
     return collation;
@@ -2215,8 +2239,6 @@ Outcome Session::create_table(const sql::Statement& statement) {
   const auto database = database_of(spec.name);
   refuse_information_schema(database);
   check_table_name(name);
-  if (sql::same_word(database, "information_schema"))
-    throw SqlError(1044, "42000", "Access denied for user '" + _info.user + "'@'" + _info.host + "' to database '" + database + "'");
   // The deprecations come as the statement is read, whatever follows.
   type_warnings(spec, _warnings);
   const auto held = _catalog.database(database);

@@ -4069,5 +4069,186 @@ column a|LONG|63|11|0|NUM
 row 1	12
 row 2	12
 end
+statement CREATE TABLE n (s SMALLINT, m MEDIUMINT, us SMALLINT UNSIGNED)
+end
+statement INSERT INTO n VALUES (-3, 70000, 5)
+end
+statement SELECT s + 1, m + 1, s * m, -s, -m, s DIV 2, us + 1, s | 0 FROM n
+column s + 1|LONGLONG|63|7|0|BINARY NUM
+column m + 1|LONGLONG|63|10|0|BINARY NUM
+column s * m|LONGLONG|63|14|0|BINARY NUM
+column -s|LONGLONG|63|6|0|BINARY NUM
+column -m|LONGLONG|63|9|0|BINARY NUM
+column s DIV 2|LONGLONG|63|6|0|BINARY NUM
+column us + 1|LONGLONG|63|6|0|UNSIGNED BINARY NUM
+column s | 0|LONGLONG|63|21|0|UNSIGNED BINARY NUM
+row -2	70001	-210000	3	-70000	-1	6	18446744073709551613
+end
+statement SELECT '1.5e3abc' + 0, '2e' + 0, '2e+' + 0, '2E-1' + 0, ' 3e2 ' + 0
+column '1.5e3abc' + 0|DOUBLE|63|23|31|NOT_NULL BINARY NUM
+column '2e' + 0|DOUBLE|63|23|31|NOT_NULL BINARY NUM
+column '2e+' + 0|DOUBLE|63|23|31|NOT_NULL BINARY NUM
+column '2E-1' + 0|DOUBLE|63|23|31|NOT_NULL BINARY NUM
+column ' 3e2 ' + 0|DOUBLE|63|23|31|NOT_NULL BINARY NUM
+row 1500	2	2	0.2	300
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1292	Truncated incorrect DOUBLE value: '1.5e3abc'
+row Warning	1292	Truncated incorrect DOUBLE value: '2e'
+row Warning	1292	Truncated incorrect DOUBLE value: '2e+'
+end
+statement SELECT 9223372036854775807 + (NOT (1 = 1))
+column 9223372036854775807 + (NOT (1 = 1))|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+row 9223372036854775807
+end
+statement SELECT 9223372036854775807 + (NOT (1 = 1)) + 1
+error 1690|22003|BIGINT value is out of range in '((9223372036854775807 + (1 <> 1)) + 1)'
+end
+statement SELECT 9223372036854775807 + CASE WHEN 1 THEN 1 END
+error 1690|22003|BIGINT value is out of range in '(9223372036854775807 + (case when 1 then 1 end))'
+end
+statement SELECT 9223372036854775807 + (1 IN (1, 2))
+error 1690|22003|BIGINT value is out of range in '(9223372036854775807 + (1 in (1,2)))'
+end
+statement SELECT 9223372036854775807 + (2 BETWEEN 1 AND 3)
+error 1690|22003|BIGINT value is out of range in '(9223372036854775807 + (2 between 1 and 3))'
+end
+statement SELECT 9223372036854775807 + ('a' LIKE 'a')
+error 1690|22003|BIGINT value is out of range in '(9223372036854775807 + ('a' like 'a'))'
+end
+statement SELECT 9223372036854775807 + (NOT (1 < 2)) + 1
+error 1690|22003|BIGINT value is out of range in '((9223372036854775807 + (1 >= 2)) + 1)'
+end
+statement SELECT 9223372036854775807 + (NOT (1 <=> 2)) + 1
+error 1690|22003|BIGINT value is out of range in '(9223372036854775807 + (not((1 <=> 2))))'
+end
+statement SELECT 9223372036854775807 + (NOT (1 AND 2)) + 1
+error 1690|22003|BIGINT value is out of range in '((9223372036854775807 + ((0 = 1) or (0 = 2))) + 1)'
+end
+statement SELECT 9223372036854775807 + (NOT (1 > 2 OR 0)) + 1
+error 1690|22003|BIGINT value is out of range in '(9223372036854775807 + ((1 <= 2) and (0 = 0)))'
+end
+statement SELECT 9223372036854775807 + CASE 1 WHEN 1 THEN 1 WHEN 2 THEN 2 ELSE 3 END
+error 1690|22003|BIGINT value is out of range in '(9223372036854775807 + (case 1 when 1 then 1 when 2 then 2 else 3 end))'
+end
+statement SELECT 9223372036854775807 + (1 NOT IN (1, 2)) + 1
+error 1690|22003|BIGINT value is out of range in '((9223372036854775807 + (1 not in (1,2))) + 1)'
+end
+statement SELECT 9223372036854775807 + (2 NOT BETWEEN 1 AND 3) + 1
+error 1690|22003|BIGINT value is out of range in '((9223372036854775807 + (2 not between 1 and 3)) + 1)'
+end
+statement SELECT 9223372036854775807 + ('a' NOT LIKE 'b')
+error 1690|22003|BIGINT value is out of range in '(9223372036854775807 + (not(('a' like 'b'))))'
+end
+statement SELECT 9223372036854775807 + ('a' LIKE 'a' ESCAPE '|')
+error 1690|22003|BIGINT value is out of range in '(9223372036854775807 + ('a' like 'a' escape '|'))'
+end
+statement SELECT 9223372036854775807 + (NOT (1 IN (1, 2))) + 1
+error 1690|22003|BIGINT value is out of range in '((9223372036854775807 + (1 not in (1,2))) + 1)'
+end
+statement SELECT 9223372036854775807 + (NOT (2 BETWEEN 1 AND 3)) + 1
+error 1690|22003|BIGINT value is out of range in '((9223372036854775807 + (2 not between 1 and 3)) + 1)'
+end
+statement SELECT 9223372036854775807 + (NOT ('a' LIKE 'b'))
+error 1690|22003|BIGINT value is out of range in '(9223372036854775807 + (not(('a' like 'b'))))'
+end
+statement DELETE FROM g
+end
+statement INSERT INTO g VALUES (1, 10), (2, 10), (3, 20)
+end
+statement SELECT * FROM g ORDER BY 1 DESC
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column a|LONG|63|11|0|NUM
+row 3	20
+row 2	10
+row 1	10
+end
+statement SELECT *, id FROM g ORDER BY 3 DESC
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column a|LONG|63|11|0|NUM
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+row 3	20	3
+row 2	10	2
+row 1	10	1
+end
+statement SELECT id FROM g ORDER BY 2
+error 1054|42S22|Unknown column '2' in 'order clause'
+end
+statement SELECT 9223372036854775807 + id FROM g
+error 1690|22003|BIGINT value is out of range in '(9223372036854775807 + `kv_parse`.`g`.`id`)'
+end
+statement SELECT a, COUNT(*) FROM g WHERE id + 9223372036854775807 > 0 GROUP BY a
+error 1690|22003|BIGINT value is out of range in '(`kv_parse`.`g`.`id` + 9223372036854775807)'
+end
+statement SELECT a + 1 FROM g GROUP BY a + 2
+error 1055|42000|Expression #1 of SELECT list is not in GROUP BY clause and contains nonaggregated column 'kv_parse.g.a' which is not functionally dependent on columns in GROUP BY clause; this is incompatible with sql_mode=only_full_group_by
+end
+statement SELECT a + 1 FROM g GROUP BY a + 1
+column a + 1|LONGLONG|63|12|0|NUM
+row 11
+row 21
+end
+statement UPDATE g SET a = a ORDER BY a, id DESC LIMIT 2
+end
+statement CREATE TABLE d (id INT PRIMARY KEY, x INT NOT NULL, y INT)
+end
+statement INSERT INTO d VALUES (1, 5, 6)
+end
+statement UPDATE d SET y = DEFAULT
+end
+statement UPDATE d SET x = DEFAULT
+error 1364|HY000|Field 'x' doesn't have a default value
+end
+statement SELECT * FROM d
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column x|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+column y|LONG|63|11|0|NUM
+row 1	5	\N
+end
+statement CREATE TABLE u (c VARCHAR(5))
+end
+statement INSERT INTO u VALUES (0xFF41)
+error 1366|HY000|Incorrect string value: '\xFFA' for column 'c' at row 1
+end
+statement INSERT INTO u VALUES (0x41FF42434445464748)
+error 1366|HY000|Incorrect string value: '\xFFBCDEF...' for column 'c' at row 1
+end
+statement CREATE TABLE information_schema.t (a INT)
+error 1044|42000|Access denied for user 'root'@'localhost' to database 'information_schema'
+end
+statement SET NAMES utf8mb4 COLLATE latin1_swedish_ci
+error 1253|42000|COLLATION 'latin1_swedish_ci' is not valid for CHARACTER SET 'utf8mb4'
+end
+statement SET NAMES utf8mb4 COLLATE utf8mb3_bin
+error 1253|42000|COLLATION 'utf8mb3_bin' is not valid for CHARACTER SET 'utf8mb4'
+end
+statement SET NAMES utf8mb4 COLLATE nope_ci
+error 1273|HY000|Unknown collation: 'nope_ci'
+end
+statement INSERT INTO u VALUES (0x41FF4243444546)
+error 1366|HY000|Incorrect string value: '\xFFBCDEF' for column 'c' at row 1
+end
+statement SELECT 9223372036854775807 + x.id FROM g x
+error 1690|22003|BIGINT value is out of range in '(9223372036854775807 + `kv_parse`.`x`.`id`)'
+end
+statement SELECT 9223372036854775807 + kv_parse.g.id FROM g
+error 1690|22003|BIGINT value is out of range in '(9223372036854775807 + `kv_parse`.`g`.`id`)'
+end
+statement SELECT a, COUNT(*) FROM g GROUP BY a HAVING a + 9223372036854775807 > 0
+error 1690|22003|BIGINT value is out of range in '(`kv_parse`.`g`.`a` + 9223372036854775807)'
+end
+statement SET collation_connection = utf8mb4_bin
+end
+statement SET character_set_connection = utf8mb4
+end
+statement SELECT @@collation_connection
+column @@collation_connection|VAR_STRING|255|87380|31|
+row utf8mb4_0900_ai_ci
+end
+statement SET NAMES DEFAULT
+end
 statement DROP DATABASE kv_parse
 end
