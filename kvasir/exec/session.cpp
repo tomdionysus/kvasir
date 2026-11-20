@@ -661,6 +661,11 @@ Outcome Session::run(const sql::Statement& statement) {
       set(statement.assignments);
       return {};
     case Kind::use:
+      if (is_information_schema(statement.database)) {
+        _database = std::string(information_schema_name);
+        follow_database();
+        return {};
+      }
       if (!_catalog.database(statement.database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + statement.database + "'");
       _database = statement.database;
       follow_database();
@@ -722,19 +727,33 @@ void in_clause(const char* clause, F&& f) {
 // from the row at hand.
 class TableColumns : public ColumnSource {
  public:
-  TableColumns(const catalog::Table& table, std::string database, std::string alias, const EvalSettings& eval)
-      : _table(table), _database(std::move(database)), _alias(std::move(alias)), _eval(eval) {}
+  // With `view`, information_schema's: its own types, and columns refused
+  // when named.
+  TableColumns(const catalog::Table& table, std::string database, std::string alias, const EvalSettings& eval, const View* view = nullptr, bool ordered = false)
+      : _table(table), _database(std::move(database)), _alias(std::move(alias)), _eval(eval), _view(view), _view_ordered(ordered) {}
 
   std::optional<size_t> index(const std::vector<std::string>& path) const {
-    if (path.size() == 2 && path[0] != qualifier()) return std::nullopt;
-    if (path.size() == 3 && (!_alias.empty() || path[0] != _database || path[1] != _table.name)) return std::nullopt;
+    // information_schema's names match in any case; a table's as bytes.
+    const auto same = [&](std::string_view a, std::string_view b) { return _view ? sql::same_word(a, b) : a == b; };
+    if (path.size() == 2 && !same(path[0], qualifier())) return std::nullopt;
+    if (path.size() == 3 && (!_alias.empty() || !same(path[0], _database) || !same(path[1], _table.name))) return std::nullopt;
     return _table.column(path.back());
   }
 
   std::optional<Found> find_column(const std::vector<std::string>& path) const override {
     const auto i = index(path);
     if (!i) return std::nullopt;
-    return Found{column_result_type(_table, *i, _eval), column_collation_id(_table.columns[*i])};
+    return Found{type_at(*i, false), column_collation_id(_table.columns[*i])};
+  }
+
+  // The column's type: as an expression reads it, or (`output`) as a result
+  // reports it, which for a view read through a temporary table is that
+  // table's field (observed: MySQL types an expression from the view's own
+  // columns). A refused column throws.
+  ResultType type_at(size_t i, bool output = true) const {
+    if (!_view) return column_result_type(_table, i, _eval);
+    if (!_view->refused[i].empty()) throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support '" + _view->refused[i] + "'");
+    return output && _view_ordered ? _view->ordered[i] : _view->types[i];
   }
 
   Value column_value(const std::vector<std::string>& path) const override {
@@ -756,6 +775,7 @@ class TableColumns : public ColumnSource {
   // A column's value as a client is sent it.
   std::optional<std::string> text(size_t i) const {
     if (!_row || !(*_row)[i]) return std::nullopt;
+    if (_view) return (*_row)[i];
     return display_text(_table.columns[i].type, *(*_row)[i], column_result_type(_table, i, _eval).length);
   }
 
@@ -763,7 +783,7 @@ class TableColumns : public ColumnSource {
   const std::string& qualifier() const { return _alias.empty() ? _table.name : _alias; }
 
   Column column(size_t i, std::string name) const {
-    Column out(std::move(name), column_result_type(_table, i, _eval));
+    Column out(std::move(name), type_at(i));
     out.schema = _database;
     out.table = qualifier();
     out.original_table = _table.name;
@@ -776,8 +796,35 @@ class TableColumns : public ColumnSource {
   std::string _database;
   std::string _alias;
   EvalSettings _eval;
+  const View* _view;
+  // Whether MySQL would read the view through a temporary table.
+  bool _view_ordered;
   const txn::Row* _row = nullptr;
 };
+
+// Whether MySQL reads an information_schema view through a temporary table
+// for this SELECT, which changes some columns' types (observed with ORDER
+// BY; GROUP BY and DISTINCT taken as the same).
+bool through_temporary_table(const sql::Select& select) { return !select.order.empty() || !select.group_by.empty() || select.distinct; }
+
+// An expression over an information_schema view's columns as that temporary
+// table's field reports it (observed with Connector/J's getTables and
+// getColumns): a string with 0 decimals, any BLOB as BLOB; an integer
+// without BINARY, a LONG below 10 digits' length, else a LONGLONG.
+ResultType as_view_field(ResultType t) {
+  if (is_string_type(t)) {
+    t.decimals = 0;
+    if (t.field_type == f::tiny_blob || t.field_type == f::medium_blob || t.field_type == f::long_blob || t.field_type == f::blob) {
+      t.field_type = f::blob;
+      t.flags = static_cast<uint16_t>(t.flags | c::blob);
+    }
+    return t;
+  }
+  t.flags = static_cast<uint16_t>(t.flags & ~c::binary);
+  if (t.field_type == f::tiny || t.field_type == f::short_ || t.field_type == f::int24 || t.field_type == f::long_ || t.field_type == f::longlong)
+    t.field_type = t.length >= 10 ? f::longlong : f::long_;
+  return t;
+}
 
 // Whether an expression names a column anywhere in it.
 bool mentions_column(const sql::Expr& e) {
@@ -1109,15 +1156,28 @@ Outcome Session::select_from_table(const sql::Select& select) {
   if (select.from.size() > 1) throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'joins'");
   const auto& from = select.from.front();
   const auto database = database_of(from.name);
-  const auto table = _catalog.table({database, from.name.back()});
+  // information_schema's views are built now, read with no transaction.
+  std::optional<View> view;
+  std::optional<catalog::Table> table;
+  if (is_information_schema(database)) {
+    view = information_schema_view(from.name.back(), _catalog);
+    table = view->table;
+  } else {
+    table = _catalog.table({database, from.name.back()});
+  }
   if (!table) {
     if (!_catalog.database(database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
     throw SqlError(1146, "42S02", "Table '" + database + "." + from.name.back() + "' doesn't exist");
   }
+  _view = view ? &*view : nullptr;
+  struct ViewScope {
+    Session& s;
+    ~ViewScope() { s._view = nullptr; }
+  } view_scope{*this};
   if (is_grouped(select)) return select_groups(select, &*table, database);
   check_isolation();
   auto settings = eval_settings();
-  TableColumns columns(*table, database, from.alias, settings);
+  TableColumns columns(*table, database, from.alias, settings, _view, through_temporary_table(select));
   settings.columns = &columns;
   Evaluator evaluator(settings);
   ResultSet result;
@@ -1141,13 +1201,15 @@ Outcome Session::select_from_table(const sql::Select& select) {
       }
       continue;
     }
-    const auto type = evaluator.type(*item.expr);
+    auto type = evaluator.type(*item.expr);
     if (item.expr->kind == sql::ExprKind::column) {
-      // A column keeps the name it was written with, without its qualifier.
+      // A column keeps the name it was written with, without its qualifier;
+      // a view's, the view's own (observed).
       const auto i = *columns.index(item.expr->path);
-      result.columns.push_back(columns.column(i, item.has_alias ? item.alias : item.expr->path.back()));
+      result.columns.push_back(columns.column(i, item.has_alias ? item.alias : _view ? table->columns[i].name : item.expr->path.back()));
       outputs.push_back({i, item.expr.get(), type});
     } else {
+      if (_view && through_temporary_table(select) && mentions_column(*item.expr)) type = as_view_field(type);
       result.columns.push_back({column_name(item), type});
       outputs.push_back({std::nullopt, item.expr.get(), type});
     }
@@ -1200,10 +1262,10 @@ Outcome Session::select_from_table(const sql::Select& select) {
   const uint64_t limit = select.limit ? limit_of(*select.limit) : _variables.number("sql_select_limit");
   const uint64_t offset = select.offset ? limit_of(*select.offset) : 0;
 
-  auto& t = transaction();
+  txn::Transaction* t = _view ? nullptr : &transaction();
   try {
-    begin_reading(t);
-    const auto rows = _rows.rows(t, table->id);
+    if (t) begin_reading(*t);
+    const auto rows = t ? _rows.rows(*t, table->id) : _view->rows;
     struct Chosen {
       const txn::Row* row;
       std::vector<Value> keys;
@@ -1249,10 +1311,10 @@ Outcome Session::select_from_table(const sql::Select& select) {
     }
     columns.set_row(nullptr);
   } catch (...) {
-    end_statement(true);
+    if (t) end_statement(true);
     throw;
   }
-  end_statement(false);
+  if (t) end_statement(false);
   _warnings = evaluator.warnings();
   Outcome out;
   out.result = std::move(result);
@@ -1275,7 +1337,7 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
   auto settings = eval_settings();
   std::optional<TableColumns> table_columns;
   if (table) {
-    table_columns.emplace(*table, database, select.from.front().alias, settings);
+    table_columns.emplace(*table, database, select.from.front().alias, settings, _view, through_temporary_table(select));
     settings.columns = &*table_columns;
   }
   const TableColumns* columns = table_columns ? &*table_columns : nullptr;
@@ -1305,7 +1367,8 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
     }
     std::optional<size_t> column;
     if (item.expr->kind == sql::ExprKind::column && columns) column = columns->index(item.expr->path);
-    outputs.push_back({column, item.expr.get(), column ? (item.has_alias ? item.alias : item.expr->path.back()) : column_name(item), {}});
+    const auto column_named = [&] { return item.has_alias ? item.alias : _view ? table->columns[*column].name : item.expr->path.back(); };
+    outputs.push_back({column, item.expr.get(), column ? column_named() : column_name(item), {}});
   }
 
   // GROUP BY: a table's column before an alias; a position.
@@ -1341,7 +1404,10 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
       e = select.items[position - 1].expr.get();
     } else if (e->kind == sql::ExprKind::column && e->path.size() == 1) {
       for (const auto& item : select.items)
-        if (item.has_alias && sql::same_word(item.alias, e->path[0])) e = item.expr.get();
+        if (item.has_alias && sql::same_word(item.alias, e->path[0])) {
+          e = item.expr.get();
+          break;
+        }
     }
     order_exprs.push_back(e);
   }
@@ -1472,6 +1538,7 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
         type = as_field(type);
       }
     }
+    if (_view && through_temporary_table(select) && !contains_aggregate(*o.expr) && mentions_column(*o.expr)) type = as_view_field(type);
     result.columns.push_back({o.name, type});
   }
 
@@ -1494,12 +1561,14 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
   };
   if (implicit) new_group(nullptr);
 
-  txn::Transaction* t = table ? &transaction() : nullptr;
+  txn::Transaction* t = table && !_view ? &transaction() : nullptr;
   try {
     std::vector<txn::Row> table_rows;
     if (t) {
       begin_reading(*t);
       table_rows = _rows.rows(*t, table->id);
+    } else if (_view) {
+      table_rows = _view->rows;
     } else {
       // A SELECT without FROM reads one row of nothing.
       table_rows.emplace_back();
@@ -1591,6 +1660,7 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
 Outcome Session::insert(const sql::Statement& statement) {
   const auto& in = statement.insert;
   const auto database = database_of(in.table);
+  refuse_information_schema(database);
   const auto table = _catalog.table({database, in.table.back()});
   if (!table) {
     if (!_catalog.database(database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
@@ -1722,6 +1792,7 @@ Outcome Session::change_rows(const sql::Statement& statement) {
   const bool deleting = statement.kind == sql::Statement::Kind::delete_;
   const auto& c = statement.change;
   const auto database = database_of(c.table.name);
+  refuse_information_schema(database);
   const auto table = _catalog.table({database, c.table.name.back()});
   if (!table) {
     if (!_catalog.database(database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
@@ -1986,10 +2057,20 @@ void Session::set(const std::vector<sql::Assignment>& assignments) {
   }
 }
 
+void Session::refuse_information_schema(const std::string& database) const {
+  if (is_information_schema(database))
+    throw SqlError(1044, "42000",
+                   "Access denied for user '" + _info.user + "'@'" + _info.host + "' to database '" + std::string(information_schema_name) + "'");
+}
+
 void Session::follow_database() {
   std::string charset = _variables.text("character_set_server");
   std::string collation = _variables.text("collation_server");
-  if (_database) {
+  if (_database && is_information_schema(*_database)) {
+    // As SCHEMATA shows it.
+    charset = "utf8mb3";
+    collation = "utf8mb3_general_ci";
+  } else if (_database) {
     if (const auto database = _catalog.database(*_database)) {
       charset = database->charset;
       collation = database->collation;
@@ -2085,7 +2166,10 @@ Outcome Session::show_databases(const sql::Statement& statement) {
   result.columns.push_back({statement.like ? "Database (" + *statement.like + ")" : "Database", type});
   // Names are matched as bytes, as they are compared.
   const auto* bytes = collation_by_id(46);
-  for (const auto& name : _catalog.database_names())
+  // information_schema among them, in byte order.
+  auto names = _catalog.database_names();
+  names.insert(std::lower_bound(names.begin(), names.end(), std::string(information_schema_name)), std::string(information_schema_name));
+  for (const auto& name : names)
     if (!statement.like || bytes->like(name, *statement.like, "\\")) result.rows.push_back({name});
   Outcome outcome;
   outcome.result = std::move(result);
@@ -2096,6 +2180,7 @@ Outcome Session::create_table(const sql::Statement& statement) {
   const auto& spec = statement.create_table;
   const auto& name = spec.name.back();
   const auto database = database_of(spec.name);
+  refuse_information_schema(database);
   check_table_name(name);
   if (sql::same_word(database, "information_schema"))
     throw SqlError(1044, "42000", "Access denied for user '" + _info.user + "'@'" + _info.host + "' to database '" + database + "'");
@@ -2133,6 +2218,7 @@ Outcome Session::drop_table(const sql::Statement& statement) {
   std::vector<catalog::TableName> names;
   for (const auto& written : statement.tables) {
     catalog::TableName name{database_of(written), written.back()};
+    refuse_information_schema(name.database);
     if (std::find(names.begin(), names.end(), name) != names.end()) throw SqlError(1066, "42000", "Not unique table/alias: '" + name.name + "'");
     names.push_back(std::move(name));
   }

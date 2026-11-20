@@ -267,6 +267,7 @@ const Collation* collation_by_id(uint16_t id) {
     case 278:  // utf8mb4_0900_as_cs
       return &accent_and_case_sensitive;
     case 46:  // utf8mb4_bin
+    case 83:  // utf8mb3_bin: the same order over fewer characters
       return &by_code_point;
     case 309:  // utf8mb4_0900_bin
       return &by_byte;

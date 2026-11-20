@@ -17,11 +17,11 @@
 
 #include "dannan/contract/thread_safety.h"
 
-// A node's rows, in memory (step 2): every table's rows as versions, each
+// A node's rows, in memory (step 2a): every table's rows as versions, each
 // stamped with the commit that wrote it, and the transactions that read and
-// write them. In the cluster this becomes each range's replicated state (the
-// design's "One truth" and "Transactions"); here it is one node's, and the
-// shape of a transaction is the design's: writes buffered at the
+// write them. Step 2b replaces it with each range's state in Dagda, in the
+// cluster's shape whatever the node count (the design's "One truth" and
+// "Transactions"); the shape of a transaction is the design's: writes buffered at the
 // coordinator, row locks taken as they are written, a snapshot per
 // transaction (REPEATABLE READ) or per statement (READ COMMITTED), and every
 // write of a transaction made visible at once by its commit.

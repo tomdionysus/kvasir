@@ -59,6 +59,7 @@ add_library(kvasir SHARED
   exec/decimal.cpp
   exec/expression.cpp
   exec/functions.cpp
+  exec/information_schema.cpp
   exec/session.cpp
   exec/rows.cpp
   exec/store.cpp

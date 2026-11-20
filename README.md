@@ -164,7 +164,9 @@ cmake --build build
 
 ### Run a node
 
-One node, in memory and not durable. Make a credential, then start it with a TLS
+Kvasir is a leaderless, multi-master cluster, and a single node is a cluster of one,
+with no special case for it. Today a node keeps its state in memory and is not yet
+durable, and nodes do not yet join one another. Make a credential, then start it with a TLS
 certificate and key (clients sign in only over TLS) and an acknowledgement level, which
 has no built-in default:
 
@@ -248,11 +250,12 @@ value and error with what a MySQL 8.4.13 server answered: 682 of 682 match.
 
 Next, in order (`TODO/ACTIVE.md`):
 
-1. One node, in memory, continued: the rest of the SQL and transactions real drivers
-   and tools use, with the differential gate.
+1. A cluster of one, continued: the rest of the SQL and transactions real drivers and
+   tools use, with the differential gate; then its state in Dagda, in the cluster's
+   shape (per-range manifests in a head space every node shares).
 2. The commit protocol written down and passed through Dannan's deterministic simulator.
 3. The cluster at `decided` and `replicated`.
-4. Persistence in Dagda, with backup and restore to a point in time.
+4. Backup and restore in Dagda to a point in time.
 5. `ephemeral`, `persisted` and held commits; range splits and merges; work shared
    across the cluster; the Lugh plugin and a change feed.
 

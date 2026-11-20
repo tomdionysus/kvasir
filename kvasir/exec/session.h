@@ -19,6 +19,7 @@
 
 #include "kvasir/catalog/catalog.h"
 #include "kvasir/exec/expression.h"
+#include "kvasir/exec/information_schema.h"
 #include "kvasir/exec/variables.h"
 #include "kvasir/protocol/statements.h"
 #include "kvasir/sql/ast.h"
@@ -220,6 +221,8 @@ class Session : private VariableSource {
   void follow_database();
   // The handshake's collation, if a session can speak it, as SET NAMES.
   void take_client_collation();
+  // 1044 for anything that would change information_schema.
+  void refuse_information_schema(const std::string& database) const;
   // LIMIT's and OFFSET's count: a literal, or a bound parameter (1210 for
   // one that is not a count).
   uint64_t limit_of(const sql::Expr& e) const;
@@ -262,6 +265,8 @@ class Session : private VariableSource {
   // While a statement is prepared: SELECT types its result and stops before
   // reading any row.
   bool _describing = false;
+  // While a SELECT reads an information_schema view: the view.
+  const View* _view = nullptr;
   // The collation SET NAMES ... COLLATE named, which results are reported in
   // while character_set_results is its character set; empty otherwise.
   std::string _results_collation;

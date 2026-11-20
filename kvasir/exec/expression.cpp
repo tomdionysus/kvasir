@@ -103,8 +103,9 @@ bool is_string(const ResultType& t) {
          t.field_type == f::medium_blob || t.field_type == f::long_blob;
 }
 bool is_text(const ResultType& t) { return is_string(t) && t.collation != binary_collation; }
-// utf8mb4_bin and utf8mb4_0900_bin.
-bool is_bin(uint16_t collation) { return collation == 46 || collation == 309; }
+// utf8mb4_bin, utf8mb4_0900_bin and utf8mb3_bin (observed: UPPER of
+// information_schema's DATA_TYPE is flagged BINARY).
+bool is_bin(uint16_t collation) { return collation == 46 || collation == 309 || collation == 83; }
 
 size_t characters(const std::string& s) {
   size_t n = 0;
@@ -208,7 +209,9 @@ ResultType column_as_expression(const ResultType& column) {
     t.flags = static_cast<uint16_t>(column.collation == binary_collation || (column.flags & c::binary) ? c::binary : 0);
     return t;
   }
-  if (is_integer(column)) t.length = static_cast<uint32_t>(integer_digits(column) + (unsigned_ ? 0 : 1));
+  // At least the column's own length (observed: information_schema's
+  // CHARACTER_OCTET_LENGTH, a BIGINT of length 21, stays 21 in a CASE).
+  if (is_integer(column)) t.length = std::max(column.length, static_cast<uint32_t>(integer_digits(column) + (unsigned_ ? 0 : 1)));
   t.flags = static_cast<uint16_t>(c::binary | c::num | (unsigned_ ? c::unsigned_ : 0));
   return t;
 }
@@ -989,7 +992,15 @@ Evaluator::Merged Evaluator::merged(const std::vector<Operand>& operands, const 
     const bool binary = out.derivation.first == binary_collation;
     bool blob = false, all_char = true;
     uint64_t longest = 0;
-    for (const auto& a : types) blob = blob || (is_string(a) && is_blob(a.field_type));
+    // The largest kind of BLOB among them (observed: LONG_BLOB over a
+    // LONGTEXT).
+    uint8_t blob_type = f::blob;
+    const auto blob_rank = [](uint8_t type) { return type == f::long_blob ? 2 : type == f::medium_blob ? 1 : 0; };
+    for (const auto& a : types)
+      if (is_string(a) && is_blob(a.field_type)) {
+        blob = true;
+        if (blob_rank(a.field_type) > blob_rank(blob_type)) blob_type = a.field_type;
+      }
     for (const auto& a : types) {
       uint64_t n = a.length;
       if (is_string(a)) {
@@ -1001,7 +1012,7 @@ Evaluator::Merged Evaluator::merged(const std::vector<Operand>& operands, const 
       }
       longest = std::max(longest, n);
     }
-    t.field_type = blob ? f::blob : all_char ? f::string : f::var_string;
+    t.field_type = blob ? blob_type : all_char ? f::string : f::var_string;
     t.collation = binary ? binary_collation : out.derivation.first;
     t.length = static_cast<uint32_t>(std::min<uint64_t>(binary || blob ? longest : longest * widest_character(out.derivation.first), UINT32_MAX));
     t.decimals = any_decimals;

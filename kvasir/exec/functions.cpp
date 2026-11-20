@@ -288,6 +288,10 @@ std::optional<Evaluator::Merged> Evaluator::string_function(const Expr& e) const
     t.field_type = f::var_string;
     t.length = static_cast<uint32_t>(bytes);
   }
+  // UPPER and LOWER of a LONG_BLOB keep its length, uncapped (observed:
+  // UPPER of information_schema's DATA_TYPE is LONG_BLOB, 201326580 under
+  // utf8mb4, as DATA_TYPE is; of a TEXT, the cap above holds).
+  if (is_case(name) && types[0].field_type == f::long_blob && !binary) t.length = types[0].length;
   return m;
 }
 
