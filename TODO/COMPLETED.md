@@ -2,6 +2,14 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-20: Dannan's SteppedTime in the tests
+
+- Released by the coordinating session as settled by the stack's goals: two
+  tests defined their own stepped TimeSource; they now use
+  `dannan/test/fixtures/stepped_time.h` (4ed4c06).
+- Gate: release on node-d **362 passed, 0 failed**; the
+  differential gate **684 of 684**.
+
 ## 2026-11-20: Dannan pinned at 0.9.2
 
 - Most of the stack is on Dannan 0.9.2 (the coordinating session's audit,
