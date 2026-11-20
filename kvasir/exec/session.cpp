@@ -1271,9 +1271,19 @@ Outcome Session::select_from_table(const sql::Select& select) {
       std::vector<Value> keys;
     };
     std::vector<Chosen> chosen;
+    // WHERE as the evaluator reads a condition (a string that is not wholly a
+    // number warns 1292); one that names no column is read once, as MySQL
+    // folds it (observed: WHERE 'x' over three rows warns once).
+    const auto where_type = select.where ? evaluator.type(*select.where) : ResultType{};
+    const auto passes = [&] {
+      const auto b = evaluator.truth(evaluator.value(*select.where), where_type);
+      return b && *b;
+    };
+    std::optional<bool> constant_where;
+    if (select.where && !mentions_column(*select.where)) constant_where = passes();
     for (const auto& row : rows) {
       columns.set_row(&row);
-      if (select.where && !truth(evaluator.value(*select.where))) continue;
+      if (select.where && !(constant_where ? *constant_where : passes())) continue;
       Chosen c{&row, {}};
       for (const auto& sort : sorts) c.keys.push_back(evaluator.value(*sort.expr));
       chosen.push_back(std::move(c));

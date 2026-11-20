@@ -142,6 +142,9 @@ class Evaluator {
   // A value read as a DOUBLE: a string by its longest numeric prefix, with
   // warning 1292 when anything but trailing space is left.
   double real(const Value& v, const ResultType& t);
+  // A value as a condition: nothing for NULL; a string read as real() reads
+  // it.
+  std::optional<bool> truth(const Value& v, const ResultType& t);
 
   const std::vector<Warning>& warnings() const noexcept { return _warnings; }
   void clear_warnings() { _warnings.clear(); }
@@ -164,8 +167,6 @@ class Evaluator {
   // -1, 0 or 1, or nothing when either is NULL; two strings compare under
   // `collation`.
   std::optional<int> compare_values(const Value& x, const ResultType& tx, const Value& y, const ResultType& ty, std::optional<uint16_t> collation);
-  // A value as a condition: nothing for NULL.
-  std::optional<bool> truth(const Value& v, const ResultType& t);
 
   // The flow control functions (IFNULL, COALESCE, NULLIF, IF and CASE):
   // the type several operands give together, NULL aside, and the collation

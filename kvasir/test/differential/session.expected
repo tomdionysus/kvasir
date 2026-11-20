@@ -3696,5 +3696,82 @@ column Tables_in_kv_keys (k%)|VAR_STRING|255|256|0|NOT_NULL BINARY NO_DEFAULT_VA
 row k1
 row k2
 end
+statement CREATE TABLE g (id INT PRIMARY KEY, a INT)
+end
+statement INSERT INTO g VALUES (1, 10), (2, 10), (3, 20)
+end
+statement SELECT * FROM g GROUP BY id
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column a|LONG|63|11|0|NUM
+row 1	10
+row 2	10
+row 3	20
+end
+statement SELECT g.* FROM g GROUP BY id ORDER BY id DESC
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column a|LONG|63|11|0|NUM
+row 3	20
+row 2	10
+row 1	10
+end
+statement SELECT kv_keys.g.* FROM g GROUP BY id
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column a|LONG|63|11|0|NUM
+row 1	10
+row 2	10
+row 3	20
+end
+statement SELECT x.* FROM g GROUP BY id
+error 1051|42S02|Unknown table 'x'
+end
+statement SELECT a, COUNT(*) FROM g GROUP BY a ORDER BY 2, 1
+column a|LONG|63|11|0|NUM
+column COUNT(*)|LONGLONG|63|21|0|NOT_NULL NUM
+row 20	1
+row 10	2
+end
+statement SELECT a, COUNT(*) FROM g GROUP BY a ORDER BY 5
+error 1054|42S22|Unknown column '5' in 'order clause'
+end
+statement SELECT DISTINCT COUNT(*) FROM g GROUP BY id
+column COUNT(*)|LONGLONG|63|21|0|NOT_NULL NUM
+row 1
+end
+statement SELECT id FROM g WHERE 18446744073709551615
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+row 1
+row 2
+row 3
+end
+statement SELECT id FROM g WHERE 0.5
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+row 1
+row 2
+row 3
+end
+statement SELECT id FROM g WHERE 0.0e0
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+end
+statement SELECT id FROM g WHERE '1abc'
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+row 1
+row 2
+row 3
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1292	Truncated incorrect DOUBLE value: '1abc'
+end
+statement SELECT id FROM g WHERE 'x'
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1292	Truncated incorrect DOUBLE value: 'x'
+end
 statement DROP DATABASE kv_keys
 end
