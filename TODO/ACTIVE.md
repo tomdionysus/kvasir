@@ -208,8 +208,14 @@ and the reference server first, and watched to fail:
       MySQL's metadata for all three views was probed (a table of nine
       column types: INT AUTO_INCREMENT key, VARCHAR NOT NULL DEFAULT,
       DECIMAL, TEXT, TINYINT(1), BIGINT UNSIGNED ZEROFILL, DOUBLE, CHAR
-      _bin, VARBINARY); probe COLUMNS' values for each column type and
-      key kind before writing the tests.
+      _bin, VARBINARY). COLUMNS' and TABLES' values for every column type
+      and key kind Kvasir holds were probed 2026-11-20:
+      `build/is/columns.sql` and its answer `build/is/columns.tsv` (e.g.
+      `int(5) unsigned zerofill`, defaults as text such as `1.50`, FLOAT's
+      precision 12 and scale NULL, MUL only on a key's first column, PRI
+      over the rest, PRIVILEGES `select,insert,update,references`). MySQL's
+      TABLES.AUTO_INCREMENT and TABLE_ROWS are cached statistics (NULL and
+      0 for a table just made), so the gate leaves them out.
    d. JDBC's two queries in the differential gate, then Connector/J's
       getTables and getColumns against kvasir-node.
    Also: the fuzz target for the execute reader has not run yet (a 15 GB
