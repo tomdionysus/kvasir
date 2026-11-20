@@ -2,6 +2,24 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-20: prepared statements, (a) the protocol's messages
+
+- Captured first: what Go's driver and mysql-connector-python exchange
+  with MySQL 8.4.13 for prepared statements, through a logging proxy
+  (decoded in `build/connectors/capture/NOTES.md`, not in git).
+- Landed: `kvasir/protocol/statements.h`: the COM_STMT_PREPARE reply, the
+  COM_STMT_EXECUTE reader (untrusted: bounded by the parameter count and
+  the packet, types kept from the last bind, long data in place of a
+  value, a date's or time's bytes kept as sent), and binary rows from a
+  result's text by column type; `kvasir/fuzz/execute_fuzz.cpp`. Not yet
+  wired to a session or the command phase.
+- Test-first on node-d: against stubs the first two tests failed
+  and the third crashed (an empty vector read), so the stub run's count
+  was not seen.
+- Gate: release on node-d **349 passed, 0 failed**; the
+  differential gate **682 of 682**. The fuzz target compiled under g++
+  -fsyntax-only only; its first run waits for a 15 GB Pi with clang.
+
 ## 2026-11-20: the handshake's collation
 
 - Found while capturing Go's prepared statements: Kvasir read the

@@ -46,6 +46,7 @@ add_library(kvasir SHARED
   protocol/codec.cpp
   protocol/messages.cpp
   protocol/packet.cpp
+  protocol/statements.cpp
   server/accounts.cpp
   server/commands.cpp
   server/connection.cpp

@@ -16,7 +16,7 @@ endif()
 # Pi build servers' since 2026-11-16); there, "fuzzer,undefined".
 set(KVASIR_FUZZ_SANITIZERS "fuzzer,address,undefined" CACHE STRING "The -fsanitize= list the fuzz targets build with")
 
-set(kvasir_fuzz_targets packet lexer parser)
+set(kvasir_fuzz_targets packet lexer parser execute)
 foreach(target IN LISTS kvasir_fuzz_targets)
   add_executable(${target}_fuzz ${target}_fuzz.cpp)
   target_compile_options(${target}_fuzz PRIVATE -fsanitize=${KVASIR_FUZZ_SANITIZERS})

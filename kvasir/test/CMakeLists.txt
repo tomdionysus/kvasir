@@ -18,6 +18,7 @@ add_executable(kvasir_tests
   protocol_codec_test.cpp
   protocol_messages_test.cpp
   protocol_packet_test.cpp
+  protocol_statements_test.cpp
   server_accounts_test.cpp
   server_commands_test.cpp
   server_connection_test.cpp
