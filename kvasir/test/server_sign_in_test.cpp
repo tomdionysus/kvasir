@@ -32,6 +32,7 @@
 #include <string_view>
 #include <vector>
 
+#include "dannan/test/fixtures/stepped_time.h"
 #include "kvasir/protocol/caching_sha2.h"
 #include "kvasir/protocol/codec.h"
 #include "kvasir/protocol/messages.h"
@@ -421,13 +422,8 @@ TEST(ServerSignIn, NoncesAreMySqlsAscii) {
 // The design: back-off per principal and per source before any hashing,
 // with Dannan's Backoff (a growing wait, never a lock); a waiting client is
 // answered as a wrong password is, at once.
-struct SteppedTime : dannan::contract::TimeSource {
-  dannan::contract::TimePoint at = dannan::contract::TimePoint{} + std::chrono::hours(100);
-  dannan::contract::TimePoint now() const noexcept override { return at; }
-};
-
 struct GuardedBed {
-  SteppedTime time;
+  dannan::test::SteppedTime time;
   dannan::listen::Backoff principals{{2, std::chrono::seconds(1), std::chrono::minutes(15), std::chrono::hours(1)}};
   dannan::listen::Backoff sources{{3, std::chrono::seconds(1), std::chrono::minutes(15), std::chrono::hours(1)}};
   SignInBackoff backoff{principals, sources, time};
@@ -472,7 +468,7 @@ TEST(ServerSignIn, RepeatedFailuresMakeAPrincipalWaitBeforeAnyHashing) {
   EXPECT_EQ(e.message, "Access denied for user 'root'@'10.0.0.1' (using password: YES)");
   // Being turned away while waiting is not another failure: once the wait
   // has passed the next attempt is heard.
-  bed.time.at += std::chrono::seconds(1);
+  bed.time.advance(std::chrono::seconds(1));
   const auto done = bed.attempt("root", "secret", true);
   EXPECT_FALSE(done.close);
   EXPECT_TRUE(is_ok(packets(done.out).at(0)));

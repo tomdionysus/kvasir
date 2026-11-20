@@ -20,7 +20,7 @@
 #include <string>
 #include <vector>
 
-#include "dannan/contract/time_source.h"
+#include "dannan/test/fixtures/stepped_time.h"
 #include "kvasir/protocol/messages.h"
 #include "kvasir/server/commands.h"
 #include "kvasir/server/statistics.h"
@@ -535,10 +535,7 @@ TEST(ServerCommands, LongDataAndWhatIsRefused) {
 // a connection that only pings counts 2, its sign-in and its COM_QUIT; a
 // statement refused counts; a failed sign-in counts nothing). Kvasir has no
 // table cache and no slow query log: those fields are 0.
-struct SteppedTime : dannan::contract::TimeSource {
-  dannan::contract::TimePoint at = dannan::contract::TimePoint{} + std::chrono::hours(100);
-  dannan::contract::TimePoint now() const noexcept override { return at; }
-};
+using dannan::test::SteppedTime;
 
 std::string line(uint64_t uptime, uint64_t threads, uint64_t questions, const std::string& average) {
   return "Uptime: " + std::to_string(uptime) + "  Threads: " + std::to_string(threads) + "  Questions: " + std::to_string(questions) +
@@ -549,13 +546,13 @@ TEST(ServerStatistics, TheLineMySqlSends) {
   SteppedTime time;
   NodeStatistics stats(time);
   EXPECT_EQ(stats.text(), line(0, 0, 0, "0.000"));
-  time.at += std::chrono::milliseconds(540'900);
+  time.advance(std::chrono::milliseconds(540'900));
   for (int i = 0; i < 2115; ++i) stats.question();
   stats.command_began();
   stats.command_began();
   EXPECT_EQ(stats.text(), line(540, 2, 2115, "3.916"));
   stats.command_ended();
-  time.at += std::chrono::seconds(2);
+  time.advance(std::chrono::seconds(2));
   stats.question();
   stats.question();
   // 2117 / 542 = 3.9059
@@ -575,7 +572,7 @@ TEST(ServerCommands, StatisticsAnswersWithOneString) {
     phase.received(command(command::query, "SELECT 1"));
     phase.received(command(command::query, "SELECT nope"));
     phase.received(command(command::ping));
-    time.at += std::chrono::seconds(10);
+    time.advance(std::chrono::seconds(10));
     auto sent = packets(phase.received(command(command::statistics)).out);
     ASSERT_EQ(sent.size(), 1u);
     EXPECT_EQ(sent[0].first_sequence, 1u);
