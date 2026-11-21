@@ -2,6 +2,23 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-21: Step 3, parts 2 and 3: decided, and a proposer per range
+
+- Part 2 (62a3690): the commit proved at `decided`. Acceptors answer from
+  memory and sync now and then; a crashed one restarts not ready and
+  catches up before it votes (Dannan's rule, confirmed with its session).
+  A minority's crash loses nothing unexcused; a majority killed together
+  stalls the range, never choosing twice. The first test killed a node
+  while another was still catching up, so every run stalled; it now kills
+  one only while the rest are caught up, as Dannan's runs do.
+- Part 3 (3a5cd10): `kvasir/txn/range_proposer.h`, batching the commits a
+  node is sent within a window, one change in flight. Every node proposing
+  on one range at once: serializable, nothing lost or misapplied, batches
+  shared. Its first version used a freed agreement after a node's crash;
+  `stop()` now comes before the agreement goes.
+- Gate (a build node): release, clang, ASan and TSan each 392 tests and
+  965 of 965.
+
 ## 2026-11-21: Step 3, part 1: a commit on one range, proved in Dannan's simulator
 
 - Written first: `TODO/2026-11-20-commit-protocol.md`.

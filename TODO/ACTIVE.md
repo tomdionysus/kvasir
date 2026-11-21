@@ -803,11 +803,13 @@ Dagda's answer (2026-11-20):
    store that syncs before answering. Part 2 landed 62a3690: the same at
    `decided` (acceptors sync now and then; a crashed one restarts not ready
    and catches up, Dannan's rule; a majority killed together stalls, never
-   splits). Next: a proposer per range on each node batching the commits it
-   is sent within a short window into one change, with two nodes proposing
-   on one range at once (the proposer-change case: in-flight commits refused
-   or committed, never both committed against one version). Cross-range
-   waits on Dannan's item 26.
+   splits). Part 3 landed 3a5cd10: a proposer per range on each node
+   (`kvasir/txn/range_proposer.h`) batching the commits it is sent, every
+   node proposing on one range at once, proved safe and sharing batches.
+   Step 3 is done for one range. Left in it: cross-range commits, on
+   Dannan's item 26 (0.12.0); wiring the proposer under the SQL session
+   (the session's writes become a Commit at COMMIT) comes with step 2b, when
+   ranges live in agreement over Dagda's durable store.
 4. The cluster at `decided` and `replicated`, on Dannan 0.9.0 (pinned).
 5. Backup and restore in Dagda, and the cluster's state on Dagda's
    AcceptorStore and node-local log once it exists.
