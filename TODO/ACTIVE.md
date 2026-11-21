@@ -214,9 +214,26 @@ real mysql library for C++, only in tests."; asked which, "Connector/C++
   tree when KVASIR_BUILD_TESTING is on, and never linked by Kvasir itself.
 - Its classic-protocol (JDBC-style) API needs Oracle's libmysqlclient,
   which Debian 13 does not package (it has MariaDB's in its place).
-- First job: find how to get Oracle's libmysqlclient for arm64 and x86-64
-  Debian 13 (Oracle's APT repository, or built from the MySQL 8.4 source
-  at its tag), and what the first build costs on a Pi.
+- Found 2026-11-21: Oracle's APT repository for Debian 13 has x86-64
+  packages only (libmysqlclient-dev 8.4.13, Connector/C++ 26.10.0, which
+  is the 9.x line under Oracle's new numbering); nothing for arm64.
+- Ruled (the maintainer, 2026-11-21): build from source everywhere, the Pis
+  and hosted CI alike; pin Connector/C++ 26.10.0 and libmysqlclient 8.4.13
+  (the reference server's version), each at Oracle's source for that tag.
+- Sources (checked 2026-11-21): MySQL 8.4.13,
+  `https://cdn.mysql.com/Downloads/MySQL-8.4/mysql-8.4.13.tar.gz`
+  (479,316,148 bytes, sha256
+  f6ddc7f7fb6462bab8b533b13c06af3fff57fa9ca12259b81ab13cd9930b9d58; also
+  GitHub's tag mysql-8.4.13); Connector/C++ 26.10.0, not tagged on GitHub
+  (its last tag is 9.7.0),
+  `https://cdn.mysql.com/Downloads/Connector-C++/mysql-connector-c++-26.10.0-src.tar.gz`
+  (4,792,185 bytes, sha256
+  25d83a76164da29592b4e029c6e771cd05139453be2f8fc206cc7c73d19fa9b2). The
+  build nodes have libssl, ncurses, zlib and zstd's headers but no bison.
+- Next (stopped 2026-11-21 01:15Z on the maintainer's word, before any
+  build): measure the client-only build's cost on a Pi (both tarballs are
+  in node-c's /root/kvasir-work/deps-probe), then fetch and build both in
+  the test build only.
 - Then: tests that drive a node over TLS as a client would, and checks
   that caching_sha2_password's fast and full paths, prepared statements
   and metadata answer as MySQL does.
