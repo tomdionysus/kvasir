@@ -2,6 +2,26 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-21: Step 3, part 1: a commit on one range, proved in Dannan's simulator
+
+- Written first: `TODO/2026-11-20-commit-protocol.md`.
+- Landed (0516353): `kvasir/txn/range_commit.h`. A range is one name in
+  Dannan's agreement; a batch of commits is one change, each commit checked
+  against its rows' read versions and applied or refused whole, idempotent
+  by commit id (Changed::repeatable).
+- Proved: 40 seeds of Dannan's simulator, three nodes, messages dropped,
+  duplicated and delayed, nodes killed singly and in pairs: serializable,
+  nothing committed lost without a fault to excuse it, nothing refused
+  applied; a change without the version check is caught.
+- Found on the way: the struct was first named `Transaction`, the store's
+  class's name; clang's build crashed on the one definition rule broken.
+  Renamed `Commit`. The sanitizer steps' symbol check had read a stale
+  library left by an earlier pin; it now reads what the tests load.
+- Agreed: commits across ranges are Dannan's (item 26, 0.12.0); Dagda's
+  durable AcceptorStore comes after its 0.4.0.
+- Gate (a build node): release, clang, ASan, TSan each 390 tests and 965
+  of 965; Dannan's and Kvasir's libraries carry the sanitizers' symbols.
+
 ## 2026-11-20: Release 0.1.0, one node in memory
 
 - Kvasir's first release, on Dannan 0.9.2: one node, in memory, MySQL

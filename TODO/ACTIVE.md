@@ -798,6 +798,13 @@ Dagda's answer (2026-11-20):
    therefore waits on Dagda's next release (D6 and the durable
    AcceptorStore).
 3. The commit protocol written down and passed through Dannan's simulator.
+   Written (`TODO/2026-11-20-commit-protocol.md`); part 1 landed 0516353:
+   one range, one change, version-checked, proved at `replicated` with a
+   store that syncs before answering. Next: the same at `decided` (a store
+   that syncs only sometimes, with "sync" events in the history, judged by
+   `loss_excused`); then a proposer per range on each node batching the
+   commits it is sent, with the proposer-change case (in-flight commits
+   refused, never both committed). Cross-range waits on Dannan's item 26.
 4. The cluster at `decided` and `replicated`, on Dannan 0.9.0 (pinned).
 5. Backup and restore in Dagda, and the cluster's state on Dagda's
    AcceptorStore and node-local log once it exists.
