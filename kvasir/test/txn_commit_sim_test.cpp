@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -36,6 +37,7 @@
 #include "dannan/test/fixtures/sim/history.h"
 #include "dannan/test/fixtures/sim/serializable.h"
 #include "kvasir/txn/range_commit.h"
+#include "kvasir/txn/range_proposer.h"
 
 namespace kvasir::txn {
 namespace {
@@ -81,6 +83,9 @@ struct Run {
   size_t committed = 0;
   size_t refused = 0;
   bool settled = false;
+  // Batches the proposers sent, and commits submitted to them, when batching.
+  size_t batches = 0;
+  size_t submitted = 0;
 };
 
 // The level the acceptors' store gives a commit: `replicated` syncs each keep
@@ -88,7 +93,9 @@ struct Run {
 // a crashed acceptor comes back not ready and catches up from a majority
 // before it votes again (Dannan's rule for a store that may have lost state).
 // A majority killed together then stalls the range; it never chooses twice.
-Run simulate(uint64_t seed, bool broken, sim::AckLevel level = sim::AckLevel::replicated) {
+// `batching`: each node runs a RangeProposer, and its clients' commits go
+// through it in batches, every node proposing on the one range at once.
+Run simulate(uint64_t seed, bool broken, sim::AckLevel level = sim::AckLevel::replicated, bool batching = false) {
   const bool decided = level == sim::AckLevel::decided;
   sim::World world(seed);
   sim::NetworkFaults faults;
@@ -98,6 +105,25 @@ Run simulate(uint64_t seed, bool broken, sim::AckLevel level = sim::AckLevel::re
   sim::Cluster cluster(world, 3, faults, !decided);
   sim::History history;
   Run run;
+
+  // Each node's proposer, made again when the node restarts; the old ones live
+  // to the run's end, since a change in flight may still answer.
+  std::vector<RangeProposer*> proposers(cluster.size(), nullptr);
+  std::vector<std::unique_ptr<RangeProposer>> made;
+  const auto propose_on = [&](size_t i) {
+    RangeProposer::Settings settings;
+    settings.space = sim::Cluster::space;
+    settings.slot = range_slot;
+    settings.name = range_name;
+    settings.replicas = cluster.ids();
+    settings.version = sim::Cluster::genesis_version;
+    made.push_back(std::make_unique<RangeProposer>(
+        cluster.agreement(i), world.io.get_executor(), settings,
+        [&world](std::chrono::milliseconds after, std::function<void()> task) { world.after(static_cast<uint64_t>(after.count()), std::move(task)); }));
+    proposers[i] = made.back().get();
+  };
+  if (batching)
+    for (size_t i = 0; i < cluster.size(); ++i) propose_on(i);
 
   // A restart: as it synced, and at `decided` not ready until it has caught up.
   std::vector<uint64_t> incarnation(cluster.size(), 0);
@@ -114,6 +140,7 @@ Run simulate(uint64_t seed, bool broken, sim::AckLevel level = sim::AckLevel::re
   const auto restart = [&](size_t i) {
     ++incarnation[i];
     cluster.restart(i, false, !decided);
+    if (batching) propose_on(i);
     if (decided) catch_up(i, incarnation[i]);
   };
   // At `decided`, each node syncs now and then: a sync is an event the losses are judged by.
@@ -143,7 +170,8 @@ Run simulate(uint64_t seed, bool broken, sim::AckLevel level = sim::AckLevel::re
   // rows, or a read of two.
   constexpr size_t operations = 40;
   for (uint64_t n = 0; n < operations; ++n) {
-    world.after(world.random.below(2000), [&, n] {
+    // Batching runs pack the clients closer, so commits meet in a window.
+    world.after(world.random.below(batching ? 400 : 2000), [&, n] {
       const auto at = up_node(world.random.below(cluster.size()));
       if (!at) return;
       std::vector<std::string> chosen{keys[world.random.below(keys.size())]};
@@ -179,6 +207,18 @@ Run simulate(uint64_t seed, bool broken, sim::AckLevel level = sim::AckLevel::re
                                     if (reading) return history.answer(index, sim::encode_reads(statements), world.now_ms());
                                     if (!cluster.up(at)) return;
                                     appends.push_back({index, elements});
+                                    if (batching) ++run.submitted;
+                                    if (batching)
+                                      return proposers[at]->submit(transaction, [&, index, statements](RangeProposer::Answer answer) {
+                                        if (answer == RangeProposer::Answer::unknown) return;  // it may or may not have taken effect
+                                        if (answer == RangeProposer::Answer::committed) {
+                                          ++run.committed;
+                                          history.answer(index, sim::encode_reads(statements), world.now_ms());
+                                        } else {
+                                          ++run.refused;
+                                          history.cancel(index, world.now_ms());
+                                        }
+                                      });
                                     cluster.agreement(at).change(sim::Cluster::space, range_slot, {range_name}, cluster.ids(), sim::Cluster::genesis_version,
                                                                  broken ? unchecked_change({transaction}) : commit_change({transaction}), {}, 2000ms,
                                                                  world.io.get_executor(), [&, index, statements](dannan::agree::Outcome outcome) {
@@ -204,8 +244,12 @@ Run simulate(uint64_t seed, bool broken, sim::AckLevel level = sim::AckLevel::re
           if (!cluster.up(i) || !cluster.store(i).ready()) return;
       std::vector<uint64_t> killed{world.random.below(cluster.size())};
       if (world.random.one_in(decided ? 6 : 3)) killed.push_back((killed[0] + 1) % cluster.size());
-      for (const auto i : killed)
-        if (cluster.up(i)) cluster.crash(i);
+      for (const auto i : killed) {
+        if (!cluster.up(i)) continue;
+        // The proposer stops before the agreement it proposes on goes.
+        if (batching) proposers[i]->stop();
+        cluster.crash(i);
+      }
       history.fault({world.now_ms(), "kill", killed, ""});
       world.after(50 + world.random.below(300), [&, killed] {
         for (const auto i : killed)
@@ -228,6 +272,7 @@ Run simulate(uint64_t seed, bool broken, sim::AckLevel level = sim::AckLevel::re
                               if (read.committed) final = read.values.empty() || !read.values[0] ? RangeState{} : decode_range(*read.values[0]);
                             });
   world.run_until([&] { return final.has_value(); }, 2'000'000);
+  for (const auto& proposer : made) run.batches += proposer->batches();
   const auto serializable = [&] {
     const auto verdict = sim::check_isolation(history, sim::Isolation::serializable);
     if (!verdict.ok) run.failure = verdict.anomalies.front().kind + ": " + verdict.anomalies.front().why;
@@ -291,6 +336,28 @@ TEST(TxnCommitSim, AtDecidedAMinorityLosesNothingAndAMajorityStalls) {
   // Most runs see no majority killed together, and settle; some do, and stall.
   EXPECT_GT(settled, 20u);
   EXPECT_LT(settled, 40u);
+}
+
+// Every node's proposer batching its clients' commits on the one range at
+// once: safety holds, and commits share batches (fewer batches than commits
+// sent).
+TEST(TxnCommitSim, ProposersOnEveryNodeBatchAndStaySafe) {
+  size_t committed = 0, refused = 0, batches = 0, submitted = 0;
+  for (uint64_t seed = 1; seed <= 40; ++seed) {
+    const auto run = simulate(seed, false, sim::AckLevel::replicated, true);
+    ASSERT_FALSE(run.failure) << "seed " << seed << ": " << *run.failure;
+    EXPECT_TRUE(run.settled) << "seed " << seed;
+    committed += run.committed;
+    refused += run.refused;
+    batches += run.batches;
+    submitted += run.submitted;
+  }
+  // Not idle. Packed onto three rows, most commits contend and the version
+  // check refuses them, so few commit: the point here is safety and sharing.
+  EXPECT_GT(committed, 25u);
+  EXPECT_GT(refused, 10u);
+  // Commits shared batches.
+  EXPECT_LT(batches, submitted);
 }
 
 TEST(TxnCommitSim, AChangeWithoutTheVersionCheckIsCaught) {
