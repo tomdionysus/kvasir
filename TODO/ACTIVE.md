@@ -262,7 +262,7 @@ Each its own change, after the repin (merged fa35ad8):
   scoped logger, with log.level and log.format (the stack's names), and
   every setting's flag and variable named from its key (Dannan's
   docs/config.md);
-- the fuzz targets registered with `dannan::testing`, run by
+- Done (fuzz harness, 2026-11-21): the fuzz targets registered with `dannan::testing`, run by
   `dannan::fuzz::smoke` inside kvasir_tests as well (so g++ builds and the
   sanitizer steps run them too).
 

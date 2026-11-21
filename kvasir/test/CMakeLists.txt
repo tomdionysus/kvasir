@@ -16,6 +16,7 @@ add_executable(kvasir_tests
   exec_rows_test.cpp
   exec_session_test.cpp
   exec_variables_test.cpp
+  fuzz_smoke_test.cpp
   protocol_caching_sha2_test.cpp
   protocol_codec_test.cpp
   protocol_messages_test.cpp
@@ -33,10 +34,15 @@ add_executable(kvasir_tests
   txn_range_commit_test.cpp
   txn_store_test.cpp
   version_test.cpp
+  # The fuzz targets, registered with Dannan's harness, for fuzz_smoke_test.
+  ../fuzz/execute_fuzz.cpp
+  ../fuzz/lexer_fuzz.cpp
+  ../fuzz/packet_fuzz.cpp
+  ../fuzz/parser_fuzz.cpp
 )
-# Dannan's simulation checkers, with its installed simulator fixtures
-# (dannan/test/fixtures/sim/), for the commit protocol's runs.
-target_link_libraries(kvasir_tests PRIVATE kvasir dannan::sim_checkers GTest::gtest_main kvasir_warnings)
+# Dannan's test package: the fuzz harness and the simulation checkers, with
+# its installed simulator fixtures (dannan/test/fixtures/sim/).
+target_link_libraries(kvasir_tests PRIVATE kvasir dannan::testing GTest::gtest_main kvasir_warnings)
 # Dannan's fixtures write only inside Kvasir's build tree.
 target_compile_definitions(kvasir_tests PRIVATE DANNAN_TEST_TEMP_ROOT="${PROJECT_BINARY_DIR}/test-tmp"
                                                   KVASIR_DIFFERENTIAL_DIR="${CMAKE_CURRENT_SOURCE_DIR}/differential")
