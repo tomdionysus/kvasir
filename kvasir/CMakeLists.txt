@@ -87,6 +87,7 @@ add_library(kvasir ${kvasir_library_type}
   sql/keywords.cpp
   sql/lexer.cpp
   sql/parser.cpp
+  txn/range_commit.cpp
   txn/store.cpp
   version.cpp
 )

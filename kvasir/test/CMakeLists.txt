@@ -29,10 +29,14 @@ add_executable(kvasir_tests
   server_sign_in_test.cpp
   sql_lexer_test.cpp
   sql_parser_test.cpp
+  txn_commit_sim_test.cpp
+  txn_range_commit_test.cpp
   txn_store_test.cpp
   version_test.cpp
 )
-target_link_libraries(kvasir_tests PRIVATE kvasir GTest::gtest_main kvasir_warnings)
+# Dannan's simulation checkers, with its installed simulator fixtures
+# (dannan/test/fixtures/sim/), for the commit protocol's runs.
+target_link_libraries(kvasir_tests PRIVATE kvasir dannan::sim_checkers GTest::gtest_main kvasir_warnings)
 # Dannan's fixtures write only inside Kvasir's build tree.
 target_compile_definitions(kvasir_tests PRIVATE DANNAN_TEST_TEMP_ROOT="${PROJECT_BINARY_DIR}/test-tmp"
                                                   KVASIR_DIFFERENTIAL_DIR="${CMAKE_CURRENT_SOURCE_DIR}/differential")

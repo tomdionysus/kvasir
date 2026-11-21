@@ -57,7 +57,15 @@ configure() {
 # or __tsan_). Dannan's is checked because it is built from source here,
 # never the installed package.
 instrumented() {
-  for library in "$(find "$1/_deps/dannan-build" -name 'libdannan.so.*.*.*' -type f | head -n 1)" "$(find "$1/kvasir" -maxdepth 1 -name 'libkvasir.so.*.*.*' -type f | head -n 1)"; do
+  # The libraries the test binary loads, not whatever an earlier pin left in
+  # the build tree.
+  for name in libdannan libkvasir; do
+    library=$(ldd "$1/kvasir_tests" | awk -v n="$name" '$1 ~ "^" n "\\.so" { print $3 }')
+    if [ -z "$library" ]; then
+      echo "$1/kvasir_tests loads no $name" >&2
+      exit 1
+    fi
+    library=$(readlink -f "$library")
     count=$(nm -D --undefined-only "$library" | grep -c "$2" || true)
     if [ "$count" -eq 0 ]; then
       echo "$library is not instrumented: no $2 symbols" >&2
