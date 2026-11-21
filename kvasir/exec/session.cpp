@@ -1274,8 +1274,14 @@ Outcome Session::select_from_table(const sql::Select& select) {
       }
       e = o.expr ? o.expr : star_columns.back().get();
     } else if (e->kind == sql::ExprKind::column && e->path.size() == 1) {
+      // The first alias that names it; `e` is then that item's expression,
+      // which may have no path to compare (JDBC's getTables: TABLE_TYPE is a
+      // CASE's alias and a view's column).
       for (const auto& item : select.items)
-        if (item.has_alias && sql::same_word(item.alias, e->path[0])) e = item.expr.get();
+        if (item.has_alias && sql::same_word(item.alias, e->path[0])) {
+          e = item.expr.get();
+          break;
+        }
     }
     Sort sort;
     sort.expr = e;

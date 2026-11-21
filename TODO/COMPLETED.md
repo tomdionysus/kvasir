@@ -2,6 +2,23 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-21: Step 1d: Connector/J's getTables and getColumns against a node
+
+- Connector/J 9.1.0's DatabaseMetaData.getTables and getColumns (four
+  calls) against kvasir-node on a build node and against MySQL 8.4.13:
+  every field of every row the same (`build/connectors/e2e-jdbc/Meta.java`,
+  both outputs beside it).
+- Found: getTables with no type filter crashed the node. Its query orders
+  by TABLE_TYPE, a CASE's alias and also the view's column; the ungrouped
+  ORDER BY's alias loop went on after a match and read the CASE's empty
+  path. The gate held only the filtered form, where nothing followed the
+  match. Fixed (the first alias, then stop, as the grouped paths do), the
+  query put in the gate, watched failing under ASan first.
+- Fuzz targets moved onto Dannan's harness the same day (d4c61e6): each
+  runs in kvasir_tests too.
+- Gate (a build node): release, clang, ASan, TSan each 393 tests and 966
+  of 966.
+
 ## 2026-11-21: Step 3, parts 2 and 3: decided, and a proposer per range
 
 - Part 2 (62a3690): the commit proved at `decided`. Acceptors answer from

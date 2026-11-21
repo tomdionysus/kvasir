@@ -357,8 +357,12 @@ and the reference server first, and watched to fail:
       over the rest, PRIVILEGES `select,insert,update,references`). MySQL's
       TABLES.AUTO_INCREMENT and TABLE_ROWS are cached statistics (NULL and
       0 for a table just made), so the gate leaves them out.
-   d. JDBC's two queries in the differential gate, then Connector/J's
-      getTables and getColumns against kvasir-node.
+   d. (Done 2026-11-21.) JDBC's two queries in the differential gate, then
+      Connector/J's getTables and getColumns against kvasir-node: the
+      answers are MySQL's field for field (`build/connectors/e2e-jdbc/
+      Meta.java`). Found on the way: getTables with no type filter crashed
+      the node (ORDER BY an alias that is also a view's column read past an
+      empty path); fixed, and the query is in the gate.
    Also: the fuzz target for the execute reader has not run yet (a 15 GB
    Pi with clang); cursors (COM_STMT_FETCH) are refused.
 2. (Done 2026-11-20; kept for its notes.) Server-side prepared statements. Logged 2026-11-20
