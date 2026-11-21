@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -82,15 +83,48 @@ struct Run {
   bool settled = false;
 };
 
-Run simulate(uint64_t seed, bool broken) {
+// The level the acceptors' store gives a commit: `replicated` syncs each keep
+// before answering; `decided` answers from memory and syncs now and then, and
+// a crashed acceptor comes back not ready and catches up from a majority
+// before it votes again (Dannan's rule for a store that may have lost state).
+// A majority killed together then stalls the range; it never chooses twice.
+Run simulate(uint64_t seed, bool broken, sim::AckLevel level = sim::AckLevel::replicated) {
+  const bool decided = level == sim::AckLevel::decided;
   sim::World world(seed);
   sim::NetworkFaults faults;
   faults.drop_one_in = 10;
   faults.duplicate_one_in = 10;
   faults.max_delay_ms = 30;
-  sim::Cluster cluster(world, 3, faults);
+  sim::Cluster cluster(world, 3, faults, !decided);
   sim::History history;
   Run run;
+
+  // A restart: as it synced, and at `decided` not ready until it has caught up.
+  std::vector<uint64_t> incarnation(cluster.size(), 0);
+  std::function<void(size_t, uint64_t)> catch_up = [&](size_t i, uint64_t at) {
+    if (!cluster.up(i) || incarnation[i] != at) return;
+    cluster.agreement(i).catch_up(sim::Cluster::space, range_slot, {range_name}, cluster.ids(), sim::Cluster::genesis_version, 1000ms, world.io.get_executor(),
+                                  [&, i, at](dannan::agree::Outcome outcome) {
+                                    if (!cluster.up(i) || incarnation[i] != at) return;
+                                    if (outcome.committed) return cluster.store(i).set_ready(true);
+                                    // A stalled range retries until the run's window ends, so the world drains.
+                                    if (world.now_ms() < 8000) world.after(100, [&, i, at] { catch_up(i, at); });
+                                  });
+  };
+  const auto restart = [&](size_t i) {
+    ++incarnation[i];
+    cluster.restart(i, false, !decided);
+    if (decided) catch_up(i, incarnation[i]);
+  };
+  // At `decided`, each node syncs now and then: a sync is an event the losses are judged by.
+  if (decided)
+    for (int s = 0; s < 30; ++s)
+      world.after(world.random.below(2200), [&] {
+        const auto i = world.random.below(cluster.size());
+        if (!cluster.up(i)) return;
+        cluster.store(i).sync();
+        history.fault({world.now_ms(), "sync", {i}, ""});
+      });
 
   // A commit's appends: one element per row, each unique across the history.
   struct Pending {
@@ -163,31 +197,43 @@ Run simulate(uint64_t seed, bool broken) {
   // Kills and restarts: a node at a time, sometimes two together, each kept as it synced.
   for (int k = 0; k < 4; ++k) {
     world.after(200 + world.random.below(1600), [&] {
+      // At `decided`, a node is killed only while every other is up and caught up, as Dannan's
+      // own runs do; a pair killed together is the one majority loss, and stalls the range.
+      if (decided)
+        for (size_t i = 0; i < cluster.size(); ++i)
+          if (!cluster.up(i) || !cluster.store(i).ready()) return;
       std::vector<uint64_t> killed{world.random.below(cluster.size())};
-      if (world.random.one_in(3)) killed.push_back((killed[0] + 1) % cluster.size());
+      if (world.random.one_in(decided ? 6 : 3)) killed.push_back((killed[0] + 1) % cluster.size());
       for (const auto i : killed)
         if (cluster.up(i)) cluster.crash(i);
       history.fault({world.now_ms(), "kill", killed, ""});
       world.after(50 + world.random.below(300), [&, killed] {
         for (const auto i : killed)
-          if (!cluster.up(i)) cluster.restart(i);
+          if (!cluster.up(i)) restart(i);
         history.fault({world.now_ms(), "restart", killed, ""});
       });
     });
   }
   world.run_until([] { return false; }, 2'000'000);
 
-  // The final state, read once everything is quiet and every node is up.
+  // The final state, read once everything is quiet and every node is up. A
+  // range stalled by a majority's lost state never settles: its history is
+  // still checked below, and nothing it answered may contradict another.
   cluster.faults() = sim::NetworkFaults{};
   for (size_t i = 0; i < cluster.size(); ++i)
-    if (!cluster.up(i)) cluster.restart(i);
+    if (!cluster.up(i)) restart(i);
   std::optional<RangeState> final;
   cluster.agreement(0).read(sim::Cluster::space, range_slot, {range_name}, cluster.ids(), sim::Cluster::genesis_version, {}, 5000ms, world.io.get_executor(),
                             [&](dannan::agree::Outcome read) {
                               if (read.committed) final = read.values.empty() || !read.values[0] ? RangeState{} : decode_range(*read.values[0]);
                             });
   world.run_until([&] { return final.has_value(); }, 2'000'000);
-  if (!final) return run;
+  const auto serializable = [&] {
+    const auto verdict = sim::check_isolation(history, sim::Isolation::serializable);
+    if (!verdict.ok) run.failure = verdict.anomalies.front().kind + ": " + verdict.anomalies.front().why;
+    return run;
+  };
+  if (!final) return serializable();
   run.settled = true;
 
   // Each element in the final lists, and how many times.
@@ -208,12 +254,10 @@ Run simulate(uint64_t seed, bool broken) {
       return run.failure = name + " is in " + std::to_string(seen) + " of its " + std::to_string(append.elements.size()) + " rows", run;
     if (operation.answer == sim::Answer::cancelled && seen) return run.failure = "refused " + name + " was applied", run;
     if (operation.answer == sim::Answer::ok && !seen &&
-        !sim::loss_excused(history.faults(), sim::AckLevel::replicated, operation.invoked_ms, *operation.answered_ms, operation.node, cluster.size()))
+        !sim::loss_excused(history.faults(), level, operation.invoked_ms, *operation.answered_ms, operation.node, cluster.size()))
       return run.failure = name + " was committed and lost, no fault excusing it", run;
   }
-  const auto verdict = sim::check_isolation(history, sim::Isolation::serializable);
-  if (!verdict.ok) return run.failure = verdict.anomalies.front().kind + ": " + verdict.anomalies.front().why, run;
-  return run;
+  return serializable();
 }
 
 TEST(TxnCommitSim, OneRangeKeepsSerializabilityAndLosesNothingUnderFaults) {
@@ -229,6 +273,24 @@ TEST(TxnCommitSim, OneRangeKeepsSerializabilityAndLosesNothingUnderFaults) {
   EXPECT_EQ(settled, 40u);
   EXPECT_GT(committed, 200u);
   EXPECT_GT(refused, 10u);
+}
+
+// At `decided`: acceptors answer from memory and sync now and then. A
+// minority's crash loses nothing a majority holds; a majority killed together
+// stalls the range, and what was answered before never contradicts itself.
+TEST(TxnCommitSim, AtDecidedAMinorityLosesNothingAndAMajorityStalls) {
+  size_t committed = 0, settled = 0;
+  for (uint64_t seed = 1; seed <= 40; ++seed) {
+    const auto run = simulate(seed, false, sim::AckLevel::decided);
+    ASSERT_FALSE(run.failure) << "seed " << seed << ": " << *run.failure;
+    committed += run.committed;
+    settled += run.settled ? 1 : 0;
+  }
+  // Not idle: fewer than at replicated, since a stalled range commits nothing after its stall.
+  EXPECT_GT(committed, 100u);
+  // Most runs see no majority killed together, and settle; some do, and stall.
+  EXPECT_GT(settled, 20u);
+  EXPECT_LT(settled, 40u);
 }
 
 TEST(TxnCommitSim, AChangeWithoutTheVersionCheckIsCaught) {
