@@ -53,6 +53,14 @@ The record, newest first. Each entry says what landed, with its gate counts.
   display (six significant digits in MySQL), recorded.
 - Gate (node-c): release, ASan and TSan each **410 tests, 1033 of 1033**
   statements, TSan with no reports.
+- REPLACE: each row a new row would duplicate, by any unique key, deleted
+  (a current read) and the row inserted; affected rows, Duplicates and the
+  insert id as PyMySQL saw them; REPLACE IGNORE and REPLACE ... ON
+  DUPLICATE KEY UPDATE are syntax errors as in MySQL. With it, the OK's
+  insert id carries an explicit AUTO_INCREMENT value when none was
+  generated, for INSERT too.
+- Gate (node-c): release, ASan and TSan each **411 tests, 1052 of 1052**
+  statements, TSan with no reports.
 
 ## 2026-11-22: A real MySQL client library drives a node in the tests (step 1, most of it)
 

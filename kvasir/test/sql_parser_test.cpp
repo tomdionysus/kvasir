@@ -704,13 +704,27 @@ TEST(SqlParser, Insert) {
   EXPECT_TRUE(s.insert.ignore);
   EXPECT_FALSE(one("INSERT INTO t VALUES (1)").insert.ignore);
   EXPECT_TRUE(one("INSERT LOW_PRIORITY IGNORE t VALUES (1)").insert.ignore);
+  // REPLACE: INSERT's forms without HIGH_PRIORITY, IGNORE or ON DUPLICATE
+  // KEY UPDATE (MySQL: 1064 for REPLACE IGNORE).
+  s = one("REPLACE INTO t (a) VALUES (1), (2)");
+  EXPECT_TRUE(s.unsupported.empty());
+  EXPECT_EQ(s.kind, Statement::Kind::insert);
+  EXPECT_TRUE(s.insert.replace);
+  EXPECT_FALSE(s.insert.ignore);
+  EXPECT_EQ(s.insert.rows.size(), 2u);
+  EXPECT_TRUE(one("REPLACE LOW_PRIORITY t SET a = 1").insert.replace);
+  EXPECT_FALSE(one("INSERT INTO t VALUES (1)").insert.replace);
+  EXPECT_EQ(one("REPLACE INTO t SELECT 1").unsupported, "REPLACE ... SELECT");
+  EXPECT_EQ(one("REPLACE DELAYED INTO t VALUES (1)").unsupported, "REPLACE DELAYED");
+  EXPECT_THROW(parse("REPLACE IGNORE INTO t VALUES (1)"), SyntaxError);
+  EXPECT_THROW(parse("REPLACE INTO t VALUES (1) ON DUPLICATE KEY UPDATE a = 2"), SyntaxError);
   EXPECT_EQ(one("INSERT INTO t VALUES (1) ON DUPLICATE KEY UPDATE a = 2").unsupported, "ON DUPLICATE KEY UPDATE");
   EXPECT_EQ(one("INSERT INTO t VALUES (1) AS n").unsupported, "INSERT ... AS");
   EXPECT_EQ(one("INSERT INTO t SELECT 1").unsupported, "INSERT ... SELECT");
   EXPECT_EQ(one("INSERT INTO t (a) SELECT 1").unsupported, "INSERT ... SELECT");
   EXPECT_EQ(one("INSERT INTO t TABLE u").unsupported, "INSERT ... TABLE");
   EXPECT_EQ(one("INSERT DELAYED INTO t VALUES (1)").unsupported, "INSERT DELAYED");
-  EXPECT_EQ(one("REPLACE INTO t VALUES (1)").unsupported, "REPLACE");
+  EXPECT_EQ(one("REPLACE INTO t VALUES (1)").unsupported, "");
   EXPECT_EQ(error_at("INSERT INTO t"), 13u);
   EXPECT_EQ(error_at("INSERT INTO t VALUES"), 20u);
   EXPECT_EQ(error_at("INSERT INTO t VALUES (1"), 23u);

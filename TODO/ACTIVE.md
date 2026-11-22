@@ -97,8 +97,9 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    wake that comes before the wait (both want Dannan's injected time in the
    connection), and a payload error the reader can no longer raise.
 1a. **The SQL writes** (the maintainer's choice, 2026-11-22, while 2 to 4
-   wait): INSERT IGNORE (landed 2026-11-22), then REPLACE, INSERT ... ON
-   DUPLICATE KEY UPDATE and INSERT ... SELECT, each observed on the
+   wait): INSERT IGNORE and REPLACE (landed 2026-11-22), then INSERT ... ON
+   DUPLICATE KEY UPDATE and INSERT ... SELECT (and REPLACE ... SELECT with
+   it), each observed on the
    reference server first and put in
    the gate, each ACID as every statement is (a REPLACE's delete and insert,
    an upsert's read and write, one statement's whole effect or none).
@@ -236,6 +237,12 @@ Each to be closed, or kept by a decision.
 
 ## With the other sessions
 
+- **Dannan**: (2026-11-22, asked by Lir) Dannan may export the reader of
+  its node settings (dannan::NodeConfig: cluster.*, node.*, listen.*,
+  custody.*, identity.*) in 0.11.0; kvasir-node has no copy and will take
+  it when it joins a cluster. Kvasir's own listen.host and listen.port name
+  its MySQL listener: if Dannan's keys include listen.* for the node's
+  transport, one of the two must move (Kvasir's under mysql.* proposed).
 - **Dannan**: Kvasir is on 0.10.0. Its atomic commit across replica sets
   (item 26) is for 0.12.0, design first. Its HTTP core (item 24) and the
   credential and node helpers come in later minors. Kvasir's commitments
@@ -248,6 +255,11 @@ Each to be closed, or kept by a decision.
   design and date. Dagda's objects offer no `decided`.
 - **Mimir**: shares the level names; co-proposed the cross-range commit
   that Dannan now owns.
+- **Lugh**: 0.5.0 (2026-11-22) is the lugh_client the Lugh plugin starts
+  on: its Fault, Outcome and Completion are dannan::contract's, with
+  unavailable, timed_out and invalid (an unreadable reply); lugh::undecided
+  covers failed, unavailable and timed_out. lugh-node's flags take the
+  stack's names since 0.4.0.
 - **The coordinating session** orders cluster time and relays the
   maintainer's words to every session. Kvasir edits no sibling's tree.
 

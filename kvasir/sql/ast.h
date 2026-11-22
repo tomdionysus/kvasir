@@ -203,6 +203,8 @@ struct Insert {
   std::vector<std::vector<ExprPtr>> rows;
   // INSERT IGNORE: a row's errors that can be ignored become warnings.
   bool ignore = false;
+  // REPLACE: a row a key already holds is deleted for the new one.
+  bool replace = false;
 };
 
 // UPDATE table [AS alias] SET column = value, ... and DELETE FROM table [AS

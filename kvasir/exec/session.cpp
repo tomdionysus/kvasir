@@ -1824,7 +1824,10 @@ Outcome Session::insert(const sql::Statement& statement) {
     const auto primary = table->primary_key();
     // AUTO_INCREMENT: the statement's first need reserves a value for each
     // of its rows (observed: the values of a failed statement are lost).
-    uint64_t next_auto = 0, reserved = 0, first_auto = 0;
+    uint64_t next_auto = 0, reserved = 0, first_auto = 0, explicit_auto = 0;
+    std::optional<size_t> auto_column;
+    for (size_t i = 0; i < table->columns.size(); ++i)
+      if (table->columns[i].auto_increment) auto_column = i;
     // INSERT IGNORE: a row's errors that can be ignored are warnings, a NOT
     // NULL column given NULL or nothing takes its type's implicit default,
     // and a row a key already holds is skipped (observed on MySQL 8.4.13).
@@ -1899,31 +1902,56 @@ Outcome Session::insert(const sql::Statement& statement) {
         uint64_t id = _rows.next_row_id(table->id);
         for (int b = 7; b >= 0; --b, id >>= 8) key[static_cast<size_t>(b)] = static_cast<char>(id & 0xff);
       }
-      std::string duplicate;
-      uint64_t holder = 0;
-      switch (_rows.insert(t, table->id, key, unique_names(*table, primary, row), row, &duplicate, &holder)) {
-        case txn::Store::Inserted::inserted:
+      const auto names = unique_names(*table, primary, row);
+      for (;;) {
+        std::string duplicate;
+        uint64_t holder = 0;
+        const auto inserted = _rows.insert(t, table->id, key, names, row, &duplicate, &holder);
+        if (inserted == txn::Store::Inserted::inserted) {
           ++outcome.affected_rows;
+          // A value given to the AUTO_INCREMENT column is the OK's id when
+          // none was generated (observed).
+          if (!generate && auto_column && row[*auto_column] && (*row[*auto_column])[0] != '-')
+            explicit_auto = std::strtoull(row[*auto_column]->c_str(), nullptr, 10);
           break;
-        case txn::Store::Inserted::locked:
-          throw LockWaitNeeded(t.id(), holder);
-        case txn::Store::Inserted::duplicate: {
-          const auto e = duplicate_error(*table, primary, duplicate, row);
-          if (!in.ignore) throw e;
-          // Skipped; the value it was generated is the next row's.
-          _warnings.push_back({"Warning", e.code(), e.what()});
-          ++duplicates;
-          if (generate) {
-            --next_auto;
-            ++reserved;
-            if (first_auto == generated) first_auto = 0;
-          }
         }
+        if (inserted == txn::Store::Inserted::locked) throw LockWaitNeeded(t.id(), holder);
+        if (in.replace) {
+          // REPLACE: the row holding the key goes, read as UPDATE reads, and
+          // the row is tried again; each counts (observed).
+          std::string victim = key;
+          if (!duplicate.empty()) {
+            for (const auto& held : _rows.current(t, table->id)) {
+              const auto theirs = unique_names(*table, primary, held.row);
+              if (std::find(theirs.begin(), theirs.end(), duplicate) != theirs.end()) {
+                victim = held.key;
+                break;
+              }
+            }
+          }
+          if (!_rows.remove(t, table->id, victim, &holder)) throw LockWaitNeeded(t.id(), holder);
+          ++outcome.affected_rows;
+          ++duplicates;
+          continue;
+        }
+        const auto e = duplicate_error(*table, primary, duplicate, row);
+        if (!in.ignore) throw e;
+        // Skipped; the value it was generated is the next row's.
+        _warnings.push_back({"Warning", e.code(), e.what()});
+        ++duplicates;
+        if (generate) {
+          --next_auto;
+          ++reserved;
+          if (first_auto == generated) first_auto = 0;
+        }
+        break;
       }
     }
     if (first_auto) {
       _last_insert_id = first_auto;
       outcome.last_insert_id = first_auto;
+    } else if (explicit_auto) {
+      outcome.last_insert_id = explicit_auto;
     }
   } catch (...) {
     _rows.undo_statement(t);

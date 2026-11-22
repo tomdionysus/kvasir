@@ -670,6 +670,25 @@ INSERT IGNORE INTO kv_ignore2.t (i, m, dd) VALUES ('-12.5x', '  ', '')
 SHOW WARNINGS
 SELECT k, i, m, mu, v, LENGTH(b), b = 0x0000, dd FROM kv_ignore2.t ORDER BY k
 DROP DATABASE kv_ignore2
+CREATE DATABASE kv_replace
+CREATE TABLE kv_replace.t (id INT AUTO_INCREMENT PRIMARY KEY, u VARCHAR(3) UNIQUE, v INT UNIQUE, n INT NOT NULL DEFAULT 7)
+INSERT INTO kv_replace.t VALUES (1, 'a', 1, 1), (2, 'b', 2, 2), (3, 'c', 3, 3)
+REPLACE INTO kv_replace.t VALUES (4, 'd', 4, 4)
+REPLACE INTO kv_replace.t VALUES (1, 'a', 10, 10)
+REPLACE INTO kv_replace.t VALUES (2, 'c', 4, 20)
+SELECT * FROM kv_replace.t ORDER BY id
+REPLACE INTO kv_replace.t (u, n) VALUES ('d', 40), ('e', 50), ('e', 51)
+REPLACE kv_replace.t SET id = 9, u = 'z'
+REPLACE INTO kv_replace.t (u, v) VALUES ('a', NULL), ('y', NULL)
+SELECT * FROM kv_replace.t ORDER BY id
+SELECT LAST_INSERT_ID()
+REPLACE INTO kv_replace.t (u, n) VALUES ('q', NULL)
+REPLACE INTO kv_replace.t (u, n) VALUES ('q', 300000000000)
+REPLACE INTO kv_replace.t (nope) VALUES (1)
+REPLACE IGNORE INTO kv_replace.t VALUES (1)
+REPLACE INTO kv_replace.t VALUES (1) ON DUPLICATE KEY UPDATE n = 1
+SELECT * FROM kv_replace.t ORDER BY id
+DROP DATABASE kv_replace
 SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 SELECT REPEAT('ab',3), REPEAT('ab',0), REPEAT('ab',-1), REPEAT(NULL,2), REPEAT(1,2), REVERSE('abc'), REVERSE('héllo'), REVERSE(NULL), REVERSE(123), REVERSE(_binary'ab')
 SELECT REPEAT('ab', 40000000)

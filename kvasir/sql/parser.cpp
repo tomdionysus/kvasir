@@ -195,8 +195,10 @@ class Parser {
       s.kind = Statement::Kind::insert;
       parse_insert(s);
     } else if (word("REPLACE")) {
+      take();
       s.kind = Statement::Kind::insert;
-      unsupported(s, "REPLACE");
+      s.insert.replace = true;
+      parse_insert(s);
     } else if (word("UPDATE")) {
       take();
       s.kind = Statement::Kind::update;
@@ -363,13 +365,16 @@ class Parser {
     if (symbol("=")) take();
   }
 
-  // INSERT after INSERT: [LOW_PRIORITY | HIGH_PRIORITY] [INTO] table, then
-  // [(columns)] VALUES | VALUE (row), ..., or SET column = value, ....
+  // INSERT after INSERT: [LOW_PRIORITY | HIGH_PRIORITY] [IGNORE] [INTO]
+  // table, then [(columns)] VALUES | VALUE (row), ..., or SET column = value,
+  // .... REPLACE after REPLACE the same, without HIGH_PRIORITY or IGNORE.
   void parse_insert(Statement& s) {
     auto& in = s.insert;
-    if (word("DELAYED")) return unsupported(s, "INSERT DELAYED");
-    if (!accept_word("LOW_PRIORITY")) accept_word("HIGH_PRIORITY");
-    in.ignore = accept_word("IGNORE");
+    const std::string verb = in.replace ? "REPLACE" : "INSERT";
+    if (word("DELAYED")) return unsupported(s, verb + " DELAYED");
+    if (!accept_word("LOW_PRIORITY") && !in.replace) accept_word("HIGH_PRIORITY");
+    if (in.replace && word("IGNORE")) fail(peek());
+    if (!in.replace) in.ignore = accept_word("IGNORE");
     accept_word("INTO");
     in.table = table_name();
     if (word("PARTITION")) return unsupported(s, "INSERT ... PARTITION");
@@ -392,8 +397,8 @@ class Parser {
         }
         expect_symbol(")");
       }
-      if (word("SELECT") || (symbol("(") && word("SELECT", 1))) return unsupported(s, "INSERT ... SELECT");
-      if (word("TABLE")) return unsupported(s, "INSERT ... TABLE");
+      if (word("SELECT") || (symbol("(") && word("SELECT", 1))) return unsupported(s, verb + " ... SELECT");
+      if (word("TABLE")) return unsupported(s, verb + " ... TABLE");
       if (!accept_word("VALUES")) expect_word("VALUE");
       do {
         expect_symbol("(");
@@ -405,6 +410,7 @@ class Parser {
         expect_symbol(")");
       } while (symbol(",") && (take(), true));
     }
+    if (in.replace) return;
     if (word("AS")) return unsupported(s, "INSERT ... AS");
     if (word("ON")) return unsupported(s, "ON DUPLICATE KEY UPDATE");
   }

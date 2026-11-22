@@ -1672,12 +1672,47 @@ TEST(ExecSessionRows, InsertIgnoreCountsWhatItInserted) {
             (Rows{{"1", "a", "1"}, {"3", "c", "4"}, {"4", "ddd", "0"}, {"5", "e", "1"}, {"8", "h", "1"}}));
 }
 
+// REPLACE deletes each row its new row would duplicate, by any unique key,
+// then inserts it: each deleted row and each inserted counts; several rows
+// give "Records: n  Duplicates: <deleted>  Warnings: w"; a generated id is
+// always new. The OK's id is the first generated, else the AUTO_INCREMENT
+// value given (observed on MySQL 8.4.13 through PyMySQL).
+TEST(ExecSessionRows, ReplaceDeletesWhatItsRowWouldDuplicate) {
+  TableBed b;
+  run(b.s, "CREATE TABLE r (id INT AUTO_INCREMENT PRIMARY KEY, u VARCHAR(3) UNIQUE, n INT NOT NULL DEFAULT 7)");
+  auto o = run(b.s, "INSERT INTO r VALUES (1, 'a', 1), (2, 'b', 2), (3, 'c', 3)");
+  EXPECT_EQ(o.last_insert_id, 3u);
+  o = run(b.s, "REPLACE INTO r VALUES (4, 'd', 4)");
+  EXPECT_EQ(o.affected_rows, 1u);
+  EXPECT_EQ(o.last_insert_id, 4u);
+  o = run(b.s, "REPLACE INTO r VALUES (1, 'a', 10)");
+  EXPECT_EQ(o.affected_rows, 2u);
+  EXPECT_EQ(o.last_insert_id, 1u);
+  o = run(b.s, "REPLACE INTO r VALUES (2, 'c', 20)");
+  EXPECT_EQ(o.affected_rows, 3u);
+  EXPECT_EQ(rows_of(run(b.s, "SELECT id, u, n FROM r ORDER BY id")), (Rows{{"1", "a", "10"}, {"2", "c", "20"}, {"4", "d", "4"}}));
+  o = run(b.s, "REPLACE INTO r (u, n) VALUES ('d', 40), ('e', 50), ('e', 51)");
+  EXPECT_EQ(o.affected_rows, 5u);
+  EXPECT_EQ(o.info, "Records: 3  Duplicates: 2  Warnings: 0");
+  EXPECT_EQ(o.last_insert_id, 5u);
+  o = run(b.s, "REPLACE r SET id = 9, u = 'z'");
+  EXPECT_EQ(o.affected_rows, 1u);
+  EXPECT_EQ(o.last_insert_id, 9u);
+  o = run(b.s, "REPLACE INTO r (u) VALUES ('a')");
+  EXPECT_EQ(o.affected_rows, 2u);
+  EXPECT_EQ(o.last_insert_id, 10u);
+  EXPECT_EQ(rows_of(run(b.s, "SELECT id, u, n FROM r ORDER BY id")),
+            (Rows{{"2", "c", "20"}, {"5", "d", "40"}, {"7", "e", "51"}, {"9", "z", "7"}, {"10", "a", "7"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT LAST_INSERT_ID()")), (Rows{{"10"}}));
+  b.expect_refused("REPLACE INTO r (u, n) VALUES ('q', NULL)", 1048, "23000", "Column 'n' cannot be null");
+}
+
 TEST(ExecSessionRows, InsertsKvasirDoesNotYetCarryOut) {
   TableBed b;
   run(b.s, "CREATE TABLE n (a INT, b INT)");
   b.expect_refused("INSERT INTO n VALUES (1, 2) ON DUPLICATE KEY UPDATE a = 3", 1235, "42000",
                    "This version of Kvasir doesn't yet support 'ON DUPLICATE KEY UPDATE'");
-  b.expect_refused("REPLACE INTO n VALUES (1, 2)", 1235, "42000", "This version of Kvasir doesn't yet support 'REPLACE'");
+  b.expect_refused("REPLACE INTO n SELECT 1, 2", 1235, "42000", "This version of Kvasir doesn't yet support 'REPLACE ... SELECT'");
   b.expect_refused("INSERT INTO n (a, b) VALUES (5, a)", 1235, "42000", "This version of Kvasir doesn't yet support 'columns in VALUES'");
 }
 
