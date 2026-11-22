@@ -89,6 +89,12 @@ The record, newest first. Each entry says what landed, with its gate counts.
     the gate).
 - Gate (node-c): release, ASan and TSan each **418 tests, 1115 of 1115**
   statements, TSan with no reports.
+- Coverage after the SQL writes fell to 98.9% (CI on 2bf918f); tests for
+  what they left (an upsert's DEFAULT and IGNOREd collision, a leading
+  number's exponent, a number too long to read, an upsert waiting on a held
+  row, a failed source, the key range's other forms) bring it to **99.2%**
+  of lines (8,981 of 9,055); the node already answered each as MySQL does.
+  Release: 419 tests, 1128 of 1128 statements.
 
 ## 2026-11-22: A real MySQL client library drives a node in the tests (step 1, most of it)
 

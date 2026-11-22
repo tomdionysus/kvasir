@@ -1722,6 +1722,32 @@ TEST(ExecSessionRows, LockingReads) {
   run(other, "INSERT INTO lk VALUES (14, 140)");
   run(b.s, "COMMIT");
   run(other, "INSERT INTO lk VALUES (6, 60)");
+
+  // A constant on the left is read as the key's bound; bounds of one side
+  // meet at the narrower; a bound that cannot be read leaves the range whole.
+  run(b.s, "BEGIN");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT id FROM lk WHERE 20 < id AND id > 12 AND 30 >= id AND id <= 40 FOR SHARE")), (Rows{}));
+  EXPECT_THROW(run(other, "INSERT INTO lk VALUES (25, 250)"), LockWaitNeeded);
+  run(other, "INSERT INTO lk VALUES (20, 200)");
+  run(other, "INSERT INTO lk VALUES (31, 310)");
+  run(b.s, "COMMIT");
+  EXPECT_EQ(refusal(b.s, "SELECT id FROM lk WHERE id = 9223372036854775807 + 1 FOR SHARE").code, 1690);
+}
+
+// An upsert whose row another transaction holds waits for it; an INSERT ...
+// SELECT whose source fails leaves nothing.
+TEST(ExecSessionRows, UpsertsWaitAndSourcesFail) {
+  TableBed b;
+  auto other = b.other();
+  run(b.s, "CREATE TABLE w (id INT PRIMARY KEY, k INT UNIQUE, n INT)");
+  run(b.s, "INSERT INTO w VALUES (1, 1, 1)");
+  run(b.s, "BEGIN");
+  run(b.s, "SELECT * FROM w WHERE id = 1 FOR SHARE");
+  EXPECT_THROW(run(other, "INSERT INTO w VALUES (5, 1, 5) ON DUPLICATE KEY UPDATE n = 7"), LockWaitNeeded);
+  run(b.s, "COMMIT");
+  EXPECT_EQ(run(other, "INSERT INTO w VALUES (5, 1, 5) ON DUPLICATE KEY UPDATE n = 7").affected_rows, 2u);
+  b.expect_refused("INSERT INTO w SELECT * FROM missing", 1146, "42S02", "Table 'pt.missing' doesn't exist");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM w")), (Rows{{"1", "1", "7"}}));
 }
 
 // INSERT IGNORE's OK: only the rows inserted are affected; several rows give

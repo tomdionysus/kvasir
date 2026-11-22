@@ -291,7 +291,9 @@ Each to be closed, or kept by a decision.
   node_config(settings), in dannan/config/node_settings.h. Kvasir's own
   listen.* (its MySQL listener) does not collide; Dannan's note names
   mysql.* as the form for a project's own listener, to consider at the
-  cluster step. kvasir-node has no copy of the reader.
+  cluster step. kvasir-node has no copy of the reader. On Dannan's develop
+  since 2026-11-22; 0.11.0 also adds Fault::cancelled after failed (Kvasir
+  switches over no Fault yet).
 - **Dannan**: Kvasir is on 0.10.0. Its atomic commit across replica sets
   (item 26) is for 0.12.0, design first. Its HTTP core (item 24) and the
   credential and node helpers come in later minors. Kvasir's commitments
@@ -304,6 +306,12 @@ Each to be closed, or kept by a decision.
   design and date. Dagda's objects offer no `decided`.
 - **Mimir**: shares the level names; co-proposed the cross-range commit
   that Dannan now owns.
+- **Lugh**: @lugh/admin-ui (Lugh's develop 05ebbaf, out in its next tag) is
+  the dashboard's shell: TypeScript and CSS in lugh/ui, a file: dependency
+  at a Lugh tag compiled by Kvasir's Vite, reset.css then admin.css at the
+  root, React 19, react-dom and react-router 7 as peers; AdminShell, NavBar,
+  Messages, Confirm, ApiClient, useApi/useLoad/useAct, SignIn (password,
+  Lugh with PKCE, or both), DataTable with useCursorPages.
 - **Lugh**: 0.5.0 (2026-11-22) is the lugh_client the Lugh plugin starts
   on: its Fault, Outcome and Completion are dannan::contract's, with
   unavailable, timed_out and invalid (an unreadable reply); lugh::undecided
