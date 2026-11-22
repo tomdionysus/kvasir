@@ -114,9 +114,26 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
      not the snapshot, and locks each row that passes WHERE, exclusive or
      shared; a row another transaction holds makes the statement wait
      (1205 at innodb_lock_wait_timeout, 1213 on a cycle) as a write does.
-     Kvasir takes no gap locks (InnoDB's next-key locks also block inserts
-     into the gaps); that difference is recorded and closed by SERIALIZABLE's
-     range read marks (the design's "Isolation").
+     Only the rows that pass WHERE are locked, as InnoDB locks when a key
+     finds them (the maintainer, 2026-11-22: "Rows that pass WHERE"); InnoDB
+     without an index locks every row examined, a recorded difference.
+   - **Range locks first** (the maintainer, 2026-11-22: "Build range locks
+     first"): a locking read also locks the primary-key range it read, so
+     another transaction's insert into that range waits, as InnoDB's
+     next-key locks make it. The range comes from WHERE where it bounds the
+     primary key (=, IN, <, <=, >, >=, BETWEEN in a conjunction); anything
+     else locks the table's whole key range, as InnoDB's scan without an
+     index does. A range lock is shared among readers and blocks only
+     inserts (and keys moved into it) by others. SERIALIZABLE's range read
+     marks are these locks taken by every read.
+     Locking reads observed on MySQL 8.4.13 (two PyMySQL sessions,
+     `build/connectors/py_locks*`): a plain read never waits; FOR UPDATE and
+     FOR SHARE NOWAIT on a held row are 3572; SKIP LOCKED leaves held rows
+     out; a wait ends at innodb_lock_wait_timeout with 1205; shared locks
+     share and block an UPDATE; a locking read sees the latest commit where
+     the snapshot does not; FOR UPDATE OF an unknown table is 3568, a table
+     in two clauses 3569; LOCK IN SHARE MODE NOWAIT and NOWAIT SKIP LOCKED
+     are 1064.
    - **INSERT ... SELECT** reads its source as FOR SHARE under REPEATABLE
      READ and SERIALIZABLE, as a consistent read under READ COMMITTED (the
      manual, "Locks Set by Different SQL Statements in InnoDB"), and inserts
@@ -261,12 +278,14 @@ Each to be closed, or kept by a decision.
 
 ## With the other sessions
 
-- **Dannan**: (2026-11-22, asked by Lir) Dannan may export the reader of
-  its node settings (dannan::NodeConfig: cluster.*, node.*, listen.*,
-  custody.*, identity.*) in 0.11.0; kvasir-node has no copy and will take
-  it when it joins a cluster. Kvasir's own listen.host and listen.port name
-  its MySQL listener: if Dannan's keys include listen.* for the node's
-  transport, one of the two must move (Kvasir's under mysql.* proposed).
+- **Dannan**: 0.11.0 exports the node settings reader (ruled 2026-11-22):
+  every key under cluster.* (cluster.key, .bootstrap, .listen.*,
+  .identity.*, .custody.* and the timing keys), added to Kvasir's reader by
+  dannan::config::add_node_settings(reader, "KVASIR") and read by
+  node_config(settings), in dannan/config/node_settings.h. Kvasir's own
+  listen.* (its MySQL listener) does not collide; Dannan's note names
+  mysql.* as the form for a project's own listener, to consider at the
+  cluster step. kvasir-node has no copy of the reader.
 - **Dannan**: Kvasir is on 0.10.0. Its atomic commit across replica sets
   (item 26) is for 0.12.0, design first. Its HTTP core (item 24) and the
   credential and node helpers come in later minors. Kvasir's commitments
