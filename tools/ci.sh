@@ -27,7 +27,7 @@
 # client libraries are built once, into build-ci/mysql-client, and every step
 # after finds them there (cmake/mysql_client.cmake). Needs g++ cmake
 # ninja-build pkg-config libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev
-# libtirpc-dev, and for its step clang, libclang-rt-19-dev, clang-format,
+# libtirpc-dev libncurses-dev, and for its step clang, libclang-rt-19-dev, clang-format,
 # clang-tidy or lcov.
 
 set -eu

@@ -56,7 +56,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             g++ clang clang-format clang-tidy cmake ninja-build pkg-config git ca-certificates openssl \
-            libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev libtirpc-dev \
+            libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev libtirpc-dev libncurses-dev \
             libclang-rt-19-dev  # clang's sanitizer and libFuzzer runtimes
 
       - uses: actions/checkout@v4
@@ -117,7 +117,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             g++ cmake ninja-build pkg-config git ca-certificates openssl \
-            libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev libtirpc-dev lcov \
+            libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev libtirpc-dev libncurses-dev lcov \
             curl gnupg  # Codecov's uploader verifies its own signature
 
       - uses: actions/checkout@v4

@@ -11,8 +11,9 @@
 # Both are built once into KVASIR_MYSQL_CLIENT_ROOT and found there by every
 # later configure, so the build trees of one checkout share one build
 # (tools/ci.sh points them all at build-ci/mysql-client). Only the client is
-# built: no server, router or plugins. Needs libtirpc-dev and pkg-config (MySQL
-# checks for rpc/rpc.h on every Linux build), no bison.
+# built: no server, router or plugins. Needs pkg-config, libtirpc-dev and
+# libncurses-dev (MySQL checks for rpc/rpc.h and curses even for the client
+# alone), no bison.
 #
 # Defines kvasir::mysql_jdbc, Connector/C++'s classic API over libmysqlclient,
 # both static, and kvasir_mysql_client, the target that builds them.

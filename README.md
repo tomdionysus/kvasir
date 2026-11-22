@@ -27,11 +27,11 @@ release from a checkout beside this one (`../dannan`); to fetch it from GitHub
 instead, add `-DKVASIR_DANNAN_REPOSITORY=https://github.com/tomdionysus/dannan.git`.
 The tests drive a node with a real MySQL client library, which the first test
 build downloads from Oracle and builds (about 480 MB of source, needing
-pkg-config and libtirpc's headers); `-DKVASIR_MYSQL_CLIENT_TESTS=OFF` leaves
-those tests out. On Debian 13:
+pkg-config and the headers of libtirpc and ncurses);
+`-DKVASIR_MYSQL_CLIENT_TESTS=OFF` leaves those tests out. On Debian 13:
 
 ```
-sudo apt install g++ cmake ninja-build pkg-config libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev libtirpc-dev
+sudo apt install g++ cmake ninja-build pkg-config libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev libtirpc-dev libncurses-dev
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DKVASIR_BUILD_TESTING=ON
 cmake --build build
 ./build/kvasir_tests
