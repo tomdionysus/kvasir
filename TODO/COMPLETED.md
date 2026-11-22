@@ -22,6 +22,15 @@ The record, newest first. Each entry says what landed, with its gate counts.
   names. Kvasir keeps no suppressions of its own.
 - Gate (node-c): release, ASan and TSan each **403 tests, 975 of 975**
   statements, TSan with no reports.
+- The transport's coverage (a coverage run first: 99.3%, 61 lines left,
+  17 in the transport): an empty command packet (1047, as MySQL through
+  PyMySQL), a statement past 16 MiB through Connector/C++, a peer that
+  hangs up. The large statement found that the node named its column with
+  the whole 17 MiB expression and the client dropped the connection;
+  generated names are now cut to 255 bytes as MySQL cuts them. Recorded:
+  MySQL also cuts an alias past 256 bytes, with warning 1466.
+- Gate (node-c): release, ASan and TSan each **407 tests, 976 of 976**
+  statements, TSan with no reports.
 
 ## 2026-11-22: A real MySQL client library drives a node in the tests (step 1, most of it)
 

@@ -706,6 +706,21 @@ TEST(ExecSession, ColumnNames) {
   EXPECT_EQ(names, (std::vector<std::string>{"1+1", "abc", "one", "@@version_comment", "@a"}));
 }
 
+// A generated name is cut to at most 255 bytes, a character whole, with no
+// warning (observed on MySQL 8.4.13: 300 a's give 255, 200 é's 127 of them).
+TEST(ExecSession, AGeneratedColumnNameIsCutTo255Bytes) {
+  auto s = make();
+  std::string e;
+  for (int i = 0; i < 200; ++i) e += "é";
+  const auto o = run(s, "SELECT LENGTH('" + std::string(300, 'a') + "'), '" + e + "'");
+  EXPECT_EQ(o.result->columns[0].name, "LENGTH('" + std::string(247, 'a'));
+  std::string cut;
+  for (int i = 0; i < 127; ++i) cut += "é";
+  EXPECT_EQ(o.result->columns[1].name, cut);
+  EXPECT_EQ(row(o), (std::vector<std::string>{"300", e}));
+  EXPECT_TRUE(s.warnings().empty());
+}
+
 // CREATE DATABASE, DROP DATABASE, SHOW DATABASES and USE, observed on MySQL
 // 8.4.13, 2026-11-16 (lower_case_table_names = 0).
 TEST(ExecSession, Databases) {

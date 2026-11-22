@@ -25,6 +25,10 @@
 #include <openssl/bio.h>
 #include <openssl/pem.h>
 
+#include <array>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/read.hpp>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -99,6 +103,8 @@ class MysqlClient : public ::testing::Test {
     _serving.join();
     _node.reset();
   }
+
+  uint16_t port() const { return _node->port(); }
 
   std::unique_ptr<jdbc::Connection> connect(const std::string& pass = password) {
     jdbc::ConnectOptionsMap options;
@@ -274,6 +280,31 @@ TEST_F(MysqlClient, ANegativeLimitParameterIsOutOfRange) {
   select->setInt(1, 1);
   std::unique_ptr<jdbc::ResultSet> rows(select->executeQuery());
   EXPECT_TRUE(rows->next());
+}
+
+// A statement of 16 MiB or more comes in fragments of 16 MiB - 1 bytes, the
+// last shorter (manual, "Sending More Than 16Mb"); under max_allowed_packet
+// (64 MiB) it is one statement.
+TEST_F(MysqlClient, AStatementPast16MiBArrivesInFragments) {
+  auto c = connect();
+  const std::string text(17 * 1024 * 1024, 'a');
+  EXPECT_EQ(single_int(*c, "SELECT LENGTH('" + text + "')"), static_cast<int64_t>(text.size()));
+  EXPECT_EQ(single_int(*c, "SELECT 1"), 1);
+}
+
+// A peer that connects and goes without a word ends its connection; the node
+// serves the next.
+TEST_F(MysqlClient, APeerThatHangsUpEndsOnlyItsConnection) {
+  {
+    boost::asio::io_context io;
+    boost::asio::ip::tcp::socket socket(io);
+    socket.connect({boost::asio::ip::make_address("127.0.0.1"), port()});
+    std::array<char, 4> header{};
+    boost::asio::read(socket, boost::asio::buffer(header));
+    socket.close();
+  }
+  auto c = connect();
+  EXPECT_EQ(single_int(*c, "SELECT 1"), 1);
 }
 
 // A transaction rolled back leaves nothing behind (manual, "START

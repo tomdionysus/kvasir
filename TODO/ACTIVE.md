@@ -87,8 +87,11 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    (sign-in by both paths, refusal, text and prepared statements, metadata,
    rollback, errors); STRCMP added for getTables, checked on the reference
    server and in the gate; LIMIT and OFFSET placeholders read as MySQL reads
-   each bound type. Left: a coverage run for the transport's remaining
-   uncovered lines.
+   each bound type. The transport's coverage: an empty command packet, a
+   statement past 16 MiB (which found generated column names uncut), a
+   peer that hangs up. Left in connection.cpp: the lock-wait timer and the
+   wake that comes before the wait (both want Dannan's injected time in the
+   connection), and a payload error the reader can no longer raise.
 2. **Step 2b: each node's state in Dagda**, in the cluster's shape. Waits on
    Dagda's durable AcceptorStore (after its 0.4.0, which carries the
    register map; 0.4.0 waits on the maintainer's word to tag). Dagda's
@@ -169,6 +172,10 @@ Each to be closed, or kept by a decision.
 - SHOW DATABASES lists Kvasir's databases and information_schema, not
   mysql, performance_schema or sys.
 - An alias holding a character past the BMP is accepted (MySQL: 3854).
+- An alias longer than 256 bytes is kept whole; MySQL cuts it to 256 bytes
+  (a character whole) with warning 1466 "Leading spaces are removed from
+  name '<the whole alias>'" (observed 2026-11-22). Generated names are cut
+  to 255 bytes as MySQL cuts them.
 - information_schema: only SCHEMATA, TABLES and COLUMNS; TABLES' times are
   refused until temporal types; its storage figures are Kvasir's own.
   TABLES lists none of information_schema's own views (MySQL lists each as

@@ -300,6 +300,35 @@ TEST(ServerConnection, TheFullPathSignsInAndServesQueries) {
   EXPECT_TRUE(bed.connection->finished());
 }
 
+// A command packet with no payload is complete on its header: it is answered
+// 1047 "Unknown command" (08S01) and the connection goes on (observed on
+// MySQL 8.4.13, four zero bytes written after a PyMySQL sign-in).
+TEST(ServerConnection, AnEmptyCommandPacketIsUnknownAndTheConnectionGoesOn) {
+  Bed bed;
+  bed.through_tls("secret");
+  const std::string password("secret\0", 7);
+  bed.transport->push(framed(Bytes(password.begin(), password.end()), 4));
+  bed.run();
+  bed.checker.answer(true);
+  bed.run();
+  ASSERT_TRUE(bed.connection->signed_in());
+
+  bed.transport->push(framed(Bytes{}, 0));
+  bed.run();
+  auto sent = bed.sent_after(3);
+  ASSERT_EQ(sent.size(), 1u);
+  Reader err(sent[0].payload);
+  EXPECT_EQ(err.u8(), 0xff);
+  EXPECT_EQ(err.u16(), 1047);
+  EXPECT_EQ(std::string(sent[0].payload.begin() + 3, sent[0].payload.end()), "#08S01Unknown command");
+  EXPECT_EQ(sent[0].first_sequence, 1);
+
+  bed.transport->push(framed(query("select @@version_comment limit 1"), 0));
+  bed.run();
+  EXPECT_EQ(bed.sent_after(4).size(), 4u);
+  EXPECT_FALSE(bed.connection->finished());
+}
+
 // CLIENT_CONNECT_WITH_DB (Go's and JDBC's DSNs name one): the session starts
 // in the database the response names, and one that is not there is refused
 // with 1049 in place of the OK, the connection closed (observed on MySQL

@@ -1340,8 +1340,10 @@ std::string column_name(const sql::SelectItem& item) {
   if (item.has_alias) return item.alias;
   if (item.star) return "*";
   // A generated name is held in utf8mb3, where a character past the BMP
-  // (four bytes in UTF-8) becomes '?' (observed).
+  // (four bytes in UTF-8) becomes '?', and cut to at most 255 bytes, a
+  // character whole (observed).
   const auto narrowed = [](const std::string& name) {
+    constexpr size_t longest = 255;
     std::string out;
     for (size_t i = 0; i < name.size(); ++i) {
       if ((static_cast<uint8_t>(name[i]) & 0xf8) == 0xf0 && i + 3 < name.size()) {
@@ -1350,6 +1352,11 @@ std::string column_name(const sql::SelectItem& item) {
       } else {
         out.push_back(name[i]);
       }
+    }
+    if (out.size() > longest) {
+      size_t end = longest;
+      while (end > 0 && (static_cast<uint8_t>(out[end]) & 0xc0) == 0x80) --end;
+      out.resize(end);
     }
     return out;
   };
