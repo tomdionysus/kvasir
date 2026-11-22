@@ -40,6 +40,10 @@ set(kvasir_mysqlclient_library "${kvasir_mysqlclient_dir}/lib/libmysqlclient.a")
 # should hold it merged with libmysqlclient, but 26.10.0's merge leaves the
 # driver's objects out (measured 2026-11-22: only libmysqlclient's are there).
 set(kvasir_jdbc_library "${kvasir_concpp_dir}/lib/libjdbc.a")
+# The system's own C and C++ compilers, whatever this tree builds with: MySQL
+# tests its warning flags with one and gives them to both, so clang++ beside
+# gcc fails, and one build serves every tree (libstdc++ under either).
+set(kvasir_client_compilers -DCMAKE_C_COMPILER=cc -DCMAKE_CXX_COMPILER=c++)
 
 add_custom_target(kvasir_mysql_client)
 if(NOT EXISTS "${kvasir_jdbc_library}")
@@ -50,6 +54,7 @@ if(NOT EXISTS "${kvasir_jdbc_library}")
     DOWNLOAD_EXTRACT_TIMESTAMP ON
     PREFIX "${PROJECT_BINARY_DIR}/mysql-client-build/libmysqlclient"
     CMAKE_ARGS
+      ${kvasir_client_compilers}
       -DCMAKE_BUILD_TYPE=Release
       -DCMAKE_INSTALL_PREFIX=${kvasir_mysqlclient_dir}
       -DWITHOUT_SERVER=ON
@@ -75,6 +80,7 @@ if(NOT EXISTS "${kvasir_jdbc_library}")
     DOWNLOAD_EXTRACT_TIMESTAMP ON
     PREFIX "${PROJECT_BINARY_DIR}/mysql-client-build/connector"
     CMAKE_ARGS
+      ${kvasir_client_compilers}
       -DCMAKE_BUILD_TYPE=Release
       -DCMAKE_INSTALL_PREFIX=${kvasir_concpp_dir}
       -DCMAKE_INSTALL_LIBDIR=lib
