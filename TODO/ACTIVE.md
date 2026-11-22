@@ -99,7 +99,31 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
 1a. **The SQL writes** (the maintainer's choice, 2026-11-22, while 2 to 4
    wait): INSERT IGNORE, REPLACE and ON DUPLICATE KEY UPDATE (landed
    2026-11-22), then INSERT ... SELECT (and REPLACE ... SELECT with it),
-   each observed on the
+   which waits on locking reads (the maintainer, 2026-11-22: "Shared locks
+   first"). The design, before code:
+   - **The store's locks gain a shared mode.** A lock name is held either
+     by one transaction exclusively or by any number in shared mode; a
+     transaction alone in shared mode may take it exclusively (upgrade).
+     A writer meeting shared holders waits for one of them (the store
+     names it), and asks again when woken: a cycle through another holder
+     is found on that next wait. Locks are released at commit, rollback, or
+     with an undone statement's, as now.
+   - **SELECT ... FOR UPDATE / FOR SHARE / LOCK IN SHARE MODE**, with OF
+     tables, NOWAIT (3572) and SKIP LOCKED: a locking read reads the current
+     rows (the latest committed and the transaction's own, as UPDATE does),
+     not the snapshot, and locks each row that passes WHERE, exclusive or
+     shared; a row another transaction holds makes the statement wait
+     (1205 at innodb_lock_wait_timeout, 1213 on a cycle) as a write does.
+     Kvasir takes no gap locks (InnoDB's next-key locks also block inserts
+     into the gaps); that difference is recorded and closed by SERIALIZABLE's
+     range read marks (the design's "Isolation").
+   - **INSERT ... SELECT** reads its source as FOR SHARE under REPEATABLE
+     READ and SERIALIZABLE, as a consistent read under READ COMMITTED (the
+     manual, "Locks Set by Different SQL Statements in InnoDB"), and inserts
+     what it read with IGNORE, REPLACE or ON DUPLICATE KEY UPDATE as a
+     VALUES list would; the source may be the target table (MySQL reads it
+     whole first).
+   Each observed on the
    reference server first and put in
    the gate, each ACID as every statement is (a REPLACE's delete and insert,
    an upsert's read and write, one statement's whole effect or none).

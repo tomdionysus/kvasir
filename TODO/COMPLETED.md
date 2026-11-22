@@ -67,7 +67,10 @@ The record, newest first. Each entry says what landed, with its gate counts.
   1, 2 or 0 affected, Duplicates, the OK's id and the AUTO_INCREMENT hand-on
   as PyMySQL saw them; 1062 for an update that collides, IGNORE's warnings.
 - Gate (node-c): release, ASan and TSan each **412 tests, 1076 of 1076**
-  statements, TSan with no reports.
+  statements, TSan with no reports. CI green on 9661d49; coverage 99.2% of
+  lines (8,692 of 8,766), functions 98.8%.
+- The maintainer's ruling (2026-11-22): shared locks and locking reads
+  before INSERT ... SELECT; the design is in the plan (item 1a).
 
 ## 2026-11-22: A real MySQL client library drives a node in the tests (step 1, most of it)
 
