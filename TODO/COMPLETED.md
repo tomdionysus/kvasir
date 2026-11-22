@@ -34,6 +34,13 @@ The record, newest first. Each entry says what landed, with its gate counts.
 - libtirpc-dev installed on node-b and node-c (board notes posted).
 - Gate (node-c, 2026-11-22): release, clang, ASan and TSan each **401
   tests, 966 of 966** statements, TSan with no reports; tidy clean.
+- Hosted CI red twice after the push, fixed the same hour: its trixie image
+  lacked ncurses' headers, which MySQL's configure checks for even for the
+  client (6335ab5); and under CXX=clang++ MySQL tested its flags with
+  clang++ and gave them to gcc, so the libraries are now built with the
+  system's cc and c++ whatever the tree uses (8a53e58, proved from scratch
+  under clang++ on node-b first). CI green on 8a53e58; coverage **99.3% of
+  lines** (8,350 of 8,412), functions 99.0%.
 - Branches: the merged `feature/coverage` deleted locally and on GitHub
   (its work was on develop under the history scrub's hashes).
 

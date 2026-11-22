@@ -31,8 +31,10 @@ it. What landed, and how, is in `TODO/COMPLETED.md`; this file is the plan.
   targets on Dannan's harness, a real MySQL client library driving a node
   in the tests, STRCMP, and fixes. Last gate (node-c, 2026-11-22): release,
   clang, ASan and TSan each **401 tests, 966 of 966** differential
-  statements. Coverage 99.1% of lines (round 6, before the client tests).
-- **Nothing is running and no claim is held.**
+  statements; hosted CI green on 8a53e58, coverage 99.3% of lines.
+- **Nothing is running and no claim is held.** Stopped 2026-11-22 15:10Z:
+  what is next needs the reference server, and Docker on the Mac was not
+  running (starting it is the maintainer's to do).
 
 ## Rulings in force
 
