@@ -603,6 +603,15 @@ SELECT TRIM('a' FROM NULL), TRIM(NULL FROM 'a'), TRIM(LEADING FROM '  a'), TRIM(
 SELECT REPLACE('abcabc','b','XY'), REPLACE('abc','','x'), REPLACE('aAa','a','b'), REPLACE(NULL,'a','b'), REPLACE('abc','b',NULL), REPLACE(123,2,9), REPLACE('ab','b','xyz')
 SELECT LOCATE('b','abcb'), LOCATE('b','abcb',3), LOCATE('B','abc'), LOCATE('','abc'), LOCATE('','abc',4), LOCATE('','abc',5), LOCATE('x','abc'), LOCATE(NULL,'a'), LOCATE('b','abc',0), LOCATE('b','abc',NULL)
 SELECT INSTR('abcb','c'), POSITION('c' IN 'abc'), LOCATE('é','aéb')
+SELECT STRCMP('text', 'text2'), STRCMP('text2', 'text'), STRCMP('text', 'text'), STRCMP(NULL, 'a'), STRCMP('a', NULL), STRCMP(1, 2), STRCMP(10, 9), STRCMP('B', 'a'), STRCMP(_binary'B', 'a')
+SET @s1 = _utf8mb4 'x' COLLATE utf8mb4_0900_ai_ci, @s2 = _utf8mb4 'X' COLLATE utf8mb4_0900_ai_ci, @s3 = _utf8mb4 'x' COLLATE utf8mb4_0900_as_cs, @s4 = _utf8mb4 'X' COLLATE utf8mb4_0900_as_cs
+SELECT STRCMP(@s1, @s2), STRCMP(@s3, @s4), STRCMP(@s1, @s3 COLLATE utf8mb4_0900_ai_ci)
+SELECT STRCMP(@s1, @s3)
+SELECT STRCMP('a')
+CREATE DATABASE kv_strcmp
+CREATE TABLE kv_strcmp.t (a INT)
+SELECT TABLE_NAME, IF(STRCMP(TABLE_TYPE,'BASE TABLE'), IF(STRCMP(TABLE_TYPE,'SYSTEM VIEW'), TABLE_TYPE, 'VIEW'), 'TABLE') AS TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'kv_strcmp'
+DROP DATABASE kv_strcmp
 SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 SELECT REPEAT('ab',3), REPEAT('ab',0), REPEAT('ab',-1), REPEAT(NULL,2), REPEAT(1,2), REVERSE('abc'), REVERSE('héllo'), REVERSE(NULL), REVERSE(123), REVERSE(_binary'ab')
 SELECT REPEAT('ab', 40000000)

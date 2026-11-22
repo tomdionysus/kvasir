@@ -2587,6 +2587,43 @@ column POSITION('c' IN 'abc')|LONGLONG|63|11|0|NOT_NULL BINARY NUM
 column LOCATE('é','aéb')|LONGLONG|63|11|0|NOT_NULL BINARY NUM
 row 3	3	2
 end
+statement SELECT STRCMP('text', 'text2'), STRCMP('text2', 'text'), STRCMP('text', 'text'), STRCMP(NULL, 'a'), STRCMP('a', NULL), STRCMP(1, 2), STRCMP(10, 9), STRCMP('B', 'a'), STRCMP(_binary'B', 'a')
+column STRCMP('text', 'text2')|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+column STRCMP('text2', 'text')|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+column STRCMP('text', 'text')|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+column STRCMP(NULL, 'a')|LONGLONG|63|2|0|BINARY NUM
+column STRCMP('a', NULL)|LONGLONG|63|2|0|BINARY NUM
+column STRCMP(1, 2)|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+column STRCMP(10, 9)|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+column STRCMP('B', 'a')|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+column STRCMP(_binary'B', 'a')|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+row -1	1	0	\N	\N	-1	-1	1	-1
+end
+statement SET @s1 = _utf8mb4 'x' COLLATE utf8mb4_0900_ai_ci, @s2 = _utf8mb4 'X' COLLATE utf8mb4_0900_ai_ci, @s3 = _utf8mb4 'x' COLLATE utf8mb4_0900_as_cs, @s4 = _utf8mb4 'X' COLLATE utf8mb4_0900_as_cs
+end
+statement SELECT STRCMP(@s1, @s2), STRCMP(@s3, @s4), STRCMP(@s1, @s3 COLLATE utf8mb4_0900_ai_ci)
+column STRCMP(@s1, @s2)|LONGLONG|63|2|0|BINARY NUM
+column STRCMP(@s3, @s4)|LONGLONG|63|2|0|BINARY NUM
+column STRCMP(@s1, @s3 COLLATE utf8mb4_0900_ai_ci)|LONGLONG|63|2|0|BINARY NUM
+row 0	-1	0
+end
+statement SELECT STRCMP(@s1, @s3)
+error 1267|HY000|Illegal mix of collations (utf8mb4_0900_ai_ci,IMPLICIT) and (utf8mb4_0900_as_cs,IMPLICIT) for operation 'strcmp'
+end
+statement SELECT STRCMP('a')
+error 1582|42000|Incorrect parameter count in the call to native function 'STRCMP'
+end
+statement CREATE DATABASE kv_strcmp
+end
+statement CREATE TABLE kv_strcmp.t (a INT)
+end
+statement SELECT TABLE_NAME, IF(STRCMP(TABLE_TYPE,'BASE TABLE'), IF(STRCMP(TABLE_TYPE,'SYSTEM VIEW'), TABLE_TYPE, 'VIEW'), 'TABLE') AS TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'kv_strcmp'
+column TABLE_NAME|VAR_STRING|255|256|0|NOT_NULL BINARY NO_DEFAULT_VALUE PART_KEY
+column TABLE_TYPE|VAR_STRING|255|44|31|NOT_NULL BINARY
+row t	TABLE
+end
+statement DROP DATABASE kv_strcmp
+end
 statement SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 column LPAD('ab',5,'xy')|VAR_STRING|255|20|31|
 column RPAD('ab',5,'xy')|VAR_STRING|255|20|31|

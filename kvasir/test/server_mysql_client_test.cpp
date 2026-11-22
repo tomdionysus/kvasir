@@ -261,6 +261,21 @@ TEST_F(MysqlClient, ReadsTablesAndColumnsThroughDatabaseMetaData) {
   EXPECT_FALSE(columns->next());
 }
 
+// A negative LIMIT bound through COM_STMT_EXECUTE: 1690, as MySQL 8.4.13
+// answers it (observed through mysql-connector-python).
+TEST_F(MysqlClient, ANegativeLimitParameterIsOutOfRange) {
+  auto c = connect();
+  std::unique_ptr<jdbc::PreparedStatement> select(c->prepareStatement("SELECT 1 LIMIT ?"));
+  select->setInt(1, -1);
+  const auto [code, state, message] = refusal([&] { std::unique_ptr<jdbc::ResultSet>(select->executeQuery()); });
+  EXPECT_EQ(code, 1690) << message;
+  EXPECT_EQ(state, "22003");
+  EXPECT_EQ(message, "signed integer value is out of range in 'mysqld_stmt_execute'");
+  select->setInt(1, 1);
+  std::unique_ptr<jdbc::ResultSet> rows(select->executeQuery());
+  EXPECT_TRUE(rows->next());
+}
+
 // A transaction rolled back leaves nothing behind (manual, "START
 // TRANSACTION, COMMIT, and ROLLBACK Statements").
 TEST_F(MysqlClient, ARolledBackTransactionLeavesNothing) {

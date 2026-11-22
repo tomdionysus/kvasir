@@ -11,6 +11,7 @@
 #include <cctype>
 #include <charconv>
 #include <cstdlib>
+#include <limits>
 #include <map>
 #include <set>
 #include <utility>
@@ -155,11 +156,32 @@ Outcome described(ResultSet result) {
 
 uint64_t Session::limit_of(const sql::Expr& e) const {
   if (e.kind != sql::ExprKind::placeholder) return integer_text(e);
-  // A bound integer, at least 0.
+  // What COM_STMT_EXECUTE bound, as MySQL 8.4.13 reads it (observed): NULL
+  // is 0; a negative integer is out of range; a DOUBLE or DECIMAL is
+  // refused; a string is read as strtoull reads it, without a warning.
   const auto& v = _parameters->at(std::stoul(e.value)).value;
+  if (std::holds_alternative<std::monostate>(v)) return 0;
   if (const auto* u = std::get_if<uint64_t>(&v)) return *u;
-  if (const auto* i = std::get_if<int64_t>(&v); i && *i >= 0) return static_cast<uint64_t>(*i);
-  throw SqlError(1210, "HY000", "Incorrect arguments to LIMIT");
+  if (const auto* i = std::get_if<int64_t>(&v)) {
+    if (*i >= 0) return static_cast<uint64_t>(*i);
+    throw SqlError(er_data_out_of_range, "22003", "signed integer value is out of range in 'mysqld_stmt_execute'");
+  }
+  const auto* s = std::get_if<std::string>(&v);
+  if (!s || _parameters->at(std::stoul(e.value)).type.field_type == f::newdecimal)
+    throw SqlError(er_wrong_arguments, "HY000", "Incorrect arguments to mysqld_stmt_execute");
+  // Leading blanks, a sign, then digits; a minus wraps, past 2^64 is the
+  // largest.
+  size_t at = 0;
+  while (at < s->size() && std::isspace(static_cast<unsigned char>((*s)[at]))) ++at;
+  bool negative = false;
+  if (at < s->size() && ((*s)[at] == '-' || (*s)[at] == '+')) negative = (*s)[at++] == '-';
+  uint64_t n = 0;
+  for (; at < s->size() && (*s)[at] >= '0' && (*s)[at] <= '9'; ++at) {
+    const auto digit = static_cast<uint64_t>((*s)[at] - '0');
+    if (n > (std::numeric_limits<uint64_t>::max() - digit) / 10) return std::numeric_limits<uint64_t>::max();
+    n = n * 10 + digit;
+  }
+  return negative ? 0 - n : n;
 }
 
 Session::Session(const VariableRegistry& registry, catalog::Catalog& catalog, txn::Store& rows, SessionInfo info)

@@ -493,6 +493,51 @@ TEST(ExecSessionPrepared, ChangesAndLimits) {
   EXPECT_EQ(values(o), (std::vector<std::optional<std::string>>{"1"}));
 }
 
+// A LIMIT or OFFSET placeholder as MySQL 8.4.13 reads what COM_STMT_EXECUTE
+// binds to it (observed through mysql-connector-python's binary protocol): a
+// negative integer is 1690, a DOUBLE or DECIMAL 1210, NULL is 0, and a
+// string is read as strtoull reads it, its leading digits, a minus sign
+// wrapping and past 2^64 the largest; no warnings.
+TEST(ExecSessionPrepared, LimitParameters) {
+  PreparedBed b;
+  const auto p = prepare(b.s, "SELECT a FROM t ORDER BY a LIMIT ?");
+  const auto rows = [&](protocol::BoundValue v) { return b.s.execute_prepared(p.id, b.s.bind(p.id, {std::move(v)})).result->rows.size(); };
+  EXPECT_EQ(rows(bound(f::longlong, int64_t{1})), 1u);
+  EXPECT_EQ(rows(bound(f::longlong, uint64_t{18446744073709551615u}, true)), 2u);
+  EXPECT_EQ(rows(bound(f::null, std::monostate{})), 0u);
+  EXPECT_EQ(rows(bound(f::var_string, std::string("1"))), 1u);
+  EXPECT_EQ(rows(bound(f::var_string, std::string("1.9"))), 1u);
+  EXPECT_EQ(rows(bound(f::var_string, std::string("2x"))), 2u);
+  EXPECT_EQ(rows(bound(f::var_string, std::string(" +1"))), 1u);
+  EXPECT_EQ(rows(bound(f::var_string, std::string("1e1"))), 1u);
+  EXPECT_EQ(rows(bound(f::var_string, std::string("0x2"))), 0u);
+  EXPECT_EQ(rows(bound(f::var_string, std::string("x"))), 0u);
+  EXPECT_EQ(rows(bound(f::var_string, std::string(""))), 0u);
+  EXPECT_EQ(rows(bound(f::var_string, std::string("-1"))), 2u);
+  EXPECT_EQ(rows(bound(f::var_string, std::string("-0"))), 0u);
+  EXPECT_EQ(rows(bound(f::var_string, std::string("99999999999999999999"))), 2u);
+  EXPECT_TRUE(b.s.warnings().empty());
+
+  auto r = refusal_of([&] { rows(bound(f::longlong, int64_t{-1})); });
+  EXPECT_EQ(r.code, 1690);
+  EXPECT_EQ(r.sqlstate, "22003");
+  EXPECT_EQ(r.message, "signed integer value is out of range in 'mysqld_stmt_execute'");
+  for (auto v : {bound(f::double_, 1.5), bound(f::double_, 2.0), bound(f::newdecimal, std::string("1"))}) {
+    r = refusal_of([&] { rows(v); });
+    EXPECT_EQ(r.code, 1210);
+    EXPECT_EQ(r.sqlstate, "HY000");
+    EXPECT_EQ(r.message, "Incorrect arguments to mysqld_stmt_execute");
+  }
+
+  // The offset alike: a string's leading digits, -1 past every row.
+  const auto q = prepare(b.s, "SELECT a FROM t ORDER BY a LIMIT ?, 5");
+  const auto from = [&](protocol::BoundValue v) { return b.s.execute_prepared(q.id, b.s.bind(q.id, {std::move(v)})).result->rows.size(); };
+  EXPECT_EQ(from(bound(f::var_string, std::string("1"))), 1u);
+  EXPECT_EQ(from(bound(f::var_string, std::string("-1"))), 0u);
+  EXPECT_EQ(from(bound(f::null, std::monostate{})), 2u);
+  EXPECT_EQ(refusal_of([&] { from(bound(f::longlong, int64_t{-5})); }).code, 1690);
+}
+
 TEST(ExecSessionPrepared, WhatIsRefused) {
   PreparedBed b;
   // A table that is not there, at the prepare.

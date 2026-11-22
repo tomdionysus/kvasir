@@ -85,13 +85,10 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    8.4.13 and Connector/C++ 26.10.0 built from source by
    `cmake/mysql_client.cmake`, and `kvasir::server::Node` driven by them
    (sign-in by both paths, refusal, text and prepared statements, metadata,
-   rollback, errors); STRCMP added for getTables. Left, each needing the
-   reference server (Docker on the Mac, which was not running 2026-11-22):
-   - STRCMP's result column (type, length, flags) and its gate statements;
-   - a negative `LIMIT ?` through COM_STMT_EXECUTE (SQL's EXECUTE gives
-     1690, Kvasir 1210), as a client-library test once MySQL's answer is
-     known;
-   - then a coverage run for the transport's remaining uncovered lines.
+   rollback, errors); STRCMP added for getTables, checked on the reference
+   server and in the gate; LIMIT and OFFSET placeholders read as MySQL reads
+   each bound type. Left: a coverage run for the transport's remaining
+   uncovered lines.
 2. **Step 2b: each node's state in Dagda**, in the cluster's shape. Waits on
    Dagda's durable AcceptorStore (after its 0.4.0, which carries the
    register map; 0.4.0 waits on the maintainer's word to tag). Dagda's
@@ -174,6 +171,8 @@ Each to be closed, or kept by a decision.
 - An alias holding a character past the BMP is accepted (MySQL: 3854).
 - information_schema: only SCHEMATA, TABLES and COLUMNS; TABLES' times are
   refused until temporal types; its storage figures are Kvasir's own.
+  TABLES lists none of information_schema's own views (MySQL lists each as
+  a SYSTEM VIEW; found 2026-11-22).
 - Cursors (COM_STMT_FETCH) are refused.
 
 ## How work is done

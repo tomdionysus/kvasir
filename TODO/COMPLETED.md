@@ -2,6 +2,27 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-22 (evening): STRCMP checked, LIMIT placeholders as MySQL reads them
+
+- With the reference server back (its container had stopped with Docker):
+  STRCMP's result column is a LONGLONG of two, as built; its statements
+  and Connector/C++'s getTables expression are in the gate.
+- A bound LIMIT or OFFSET, observed through mysql-connector-python's
+  binary protocol (`build/connectors/py_limit*.py`, answers beside them):
+  a negative integer 1690 (22003, "... in 'mysqld_stmt_execute'"), a
+  DOUBLE or DECIMAL 1210 ("Incorrect arguments to mysqld_stmt_execute"),
+  NULL 0, a string as strtoull reads it, no warnings. The node now does the
+  same; the session and Connector/C++ tests watched failing first.
+  (Connector/J reports 1690's SQLSTATE as 22001, its own relabelling.)
+- Found: information_schema.TABLES lists none of its own views (a gate
+  statement first written against it; listed under Known differences).
+- TSan's step now loads Dannan's suppressions from the fetched source: a
+  run halted on Asio's executor count (a release decrement and an acquire
+  fence, which g++'s TSan does not model), the blind spot Dannan already
+  names. Kvasir keeps no suppressions of its own.
+- Gate (node-c): release, ASan and TSan each **403 tests, 975 of 975**
+  statements, TSan with no reports.
+
 ## 2026-11-22: A real MySQL client library drives a node in the tests (step 1, most of it)
 
 - Measured first on a build node, one claim per step: libmysqlclient

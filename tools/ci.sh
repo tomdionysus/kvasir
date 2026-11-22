@@ -115,7 +115,11 @@ case "$step" in
     configure tsan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DKVASIR_WARNINGS_AS_ERRORS=OFF -DDANNAN_SANITIZE=thread \
       -DCMAKE_CXX_FLAGS="$flags" -DCMAKE_EXE_LINKER_FLAGS="$flags" -DCMAKE_SHARED_LINKER_FLAGS="$flags"
     instrumented "$out/tsan" __tsan_
-    TSAN_OPTIONS="halt_on_error=1 second_deadlock_stack=1" "$out/tsan/kvasir_tests"
+    # Dannan's suppressions, from the source this build fetched: TSan's blind
+    # spots in Asio (its executor count's fence above all), named there once.
+    suppressions="$out/tsan/_deps/dannan-src/dannan/test/tsan-suppressions.txt"
+    [ -f "$suppressions" ] || { echo "no $suppressions" >&2; exit 1; }
+    TSAN_OPTIONS="halt_on_error=1 second_deadlock_stack=1 suppressions=$suppressions" "$out/tsan/kvasir_tests"
     ;;
   coverage)
     configure coverage -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=--coverage -DCMAKE_EXE_LINKER_FLAGS=--coverage -DCMAKE_SHARED_LINKER_FLAGS=--coverage
