@@ -397,18 +397,25 @@ class Parser {
         }
         expect_symbol(")");
       }
-      if (word("SELECT") || (symbol("(") && word("SELECT", 1))) return unsupported(s, verb + " ... SELECT");
       if (word("TABLE")) return unsupported(s, verb + " ... TABLE");
-      if (!accept_word("VALUES")) expect_word("VALUE");
-      do {
-        expect_symbol("(");
-        in.rows.emplace_back();
-        if (!symbol(")")) {
-          do in.rows.back().push_back(insert_value());
-          while (symbol(",") && (take(), true));
-        }
+      if (word("SELECT")) {
+        in.select = std::make_unique<Select>(parse_select());
+      } else if (symbol("(") && word("SELECT", 1)) {
+        take();
+        in.select = std::make_unique<Select>(parse_select());
         expect_symbol(")");
-      } while (symbol(",") && (take(), true));
+      } else {
+        if (!accept_word("VALUES")) expect_word("VALUE");
+        do {
+          expect_symbol("(");
+          in.rows.emplace_back();
+          if (!symbol(")")) {
+            do in.rows.back().push_back(insert_value());
+            while (symbol(",") && (take(), true));
+          }
+          expect_symbol(")");
+        } while (symbol(",") && (take(), true));
+      }
     }
     if (in.replace) return;
     if (accept_word("AS")) {
@@ -1004,6 +1011,35 @@ class Parser {
         select.limit = std::move(first);
         if (accept_word("OFFSET")) select.offset = limit_value();
       }
+    }
+    // FOR UPDATE | FOR SHARE [OF table, ...] [NOWAIT | SKIP LOCKED], any
+    // number; LOCK IN SHARE MODE takes neither.
+    for (;;) {
+      Select::Locking l;
+      if (word("FOR") && (word("UPDATE", 1) || word("SHARE", 1))) {
+        take();
+        l.exclusive = word("UPDATE");
+        take();
+        if (accept_word("OF")) {
+          do l.of.push_back(name());
+          while (symbol(",") && (take(), true));
+        }
+        if (accept_word("NOWAIT")) {
+          l.wait = Select::Locking::Wait::nowait;
+        } else if (word("SKIP") && word("LOCKED", 1)) {
+          take();
+          take();
+          l.wait = Select::Locking::Wait::skip_locked;
+        }
+      } else if (word("LOCK") && word("IN", 1)) {
+        take();
+        take();
+        expect_word("SHARE");
+        expect_word("MODE");
+      } else {
+        break;
+      }
+      select.locking.push_back(std::move(l));
     }
     return select;
   }

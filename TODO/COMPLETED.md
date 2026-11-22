@@ -71,6 +71,24 @@ The record, newest first. Each entry says what landed, with its gate counts.
   lines (8,692 of 8,766), functions 98.8%.
 - The maintainer's ruling (2026-11-22): shared locks and locking reads
   before INSERT ... SELECT; the design is in the plan (item 1a).
+- Locking reads and INSERT ... SELECT (the maintainer's rulings: shared
+  locks first, rows that pass WHERE, range locks first):
+  - the store: shared and exclusive row locks (an upgrade for a holder
+    alone), range locks that keep others' inserts and moved keys out, a
+    range refused over another's uncommitted write; undone with a statement;
+  - SELECT ... FOR UPDATE / FOR SHARE / LOCK IN SHARE MODE with OF, NOWAIT
+    (3572) and SKIP LOCKED, reading the current rows, locking the rows WHERE
+    keeps and the key range WHERE bounds on a single-column integer primary
+    key (the whole table's otherwise; none under READ COMMITTED), 3568 and
+    3569 as MySQL; grouped reads too;
+  - INSERT ... SELECT and REPLACE ... SELECT: the source read whole first,
+    inside the statement, as FOR SHARE (a consistent read under READ
+    COMMITTED); AUTO_INCREMENT reserved 1, 2, 4 at a time; the info line
+    always; the OK's id only a generated value; a copied column too long
+    1265, an expression 1406 (all observed through two PyMySQL sessions and
+    the gate).
+- Gate (node-c): release, ASan and TSan each **418 tests, 1115 of 1115**
+  statements, TSan with no reports.
 
 ## 2026-11-22: A real MySQL client library drives a node in the tests (step 1, most of it)
 

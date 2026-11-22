@@ -714,10 +714,24 @@ TEST(SqlParser, Insert) {
   EXPECT_EQ(s.insert.rows.size(), 2u);
   EXPECT_TRUE(one("REPLACE LOW_PRIORITY t SET a = 1").insert.replace);
   EXPECT_FALSE(one("INSERT INTO t VALUES (1)").insert.replace);
-  EXPECT_EQ(one("REPLACE INTO t SELECT 1").unsupported, "REPLACE ... SELECT");
+  EXPECT_EQ(one("REPLACE INTO t TABLE u").unsupported, "REPLACE ... TABLE");
   EXPECT_EQ(one("REPLACE DELAYED INTO t VALUES (1)").unsupported, "REPLACE DELAYED");
   EXPECT_THROW(parse("REPLACE IGNORE INTO t VALUES (1)"), SyntaxError);
   EXPECT_THROW(parse("REPLACE INTO t VALUES (1) ON DUPLICATE KEY UPDATE a = 2"), SyntaxError);
+  // Locking clauses: FOR UPDATE / FOR SHARE [OF ...] [NOWAIT | SKIP LOCKED],
+  // and LOCK IN SHARE MODE, any number of them.
+  s = one("SELECT * FROM t WHERE a = 1 ORDER BY a LIMIT 2 FOR UPDATE OF t, u SKIP LOCKED FOR SHARE OF v NOWAIT LOCK IN SHARE MODE");
+  ASSERT_EQ(s.select.locking.size(), 3u);
+  EXPECT_TRUE(s.select.locking[0].exclusive);
+  EXPECT_EQ(s.select.locking[0].of, (std::vector<std::string>{"t", "u"}));
+  EXPECT_EQ(s.select.locking[0].wait, Select::Locking::Wait::skip_locked);
+  EXPECT_FALSE(s.select.locking[1].exclusive);
+  EXPECT_EQ(s.select.locking[1].wait, Select::Locking::Wait::nowait);
+  EXPECT_FALSE(s.select.locking[2].exclusive);
+  EXPECT_TRUE(s.select.locking[2].of.empty());
+  EXPECT_TRUE(one("SELECT 1").select.locking.empty());
+  EXPECT_THROW(parse("SELECT * FROM t LOCK IN SHARE MODE NOWAIT"), SyntaxError);
+  EXPECT_THROW(parse("SELECT * FROM t FOR UPDATE NOWAIT SKIP LOCKED"), SyntaxError);
   s = one("INSERT INTO t VALUES (1) ON DUPLICATE KEY UPDATE a = 2, t.b = VALUES(b) + 1");
   EXPECT_TRUE(s.unsupported.empty());
   ASSERT_EQ(s.insert.on_duplicate.size(), 2u);
@@ -730,8 +744,21 @@ TEST(SqlParser, Insert) {
   EXPECT_EQ(s.insert.on_duplicate.size(), 1u);
   EXPECT_EQ(one("INSERT INTO t VALUES (1) AS n").insert.row_alias, "n");
   EXPECT_THROW(parse("INSERT INTO t VALUES (1) ON DUPLICATE UPDATE a = 2"), SyntaxError);
-  EXPECT_EQ(one("INSERT INTO t SELECT 1").unsupported, "INSERT ... SELECT");
-  EXPECT_EQ(one("INSERT INTO t (a) SELECT 1").unsupported, "INSERT ... SELECT");
+  // INSERT ... SELECT, bare or in parentheses, with the clauses after it.
+  s = one("INSERT INTO t SELECT 1");
+  EXPECT_TRUE(s.unsupported.empty());
+  ASSERT_TRUE(s.insert.select);
+  EXPECT_EQ(s.insert.select->items.size(), 1u);
+  EXPECT_TRUE(s.insert.rows.empty());
+  s = one("INSERT INTO t (a, b) (SELECT a, b FROM u WHERE a > 1) ON DUPLICATE KEY UPDATE b = VALUES(b)");
+  ASSERT_TRUE(s.insert.select);
+  EXPECT_EQ(s.insert.columns, (std::vector<std::string>{"a", "b"}));
+  EXPECT_TRUE(s.insert.select->where);
+  EXPECT_EQ(s.insert.on_duplicate.size(), 1u);
+  s = one("REPLACE INTO t SELECT * FROM u FOR SHARE");
+  ASSERT_TRUE(s.insert.select);
+  EXPECT_TRUE(s.insert.replace);
+  EXPECT_EQ(s.insert.select->locking.size(), 1u);
   EXPECT_EQ(one("INSERT INTO t TABLE u").unsupported, "INSERT ... TABLE");
   EXPECT_EQ(one("INSERT DELAYED INTO t VALUES (1)").unsupported, "INSERT DELAYED");
   EXPECT_EQ(one("REPLACE INTO t VALUES (1)").unsupported, "");

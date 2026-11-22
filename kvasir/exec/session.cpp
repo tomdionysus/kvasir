@@ -257,7 +257,8 @@ txn::Transaction& Session::transaction() {
 }
 
 void Session::end_statement(bool failed) {
-  if (_in_transaction || !_transaction) return;
+  // INSERT ... SELECT's source ends with the INSERT.
+  if (_insert_source || _in_transaction || !_transaction) return;
   if (failed) {
     _rows.rollback(*_transaction);
   } else {
@@ -382,6 +383,10 @@ Prepared Session::prepare(sql::Statement statement) {
                      "Can't create more than max_prepared_stmt_count statements (current value: " + std::to_string(max_prepared_statements) + ")");
     if (!statement.unsupported.empty())
       throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support '" + statement.unsupported + "'");
+    // A SELECT source's parameters are not yet typed at the prepare.
+    if (statement.kind == sql::Statement::Kind::insert && statement.insert.select)
+      throw SqlError(er_not_supported_yet, "42000",
+                     std::string("This version of Kvasir doesn't yet support '") + (statement.insert.replace ? "REPLACE" : "INSERT") + " ... SELECT'");
     auto params = infer_parameters(statement);
     Prepared p;
     // Each parameter as the client is told it; a NULL bound later takes it.
@@ -974,7 +979,7 @@ std::string escaped_bytes(const std::string& s) {
 // each as a warning instead, and the value MySQL stores in its place
 // (observed on MySQL 8.4.13).
 std::string stored_text(const catalog::Column& column, const Value& value, const ResultType& from, size_t row_number, std::vector<Warning>& warnings,
-                        bool ignore = false) {
+                        bool ignore = false, bool field = false) {
   const std::string at_row = " at row " + std::to_string(row_number);
   const auto stored = store(column.type, value, from);
   const auto value_text = [&]() { return to_text(value, from).value_or("NULL"); };
@@ -993,7 +998,9 @@ std::string stored_text(const catalog::Column& column, const Value& value, const
     case Stored::Result::out_of_range:
       return failed("Warning", 1264, "22003", "Out of range value for column '" + column.name + "'" + at_row);
     case Stored::Result::too_long:
-      if (ignore) return failed("Warning", 1265, "01000", truncated);
+      // A column copied as it is (INSERT ... SELECT of a table's column) is
+      // truncated, an expression too long (observed).
+      if (ignore || field) return failed("Warning", 1265, "01000", truncated);
       throw SqlError(1406, "22001", "Data too long for column '" + column.name + "'" + at_row);
     case Stored::Result::garbage:
       if (column.type.kind != catalog::TypeKind::decimal) return failed("Warning", 1265, "01000", truncated);
@@ -1008,6 +1015,32 @@ std::string stored_text(const catalog::Column& column, const Value& value, const
   return failed("Warning", 1366, "HY000",
                 std::string("Incorrect ") + (column.type.kind == catalog::TypeKind::decimal ? "decimal" : "integer") + " value: '" + value_text() +
                     "' for column '" + column.name + "'" + at_row);
+}
+
+// A SELECT's result value read back from its text by its type: what INSERT
+// ... SELECT stores.
+Value value_from_text(const std::optional<std::string>& text, const ResultType& type) {
+  if (!text) return {};
+  if (!type.number_string) {
+    switch (type.field_type) {
+      case f::tiny:
+      case f::short_:
+      case f::int24:
+      case f::long_:
+      case f::longlong:
+        if (type.is_unsigned()) return static_cast<uint64_t>(std::stoull(*text));
+        return static_cast<int64_t>(std::stoll(*text));
+      case f::newdecimal:
+        if (const auto d = Decimal::parse(*text)) return *d;
+        break;
+      case f::float_:
+      case f::double_:
+        return std::strtod(text->c_str(), nullptr);
+      default:
+        break;
+    }
+  }
+  return *text;
 }
 
 // The row's unique key values, each with its key's name, for the store.
@@ -1281,6 +1314,157 @@ void Session::begin_reading(txn::Transaction& t) {
   _rows.take_snapshot(t, sql::same_word(level, "READ-COMMITTED") || sql::same_word(level, "READ-UNCOMMITTED"));
 }
 
+namespace {
+
+// The primary-key range a WHERE confines a locking read to, as InnoDB's
+// next-key locks cover the stretch of the index a condition reads: for a
+// single-column, ascending, integer primary key compared with integer
+// constants (=, <, <=, >, >=, BETWEEN, IN) joined by AND; every key for
+// anything else, as a scan without an index locks. Never less than every key
+// the WHERE can match.
+txn::Store::KeyRange key_range(const sql::Expr* where, const catalog::Table& table, const TableColumns& columns, Evaluator& evaluator) {
+  using Range = txn::Store::KeyRange;
+  const auto primary = table.primary_key();
+  if (!where || !primary || table.keys[*primary].parts.size() != 1 || table.keys[*primary].parts[0].descending) return {};
+  const size_t pk = table.keys[*primary].parts[0].column;
+  const auto& column = table.columns[pk];
+  if (!catalog::is_integer(column.type.kind)) return {};
+  // An integer constant's key, or nothing.
+  const auto key_of = [&](const sql::Expr& e) -> std::optional<std::string> {
+    if (mentions_column(e)) return std::nullopt;
+    try {
+      const auto t = evaluator.type(e);
+      const bool integer = !t.number_string && (t.field_type == f::tiny || t.field_type == f::short_ || t.field_type == f::int24 || t.field_type == f::long_ ||
+                                                t.field_type == f::longlong);
+      if (!integer) return std::nullopt;
+      const auto v = evaluator.value(e);
+      if (!std::holds_alternative<int64_t>(v) && !std::holds_alternative<uint64_t>(v)) return std::nullopt;
+      const auto stored = store(column.type, v, t);
+      if (stored.result != Stored::Result::stored) return std::nullopt;
+      txn::Row row(table.columns.size());
+      row[pk] = stored.text;
+      return encode_key(table, table.keys[*primary], row);
+    } catch (const SqlError&) {
+      return std::nullopt;
+    }
+  };
+  const auto is_pk = [&](const sql::Expr& e) { return e.kind == sql::ExprKind::column && columns.index(e.path) == pk; };
+  const auto intersect = [](Range a, const Range& b) {
+    if (b.low && (!a.low || *b.low > *a.low || (*b.low == *a.low && !b.low_inclusive))) {
+      a.low = b.low;
+      a.low_inclusive = b.low_inclusive;
+    }
+    if (b.high && (!a.high || *b.high < *a.high || (*b.high == *a.high && !b.high_inclusive))) {
+      a.high = b.high;
+      a.high_inclusive = b.high_inclusive;
+    }
+    return a;
+  };
+  std::function<Range(const sql::Expr&)> of = [&](const sql::Expr& e) -> Range {
+    if (e.kind == sql::ExprKind::binary && e.value == "AND") return intersect(of(*e.args[0]), of(*e.args[1]));
+    if (e.kind == sql::ExprKind::binary && e.args.size() == 2) {
+      std::string op = e.value;
+      const sql::Expr* constant = nullptr;
+      if (is_pk(*e.args[0])) {
+        constant = e.args[1].get();
+      } else if (is_pk(*e.args[1])) {
+        constant = e.args[0].get();
+        // c < pk is pk > c.
+        if (op == "<")
+          op = ">";
+        else if (op == ">")
+          op = "<";
+        else if (op == "<=")
+          op = ">=";
+        else if (op == ">=")
+          op = "<=";
+      }
+      if (!constant || (op != "=" && op != "<" && op != "<=" && op != ">" && op != ">=")) return {};
+      const auto key = key_of(*constant);
+      if (!key) return {};
+      Range r;
+      if (op == "=" || op == ">" || op == ">=") {
+        r.low = key;
+        r.low_inclusive = op != ">";
+      }
+      if (op == "=" || op == "<" || op == "<=") {
+        r.high = key;
+        r.high_inclusive = op != "<";
+      }
+      return r;
+    }
+    if (e.kind == sql::ExprKind::between && !e.negated && is_pk(*e.args[0])) {
+      const auto low = key_of(*e.args[1]), high = key_of(*e.args[2]);
+      Range r;
+      r.low = low;
+      r.high = high;
+      return r;
+    }
+    if (e.kind == sql::ExprKind::in && !e.negated && is_pk(*e.args[0]) && e.args.size() > 1) {
+      // Every value's key, the range from the least to the greatest.
+      Range r;
+      for (size_t i = 1; i < e.args.size(); ++i) {
+        const auto key = key_of(*e.args[i]);
+        if (!key) return {};
+        if (!r.low || *key < *r.low) r.low = key;
+        if (!r.high || *key > *r.high) r.high = key;
+      }
+      return r;
+    }
+    return {};
+  };
+  return of(*where);
+}
+
+}  // namespace
+
+const sql::Select::Locking* Session::locking_clause(const sql::Select& select, const std::string& qualifier) const {
+  // INSERT ... SELECT reads its source with shared locks, but under READ
+  // COMMITTED (the manual, "Locks Set by Different SQL Statements in
+  // InnoDB").
+  static const sql::Select::Locking source_lock;
+  if (_insert_source && select.locking.empty()) {
+    const auto level = _variables.text("transaction_isolation");
+    if (sql::same_word(level, "READ-COMMITTED") || sql::same_word(level, "READ-UNCOMMITTED")) return nullptr;
+    return &source_lock;
+  }
+  const sql::Select::Locking* found = nullptr;
+  for (const auto& clause : select.locking) {
+    bool applies = clause.of.empty();
+    for (const auto& name : clause.of) {
+      if (name != qualifier) throw SqlError(3568, "HY000", "Unresolved table name `" + name + "` in locking clause.");
+      applies = true;
+    }
+    if (!applies) continue;
+    if (found) throw SqlError(3569, "HY000", "Table " + qualifier + " appears in multiple locking clauses.");
+    found = &clause;
+  }
+  return found;
+}
+
+std::vector<txn::Row> Session::locked_rows(const sql::Select::Locking& clause, txn::Transaction& t, const catalog::Table& table,
+                                           const txn::Store::KeyRange& range, const std::function<bool(const txn::Row&)>& passes) {
+  using Wait = sql::Select::Locking::Wait;
+  const auto mode = clause.exclusive ? txn::Store::LockMode::exclusive : txn::Store::LockMode::shared;
+  const auto blocked = [&](uint64_t holder) {
+    if (clause.wait == Wait::nowait) throw SqlError(3572, "HY000", "Statement aborted because lock(s) could not be acquired immediately and NOWAIT is set.");
+    throw LockWaitNeeded(t.id(), holder);
+  };
+  std::vector<txn::Row> out;
+  std::vector<std::string> keys;
+  for (auto& held : _rows.current(t, table.id)) {
+    if (clause.wait == Wait::skip_locked && _rows.held_by_other(t, table.id, held.key, mode)) continue;
+    if (passes(held.row)) keys.push_back(held.key);
+    out.push_back(std::move(held.row));
+  }
+  uint64_t holder = 0;
+  const auto level = _variables.text("transaction_isolation");
+  const bool gaps = !sql::same_word(level, "READ-COMMITTED") && !sql::same_word(level, "READ-UNCOMMITTED");
+  if (gaps && clause.wait != Wait::skip_locked && !_rows.lock_range(t, table.id, range, &holder)) blocked(holder);
+  if (!_rows.lock_rows(t, table.id, keys, mode, &holder)) blocked(holder);
+  return out;
+}
+
 std::string Session::database_of(const std::vector<std::string>& name) const {
   if (name.size() == 2) return name[0];
   if (!_database) throw SqlError(er_no_db_error, "3D000", "No database selected");
@@ -1439,9 +1623,9 @@ Outcome Session::select_from_table(const sql::Select& select) {
   const uint64_t offset = select.offset ? limit_of(*select.offset) : 0;
 
   txn::Transaction* t = _view ? nullptr : &transaction();
+  const auto* clause = _view ? nullptr : locking_clause(select, columns.qualifier());
   try {
     if (t) begin_reading(*t);
-    const auto rows = t ? _rows.rows(*t, table->id) : _view->rows;
     struct Chosen {
       const txn::Row* row;
       std::vector<Value> keys;
@@ -1457,6 +1641,18 @@ Outcome Session::select_from_table(const sql::Select& select) {
     };
     std::optional<bool> constant_where;
     if (select.where && !mentions_column(*select.where)) constant_where = passes();
+    std::vector<txn::Row> rows;
+    if (t && clause) {
+      // A locking read: the current rows, those WHERE keeps locked.
+      if (!_insert_source) _rows.begin_statement(*t);
+      rows = locked_rows(*clause, *t, *table, key_range(select.where.get(), *table, columns, evaluator), [&](const txn::Row& r) {
+        columns.set_row(&r);
+        return !select.where || (constant_where ? *constant_where : passes());
+      });
+      columns.set_row(nullptr);
+    } else {
+      rows = t ? _rows.rows(*t, table->id) : _view->rows;
+    }
     for (const auto& row : rows) {
       columns.set_row(&row);
       if (select.where && !(constant_where ? *constant_where : passes())) continue;
@@ -1497,6 +1693,10 @@ Outcome Session::select_from_table(const sql::Select& select) {
     }
     columns.set_row(nullptr);
   } catch (...) {
+    columns.set_row(nullptr);
+    // A locking read that could not finish gives back what it locked (an
+    // INSERT's source, with the INSERT).
+    if (t && clause && !_insert_source) _rows.undo_statement(*t);
     if (t) end_statement(true);
     throw;
   }
@@ -1759,9 +1959,19 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
   if (implicit) new_group(nullptr);
 
   txn::Transaction* t = table && !_view ? &transaction() : nullptr;
+  const auto* clause = t ? locking_clause(select, table_columns->qualifier()) : nullptr;
   try {
     std::vector<txn::Row> table_rows;
-    if (t) {
+    if (t && clause) {
+      // A locking read: the current rows, those WHERE keeps locked.
+      begin_reading(*t);
+      if (!_insert_source) _rows.begin_statement(*t);
+      table_rows = locked_rows(*clause, *t, *table, key_range(select.where.get(), *table, *table_columns, rows), [&](const txn::Row& r) {
+        table_columns->set_row(&r);
+        return !select.where || (constant_where ? *constant_where : holds(rows, *select.where));
+      });
+      table_columns->set_row(nullptr);
+    } else if (t) {
       begin_reading(*t);
       table_rows = _rows.rows(*t, table->id);
     } else if (_view) {
@@ -1843,6 +2053,10 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
       if (i >= offset && i - offset < limit) result.rows.push_back(std::move(chosen[i].texts));
     if (columns) table_columns->set_row(nullptr);
   } catch (...) {
+    if (columns) table_columns->set_row(nullptr);
+    // A locking read that could not finish gives back what it locked (an
+    // INSERT's source, with the INSERT).
+    if (t && clause && !_insert_source) _rows.undo_statement(*t);
     if (t) end_statement(true);
     throw;
   }
@@ -1920,14 +2134,36 @@ Outcome Session::insert(const sql::Statement& statement) {
   _rows.begin_statement(t);
   Outcome outcome;
   // Rows INSERT IGNORE skipped, REPLACE deleted, or ON DUPLICATE KEY UPDATE
-  // met.
+  // met, of the rows given.
   uint64_t duplicates = 0;
+  size_t records = in.rows.size();
   try {
     Evaluator evaluator(eval_settings());
+    // INSERT ... SELECT: the source read whole first, inside this statement
+    // and as FOR SHARE (so a table may feed itself, as in MySQL).
+    std::optional<ResultSet> source;
+    if (in.select) {
+      auto before = std::move(_warnings);
+      _insert_source = true;
+      try {
+        source = std::move(*select(*in.select).result);
+      } catch (...) {
+        _insert_source = false;
+        throw;
+      }
+      _insert_source = false;
+      before.insert(before.end(), _warnings.begin(), _warnings.end());
+      _warnings = std::move(before);
+      if (source->columns.size() != given.size()) throw SqlError(1136, "21S01", "Column count doesn't match value count at row 1");
+    }
+    const size_t row_count = source ? source->rows.size() : in.rows.size();
+    records = row_count;
     const auto primary = table->primary_key();
     // AUTO_INCREMENT: the statement's first need reserves a value for each
-    // of its rows (observed: the values of a failed statement are lost).
-    uint64_t next_auto = 0, reserved = 0, first_auto = 0, explicit_auto = 0;
+    // of its rows, or for INSERT ... SELECT, whose rows are not counted ahead,
+    // 1, then 2, then 4 and so on (observed: the values of a failed statement
+    // are lost).
+    uint64_t next_auto = 0, reserved = 0, first_auto = 0, explicit_auto = 0, batch = 1;
     std::optional<size_t> auto_column;
     for (size_t i = 0; i < table->columns.size(); ++i)
       if (table->columns[i].auto_increment) auto_column = i;
@@ -1939,7 +2175,7 @@ Outcome Session::insert(const sql::Statement& statement) {
       _warnings.push_back({"Warning", e.code(), e.what()});
       target[i] = implicit_default(table->columns[i].type);
     };
-    for (size_t r = 0; r < in.rows.size(); ++r) {
+    for (size_t r = 0; r < row_count; ++r) {
       txn::Row row(table->columns.size());
       std::vector<bool> set(table->columns.size(), false);
       std::optional<size_t> generate;
@@ -1954,16 +2190,27 @@ Outcome Session::insert(const sql::Statement& statement) {
         }
         set[i] = true;
       };
-      for (size_t j = 0; j < in.rows[r].size(); ++j) {
+      const size_t width = source ? source->columns.size() : in.rows[r].size();
+      for (size_t j = 0; j < width; ++j) {
         const size_t i = given[j];
         const auto& column = table->columns[i];
-        const auto& e = *in.rows[r][j];
-        if (e.kind == sql::ExprKind::default_value) {
-          use_default(i);
-          continue;
+        ResultType from;
+        Value value;
+        // A source column that is a table's own is copied field to field.
+        bool field = false;
+        if (source) {
+          from = source->columns[j].type;
+          value = value_from_text(source->rows[r][j], from);
+          field = !source->columns[j].original_name.empty();
+        } else {
+          const auto& e = *in.rows[r][j];
+          if (e.kind == sql::ExprKind::default_value) {
+            use_default(i);
+            continue;
+          }
+          from = evaluator.type(e);
+          value = evaluator.value(e);
         }
-        const auto from = evaluator.type(e);
-        const auto value = evaluator.value(e);
         set[i] = true;
         if (is_null(value)) {
           if (column.auto_increment) {
@@ -1973,7 +2220,7 @@ Outcome Session::insert(const sql::Statement& statement) {
           }
           continue;
         }
-        row[i] = stored_text(column, value, from, r + 1, _warnings, in.ignore);
+        row[i] = stored_text(column, value, from, r + 1, _warnings, in.ignore, field);
         // 0 in an AUTO_INCREMENT column asks for the next value.
         if (column.auto_increment) {
           if (*row[i] == "0") {
@@ -1989,7 +2236,12 @@ Outcome Session::insert(const sql::Statement& statement) {
       uint64_t generated = 0;
       if (generate) {
         if (reserved == 0) {
-          reserved = in.rows.size() - r;
+          if (source) {
+            reserved = batch;
+            batch *= 2;
+          } else {
+            reserved = row_count - r;
+          }
           next_auto = _rows.reserve_auto(table->id, table->auto_increment, reserved);
         }
         generated = next_auto++;
@@ -2130,7 +2382,8 @@ Outcome Session::insert(const sql::Statement& statement) {
     if (first_auto) {
       _last_insert_id = first_auto;
       outcome.last_insert_id = first_auto;
-    } else if (explicit_auto) {
+    } else if (explicit_auto && !source) {
+      // INSERT ... SELECT reports only a generated value (observed).
       outcome.last_insert_id = explicit_auto;
     }
   } catch (...) {
@@ -2139,9 +2392,9 @@ Outcome Session::insert(const sql::Statement& statement) {
     throw;
   }
   end_statement(false);
-  if (in.rows.size() > 1)
-    outcome.info =
-        "Records: " + std::to_string(in.rows.size()) + "  Duplicates: " + std::to_string(duplicates) + "  Warnings: " + std::to_string(_warnings.size());
+  // Several rows, or any from a SELECT, are counted (observed).
+  if (records > 1 || in.select)
+    outcome.info = "Records: " + std::to_string(records) + "  Duplicates: " + std::to_string(duplicates) + "  Warnings: " + std::to_string(_warnings.size());
   return outcome;
 }
 

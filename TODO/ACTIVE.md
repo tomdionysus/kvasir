@@ -97,10 +97,11 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    wake that comes before the wait (both want Dannan's injected time in the
    connection), and a payload error the reader can no longer raise.
 1a. **The SQL writes** (the maintainer's choice, 2026-11-22, while 2 to 4
-   wait): INSERT IGNORE, REPLACE and ON DUPLICATE KEY UPDATE (landed
-   2026-11-22), then INSERT ... SELECT (and REPLACE ... SELECT with it),
-   which waits on locking reads (the maintainer, 2026-11-22: "Shared locks
-   first"). The design, before code:
+   wait): INSERT IGNORE, REPLACE, ON DUPLICATE KEY UPDATE, locking reads and
+   INSERT ... SELECT all landed 2026-11-22 (see COMPLETED); left: a
+   prepared INSERT ... SELECT (its parameters typed at the prepare). The
+   design they were built to, kept for the record of why (the maintainer,
+   2026-11-22: "Shared locks first"):
    - **The store's locks gain a shared mode.** A lock name is held either
      by one transaction exclusively or by any number in shared mode; a
      transaction alone in shared mode may take it exclusively (upgrade).
@@ -218,6 +219,11 @@ Each to be closed, or kept by a decision.
   smaller.
 - A statement that waited for a lock lets go of its earlier locks and takes
   them again; MySQL's keeps them.
+- Locking reads lock the rows WHERE keeps (InnoDB without an index locks
+  every row it examines) and, for a key range, only a single-column integer
+  primary key's bounds in WHERE narrow it; any other WHERE locks the whole
+  table's keys from inserts, where InnoDB would lock only an index's range.
+  A prepared INSERT ... SELECT is refused (1235).
 - GROUP_CONCAT, the JSON aggregates and WITH ROLLUP are refused (1235);
   1056 names the function in upper case.
 - An engine other than InnoDB is refused as unknown. Column names compare

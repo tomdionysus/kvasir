@@ -114,6 +114,15 @@ struct Select {
   std::vector<OrderItem> order;
   ExprPtr limit;
   ExprPtr offset;
+  // FOR UPDATE, FOR SHARE or LOCK IN SHARE MODE: a locking read of the
+  // tables it names (OF), or of all, with NOWAIT or SKIP LOCKED.
+  struct Locking {
+    bool exclusive = false;
+    std::vector<std::string> of;
+    enum class Wait : uint8_t { wait, nowait, skip_locked };
+    Wait wait = Wait::wait;
+  };
+  std::vector<Locking> locking;
 };
 
 struct Assignment {
@@ -212,6 +221,8 @@ struct Insert {
   // ON DUPLICATE KEY UPDATE column = value, ...: the row a key already holds
   // is updated so instead.
   std::vector<std::pair<std::vector<std::string>, ExprPtr>> on_duplicate;
+  // INSERT ... SELECT: the rows come from it, not from `rows`.
+  std::unique_ptr<Select> select;
 };
 
 // UPDATE table [AS alias] SET column = value, ... and DELETE FROM table [AS

@@ -13,6 +13,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "dannan/contract/thread_safety.h"
@@ -76,7 +77,12 @@ class Transaction {
   std::set<std::string> _locks;
   // What the statement under way changed, undone in reverse if it fails.
   std::vector<Undo> _statement_undo;
-  std::vector<std::string> _statement_locks;
+  // Lock names the statement took, each with whether the transaction held it
+  // shared before (a statement that took it exclusively gives back only
+  // that).
+  std::vector<std::pair<std::string, bool>> _statement_locks;
+  // Range locks the statement took, by their ids.
+  std::vector<uint64_t> _statement_ranges;
 };
 
 class Store {
@@ -123,6 +129,34 @@ class Store {
   // transaction holds its lock.
   bool remove(Transaction& t, uint64_t table, const std::string& key, uint64_t* holder = nullptr);
 
+  // Locking reads (SELECT ... FOR SHARE and FOR UPDATE, INSERT ... SELECT's
+  // source). A row's lock is held by one transaction exclusively (every
+  // write takes it so) or by any number in shared mode; one alone in shared
+  // mode may take it exclusively. Held until the transaction ends, or given
+  // back with an undone statement.
+  enum class LockMode : uint8_t { shared, exclusive };
+  // The rows under `keys` locked for `t` in `mode`, all or none: false, with
+  // `holder` set to one of them, when another transaction holds a lock that
+  // conflicts.
+  bool lock_rows(Transaction& t, uint64_t table, const std::vector<std::string>& keys, LockMode mode, uint64_t* holder = nullptr);
+  // Whether another transaction holds the row's lock in a way `mode` would
+  // conflict with (SKIP LOCKED passes over such rows).
+  bool held_by_other(const Transaction& t, uint64_t table, const std::string& key, LockMode mode);
+  // Keys from `low` to `high`, each bound inclusive or not; no bound for
+  // nothing (every key, by default).
+  struct KeyRange {
+    std::optional<std::string> low;
+    bool low_inclusive = true;
+    std::optional<std::string> high;
+    bool high_inclusive = true;
+    bool contains(const std::string& key) const;
+  };
+  // The range locked for `t` (InnoDB's next-key locks): another transaction's
+  // insert of a key in it, or an update that moves a key into it, is locked
+  // out until `t` ends. Readers share a range. False, with `holder` set, when
+  // another transaction has written a key in it not yet committed.
+  bool lock_range(Transaction& t, uint64_t table, const KeyRange& range, uint64_t* holder = nullptr);
+
   // The rows `t` sees, in key order: its snapshot's, and its own writes.
   std::vector<Row> rows(Transaction& t, uint64_t table);
   // What UPDATE and DELETE read (InnoDB's current read): the latest
@@ -163,7 +197,27 @@ class Store {
     uint64_t holder = 0;
     std::function<void()> wake;
   };
+  // A lock name's holders: one exclusive, or any number shared.
+  struct Holders {
+    uint64_t exclusive = 0;
+    std::set<uint64_t> shared;
+  };
+  struct RangeLock {
+    uint64_t id = 0;
+    uint64_t holder = 0;
+    uint64_t table = 0;
+    KeyRange range;
+  };
   static std::string lock_name(uint64_t table, const std::string& name);
+  // Another transaction holding a range lock over `key`, if any.
+  std::optional<uint64_t> range_holder(const Transaction& t, uint64_t table, const std::string& key) const DANNAN_REQUIRES(_mutex);
+  // Whether `holder` holds any lock or range now.
+  bool holds_anything(uint64_t holder) const DANNAN_REQUIRES(_mutex);
+  // The names locked for `t` in `mode`, recording each for the statement's
+  // undo.
+  void take(Transaction& t, const std::string& name, LockMode mode) DANNAN_REQUIRES(_mutex);
+  // A transaction other than `t` whose hold on `name` conflicts with `mode`.
+  std::optional<uint64_t> conflicting(const Transaction& t, const std::string& name, LockMode mode) const DANNAN_REQUIRES(_mutex);
   // Whether a row is under `key` now, as `t` sees it for writing.
   bool exists(const Transaction& t, uint64_t table, const Rows& rows, const std::string& key) const DANNAN_REQUIRES(_mutex);
   // The key of another row holding a unique name now, as `t` sees it for
@@ -186,8 +240,10 @@ class Store {
   // Waiter to what it waits for.
   std::map<uint64_t, Waiting> _waits DANNAN_GUARDED_BY(_mutex);
   std::map<uint64_t, Rows> _tables DANNAN_GUARDED_BY(_mutex);
-  // Lock name to the transaction holding it.
-  std::map<std::string, uint64_t> _locks DANNAN_GUARDED_BY(_mutex);
+  // Lock name to the transactions holding it.
+  std::map<std::string, Holders> _locks DANNAN_GUARDED_BY(_mutex);
+  std::vector<RangeLock> _ranges DANNAN_GUARDED_BY(_mutex);
+  uint64_t _next_range DANNAN_GUARDED_BY(_mutex) = 1;
   uint64_t _last_commit DANNAN_GUARDED_BY(_mutex) = 0;
   uint64_t _next_transaction DANNAN_GUARDED_BY(_mutex) = 1;
 };

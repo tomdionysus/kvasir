@@ -1640,6 +1640,90 @@ TEST(ExecSessionRows, UpdatesInTransactions) {
   EXPECT_EQ(rows_of(run(b.s, "SELECT n FROM c")), (Rows{{"2"}}));
 }
 
+// Locking reads, as two sessions saw them on MySQL 8.4.13: a plain read never
+// waits; FOR UPDATE and FOR SHARE NOWAIT on a held row are 3572; SKIP LOCKED
+// leaves held rows out; a held row makes the reader wait; shared locks share
+// and keep an UPDATE out; a locking read sees the latest commit where the
+// snapshot does not; OF names the table (3568), a table takes one clause
+// (3569); a locking read keeps others' inserts out of the table's keys,
+// but under READ COMMITTED.
+TEST(ExecSessionRows, LockingReads) {
+  TableBed b;
+  auto other = b.other();
+  run(b.s, "CREATE TABLE lk (id INT PRIMARY KEY, n INT)");
+  run(b.s, "INSERT INTO lk VALUES (1, 10), (2, 20), (3, 30)");
+  const std::string nowait = "Statement aborted because lock(s) could not be acquired immediately and NOWAIT is set.";
+
+  run(b.s, "BEGIN");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM lk WHERE id = 1 FOR UPDATE")), (Rows{{"1", "10"}}));
+  EXPECT_EQ(rows_of(run(other, "SELECT * FROM lk WHERE id = 1")), (Rows{{"1", "10"}}));
+  auto r = refusal(other, "SELECT * FROM lk WHERE id = 1 FOR UPDATE NOWAIT");
+  EXPECT_EQ(r.code, 3572);
+  EXPECT_EQ(r.sqlstate, "HY000");
+  EXPECT_EQ(r.message, nowait);
+  EXPECT_EQ(refusal(other, "SELECT * FROM lk WHERE id = 1 FOR SHARE NOWAIT").code, 3572);
+  EXPECT_EQ(rows_of(run(other, "SELECT * FROM lk FOR UPDATE SKIP LOCKED")), (Rows{{"2", "20"}, {"3", "30"}}));
+  EXPECT_THROW(run(other, "SELECT * FROM lk WHERE id = 1 FOR UPDATE"), LockWaitNeeded);
+  run(other, "UPDATE lk SET n = 21 WHERE id = 2");
+  run(b.s, "COMMIT");
+
+  run(b.s, "BEGIN");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM lk WHERE id = 2 FOR SHARE")), (Rows{{"2", "21"}}));
+  EXPECT_EQ(rows_of(run(other, "SELECT * FROM lk WHERE id = 2 FOR SHARE")), (Rows{{"2", "21"}}));
+  EXPECT_EQ(rows_of(run(other, "SELECT * FROM lk WHERE id = 2 LOCK IN SHARE MODE")), (Rows{{"2", "21"}}));
+  EXPECT_THROW(run(other, "UPDATE lk SET n = 22 WHERE id = 2"), LockWaitNeeded);
+  run(other, "UPDATE lk SET n = 33 WHERE id = 3");
+  run(b.s, "COMMIT");
+
+  run(b.s, "BEGIN");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT n FROM lk WHERE id = 3")), (Rows{{"33"}}));
+  run(other, "UPDATE lk SET n = 34 WHERE id = 3");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT n FROM lk WHERE id = 3")), (Rows{{"33"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT n FROM lk WHERE id = 3 FOR SHARE")), (Rows{{"34"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT COUNT(*) FROM lk FOR SHARE")), (Rows{{"3"}}));
+  run(b.s, "COMMIT");
+
+  EXPECT_EQ(rows_of(run(b.s, "SELECT id FROM lk FOR UPDATE OF lk")), (Rows{{"1"}, {"2"}, {"3"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT id FROM lk AS x WHERE id = 1 FOR UPDATE OF x")), (Rows{{"1"}}));
+  r = refusal(b.s, "SELECT * FROM lk FOR UPDATE OF u");
+  EXPECT_EQ(r.code, 3568);
+  EXPECT_EQ(r.message, "Unresolved table name `u` in locking clause.");
+  r = refusal(b.s, "SELECT * FROM lk FOR SHARE FOR UPDATE");
+  EXPECT_EQ(r.code, 3569);
+  EXPECT_EQ(r.message, "Table lk appears in multiple locking clauses.");
+  EXPECT_THROW(run(b.s, "SELECT * FROM lk LOCK IN SHARE MODE NOWAIT"), sql::SyntaxError);
+  EXPECT_THROW(run(b.s, "SELECT * FROM lk FOR UPDATE NOWAIT SKIP LOCKED"), sql::SyntaxError);
+  EXPECT_EQ(rows_of(run(b.s, "SELECT 1 FOR UPDATE")), (Rows{{"1"}}));
+
+  // The keys read are kept from others' inserts until the reader ends.
+  run(b.s, "BEGIN");
+  run(b.s, "SELECT * FROM lk WHERE n > 100 FOR UPDATE");
+  EXPECT_THROW(run(other, "INSERT INTO lk VALUES (9, 90)"), LockWaitNeeded);
+  run(b.s, "COMMIT");
+  run(other, "INSERT INTO lk VALUES (9, 90)");
+  // READ COMMITTED takes no such locks.
+  run(b.s, "SET SESSION transaction_isolation = 'READ-COMMITTED'");
+  run(b.s, "BEGIN");
+  run(b.s, "SELECT * FROM lk WHERE n > 100 FOR UPDATE");
+  run(other, "INSERT INTO lk VALUES (8, 80)");
+  run(b.s, "COMMIT");
+
+  // A WHERE that bounds the integer primary key locks only that stretch of
+  // keys, as InnoDB's next-key locks over the index do.
+  run(b.s, "SET SESSION transaction_isolation = 'REPEATABLE-READ'");
+  run(b.s, "BEGIN");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT id FROM lk WHERE id = 2 FOR UPDATE")), (Rows{{"2"}}));
+  run(other, "INSERT INTO lk VALUES (5, 50)");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT id FROM lk WHERE id BETWEEN 3 AND 7 AND n >= 0 FOR SHARE")), (Rows{{"3"}, {"5"}}));
+  EXPECT_THROW(run(other, "INSERT INTO lk VALUES (6, 60)"), LockWaitNeeded);
+  run(other, "INSERT INTO lk VALUES (10, 100)");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT id FROM lk WHERE id IN (11, 13) FOR SHARE")), (Rows{}));
+  EXPECT_THROW(run(other, "INSERT INTO lk VALUES (12, 120)"), LockWaitNeeded);
+  run(other, "INSERT INTO lk VALUES (14, 140)");
+  run(b.s, "COMMIT");
+  run(other, "INSERT INTO lk VALUES (6, 60)");
+}
+
 // INSERT IGNORE's OK: only the rows inserted are affected; several rows give
 // "Records: n  Duplicates: d  Warnings: w"; a skipped row's generated value
 // is the next row's, and the statement's id is the first row inserted's
@@ -1749,11 +1833,99 @@ TEST(ExecSessionRows, OnDuplicateKeyUpdateUpdatesTheRowAKeyHolds) {
   EXPECT_EQ(rows_of(run(b.s, "SELECT LAST_INSERT_ID()")), (Rows{{"9"}}));
 }
 
+// INSERT ... SELECT and REPLACE ... SELECT as PyMySQL saw them on MySQL
+// 8.4.13: the info line always; AUTO_INCREMENT values reserved 1, 2, 4 at a
+// time, as rows not counted ahead; the OK's id only a generated one; a
+// table's column copied too long is 1265, an expression 1406; a table may
+// feed itself.
+TEST(ExecSessionRows, InsertSelect) {
+  TableBed b;
+  run(b.s, "CREATE TABLE s (a INT, b VARCHAR(5))");
+  run(b.s, "CREATE TABLE t (id INT AUTO_INCREMENT PRIMARY KEY, a INT, b VARCHAR(3) UNIQUE)");
+  run(b.s, "INSERT INTO s VALUES (1, 'x'), (2, 'y'), (3, 'zzzz'), (4, 'x')");
+  auto o = run(b.s, "INSERT INTO t (a, b) SELECT a, b FROM s WHERE a = 1");
+  EXPECT_EQ(o.affected_rows, 1u);
+  EXPECT_EQ(o.info, "Records: 1  Duplicates: 0  Warnings: 0");
+  EXPECT_EQ(o.last_insert_id, 1u);
+  o = run(b.s, "INSERT INTO t (a, b) SELECT a, b FROM s WHERE a = 2 OR a = 9");
+  EXPECT_EQ(o.last_insert_id, 2u);
+  b.expect_refused("INSERT INTO t (a, b) SELECT a, b FROM s WHERE a = 3", 1265, "01000", "Data truncated for column 'b' at row 1");
+  o = run(b.s, "INSERT IGNORE INTO t (a, b) SELECT a, b FROM s");
+  EXPECT_EQ(o.affected_rows, 1u);
+  EXPECT_EQ(o.info, "Records: 4  Duplicates: 3  Warnings: 4");
+  EXPECT_EQ(o.last_insert_id, 3u);
+  ASSERT_EQ(b.s.warnings().size(), 4u);
+  EXPECT_EQ(b.s.warnings()[2].message, "Data truncated for column 'b' at row 3");
+  o = run(b.s, "INSERT INTO t (a, b) SELECT a, b FROM s WHERE a > 100");
+  EXPECT_EQ(o.affected_rows, 0u);
+  EXPECT_EQ(o.info, "Records: 0  Duplicates: 0  Warnings: 0");
+  b.expect_refused("INSERT INTO t (a) SELECT a, b FROM s", 1136, "21S01", "Column count doesn't match value count at row 1");
+  o = run(b.s, "INSERT INTO t SELECT NULL, a + 10, CONCAT(b, a) FROM s WHERE a <= 2 ORDER BY a DESC LIMIT 1");
+  EXPECT_EQ(o.last_insert_id, 6u);
+  o = run(b.s, "INSERT INTO t (a, b) SELECT a, b FROM s WHERE a = 1 ON DUPLICATE KEY UPDATE a = t.a + 100");
+  EXPECT_EQ(o.affected_rows, 2u);
+  EXPECT_EQ(o.info, "Records: 1  Duplicates: 1  Warnings: 0");
+  EXPECT_EQ(o.last_insert_id, 0u);
+  o = run(b.s, "INSERT INTO t (a, b) SELECT a, b FROM s WHERE a = 2 ON DUPLICATE KEY UPDATE a = VALUES(a) + 200");
+  EXPECT_EQ(o.info, "Records: 1  Duplicates: 1  Warnings: 1");
+  o = run(b.s, "REPLACE INTO t (a, b) SELECT a, b FROM s WHERE a = 2");
+  EXPECT_EQ(o.affected_rows, 2u);
+  EXPECT_EQ(o.info, "Records: 1  Duplicates: 1  Warnings: 0");
+  EXPECT_EQ(o.last_insert_id, 9u);
+  b.expect_refused("INSERT INTO t (a, b) SELECT COUNT(*), MAX(b) FROM s", 1406, "22001", "Data too long for column 'b' at row 1");
+  b.expect_refused("INSERT INTO t (a, b) SELECT a, b FROM t WHERE id = 1", 1062, "23000", "Duplicate entry 'x' for key 't.b'");
+  o = run(b.s, "INSERT INTO t (a, b) SELECT a + 1000, CONCAT('q', id) FROM t");
+  EXPECT_EQ(o.affected_rows, 4u);
+  EXPECT_EQ(o.info, "Records: 4  Duplicates: 0  Warnings: 0");
+  EXPECT_EQ(o.last_insert_id, 11u);
+  b.expect_refused("INSERT INTO t (a, b) SELECT 'nine', 'n'", 1366, "HY000", "Incorrect integer value: 'nine' for column 'a' at row 1");
+  o = run(b.s, "INSERT INTO t (a, b) (SELECT 5, 'p')");
+  EXPECT_EQ(o.last_insert_id, 18u);
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM t ORDER BY id")), (Rows{{"1", "101", "x"},
+                                                                    {"3", "3", "zzz"},
+                                                                    {"6", "12", "y2"},
+                                                                    {"9", "2", "y"},
+                                                                    {"11", "1101", "q1"},
+                                                                    {"12", "1003", "q3"},
+                                                                    {"13", "1012", "q6"},
+                                                                    {"14", "1002", "q9"},
+                                                                    {"18", "5", "p"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT LAST_INSERT_ID()")), (Rows{{"18"}}));
+}
+
+// INSERT ... SELECT reads its source with shared locks and the source's key
+// range, but under READ COMMITTED (the manual, "Locks Set by Different SQL
+// Statements in InnoDB").
+TEST(ExecSessionRows, InsertSelectLocksItsSource) {
+  TableBed b;
+  auto other = b.other();
+  run(b.s, "CREATE TABLE src (id INT PRIMARY KEY, n INT)");
+  run(b.s, "CREATE TABLE dst (id INT PRIMARY KEY, n INT)");
+  run(b.s, "INSERT INTO src VALUES (1, 10), (2, 20), (5, 50)");
+  run(b.s, "BEGIN");
+  run(b.s, "INSERT INTO dst SELECT * FROM src WHERE id <= 2");
+  EXPECT_EQ(rows_of(run(other, "SELECT n FROM src WHERE id = 1")), (Rows{{"10"}}));
+  EXPECT_EQ(rows_of(run(other, "SELECT n FROM src WHERE id = 1 FOR SHARE")), (Rows{{"10"}}));
+  EXPECT_THROW(run(other, "UPDATE src SET n = 11 WHERE id = 1"), LockWaitNeeded);
+  EXPECT_THROW(run(other, "INSERT INTO src VALUES (0, 0)"), LockWaitNeeded);
+  run(other, "UPDATE src SET n = 51 WHERE id = 5");
+  run(other, "INSERT INTO src VALUES (7, 70)");
+  run(b.s, "COMMIT");
+  run(other, "UPDATE src SET n = 11 WHERE id = 1");
+
+  run(b.s, "SET SESSION transaction_isolation = 'READ-COMMITTED'");
+  run(b.s, "BEGIN");
+  run(b.s, "INSERT INTO dst SELECT id + 10, n FROM src WHERE id <= 2");
+  run(other, "UPDATE src SET n = 12 WHERE id = 1");
+  run(b.s, "COMMIT");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM dst ORDER BY id")), (Rows{{"1", "10"}, {"2", "20"}, {"11", "11"}, {"12", "20"}}));
+}
+
 TEST(ExecSessionRows, InsertsKvasirDoesNotYetCarryOut) {
   TableBed b;
   run(b.s, "CREATE TABLE n (a INT, b INT)");
-  b.expect_refused("INSERT INTO n SELECT 1, 2", 1235, "42000", "This version of Kvasir doesn't yet support 'INSERT ... SELECT'");
-  b.expect_refused("REPLACE INTO n SELECT 1, 2", 1235, "42000", "This version of Kvasir doesn't yet support 'REPLACE ... SELECT'");
+  b.expect_refused("INSERT INTO n TABLE n", 1235, "42000", "This version of Kvasir doesn't yet support 'INSERT ... TABLE'");
+  b.expect_refused("REPLACE INTO n TABLE n", 1235, "42000", "This version of Kvasir doesn't yet support 'REPLACE ... TABLE'");
   b.expect_refused("INSERT INTO n (a, b) VALUES (5, a)", 1235, "42000", "This version of Kvasir doesn't yet support 'columns in VALUES'");
 }
 

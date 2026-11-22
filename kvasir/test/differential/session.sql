@@ -713,6 +713,45 @@ INSERT INTO kv_upsert.t (u, n) VALUES ('d', 1) ON DUPLICATE KEY UPDATE s = 'tool
 SELECT * FROM kv_upsert.t ORDER BY id
 SELECT LAST_INSERT_ID()
 DROP DATABASE kv_upsert
+CREATE DATABASE kv_locking
+CREATE TABLE kv_locking.t (id INT PRIMARY KEY, n INT)
+INSERT INTO kv_locking.t VALUES (1, 10), (2, 20), (3, 30)
+SELECT * FROM kv_locking.t WHERE id > 1 FOR UPDATE
+SELECT n FROM kv_locking.t WHERE id = 2 FOR SHARE
+SELECT * FROM kv_locking.t ORDER BY n DESC LIMIT 2 LOCK IN SHARE MODE
+SELECT * FROM kv_locking.t FOR UPDATE NOWAIT
+SELECT * FROM kv_locking.t FOR SHARE SKIP LOCKED
+SELECT COUNT(*), MAX(n) FROM kv_locking.t FOR UPDATE
+SELECT id FROM kv_locking.t AS x WHERE id = 3 FOR UPDATE OF x
+SELECT * FROM kv_locking.t FOR UPDATE OF u
+SELECT * FROM kv_locking.t FOR SHARE FOR UPDATE
+SELECT * FROM kv_locking.t LOCK IN SHARE MODE NOWAIT
+SELECT * FROM kv_locking.t FOR UPDATE NOWAIT SKIP LOCKED
+SELECT 1 FOR UPDATE
+DROP DATABASE kv_locking
+CREATE DATABASE kv_insert_select
+CREATE TABLE kv_insert_select.s (a INT, b VARCHAR(5), c DECIMAL(5,2))
+CREATE TABLE kv_insert_select.t (id INT AUTO_INCREMENT PRIMARY KEY, a INT, b VARCHAR(3) UNIQUE, c DECIMAL(4,1))
+INSERT INTO kv_insert_select.s VALUES (1, 'x', 1.25), (2, 'y', 2.5), (3, 'zzzz', 3), (4, 'x', 999.99)
+INSERT INTO kv_insert_select.t (a, b, c) SELECT a, b, c FROM kv_insert_select.s WHERE a <= 2
+SHOW WARNINGS
+INSERT INTO kv_insert_select.t (a, b) SELECT a, b FROM kv_insert_select.s WHERE a = 3
+INSERT IGNORE INTO kv_insert_select.t (a, b, c) SELECT a, b, c FROM kv_insert_select.s
+SHOW WARNINGS
+INSERT INTO kv_insert_select.t (a) SELECT a, b FROM kv_insert_select.s
+INSERT INTO kv_insert_select.t SELECT NULL, a + 10, CONCAT(b, a), c * 2 FROM kv_insert_select.s WHERE a <= 2 ORDER BY a DESC LIMIT 1
+INSERT INTO kv_insert_select.t (a, b) SELECT a, b FROM kv_insert_select.s WHERE a = 1 ON DUPLICATE KEY UPDATE a = t.a + 100
+INSERT INTO kv_insert_select.t (a, b) SELECT a, b FROM kv_insert_select.s WHERE a = 2 ON DUPLICATE KEY UPDATE a = VALUES(a) + 200
+SHOW WARNINGS
+REPLACE INTO kv_insert_select.t (a, b) SELECT a, b FROM kv_insert_select.s WHERE a = 2
+INSERT INTO kv_insert_select.t (a, b) SELECT COUNT(*), MAX(b) FROM kv_insert_select.s
+INSERT INTO kv_insert_select.t (a, b) SELECT a, b FROM kv_insert_select.t WHERE id = 1
+INSERT INTO kv_insert_select.t (a, b) SELECT a + 1000, CONCAT('q', id) FROM kv_insert_select.t
+INSERT INTO kv_insert_select.t (a, b) SELECT 'nine', 'n'
+INSERT INTO kv_insert_select.t (a, b) (SELECT 5, 'p')
+SELECT * FROM kv_insert_select.t ORDER BY id
+SELECT LAST_INSERT_ID()
+DROP DATABASE kv_insert_select
 SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 SELECT REPEAT('ab',3), REPEAT('ab',0), REPEAT('ab',-1), REPEAT(NULL,2), REPEAT(1,2), REVERSE('abc'), REVERSE('héllo'), REVERSE(NULL), REVERSE(123), REVERSE(_binary'ab')
 SELECT REPEAT('ab', 40000000)

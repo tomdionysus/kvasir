@@ -299,5 +299,126 @@ TEST(TxnStore, WaitsAndDeadlocks) {
   EXPECT_EQ(woken2, 1);
 }
 
+// Locking reads ("Shared and Exclusive Locks" in "InnoDB Locking"; observed
+// on MySQL 8.4.13 with two sessions): shared locks share and block a writer;
+// an exclusive lock blocks both; a holder alone in shared mode may take its
+// lock exclusively.
+TEST(TxnStore, SharedAndExclusiveRowLocks) {
+  Store s;
+  auto seed = s.begin();
+  s.insert(seed, 1, "k1", {}, row("1"), nullptr);
+  s.insert(seed, 1, "k2", {}, row("2"), nullptr);
+  s.commit(seed);
+  auto a = s.begin(), b = s.begin(), c = s.begin();
+  uint64_t holder = 0;
+  EXPECT_TRUE(s.lock_rows(a, 1, {"k1"}, Store::LockMode::shared));
+  EXPECT_TRUE(s.lock_rows(b, 1, {"k1"}, Store::LockMode::shared));
+  EXPECT_FALSE(s.lock_rows(c, 1, {"k1"}, Store::LockMode::exclusive, &holder));
+  EXPECT_TRUE(holder == a.id() || holder == b.id());
+  EXPECT_EQ(s.update(c, 1, "k1", "k1", {}, row("x"), nullptr, &holder), Store::Inserted::locked);
+  EXPECT_EQ(s.remove(c, 1, "k1", &holder), false);
+  EXPECT_TRUE(s.held_by_other(c, 1, "k1", Store::LockMode::exclusive));
+  EXPECT_FALSE(s.held_by_other(c, 1, "k1", Store::LockMode::shared));
+  // A cannot take k1 alone while b shares it.
+  EXPECT_FALSE(s.lock_rows(a, 1, {"k1"}, Store::LockMode::exclusive, &holder));
+  EXPECT_EQ(holder, b.id());
+  // A wait on a shared holder is a wait, woken at its end.
+  int woken = 0;
+  EXPECT_EQ(s.wait(a.id(), b.id(), [&] { ++woken; }), Store::Wait::waiting);
+  s.commit(b);
+  EXPECT_EQ(woken, 1);
+  EXPECT_TRUE(s.lock_rows(a, 1, {"k1"}, Store::LockMode::exclusive));
+  EXPECT_FALSE(s.lock_rows(c, 1, {"k1"}, Store::LockMode::shared, &holder));
+  EXPECT_EQ(holder, a.id());
+  EXPECT_TRUE(s.held_by_other(c, 1, "k1", Store::LockMode::shared));
+  // All or none: c gets neither k2 nor k1.
+  EXPECT_FALSE(s.lock_rows(c, 1, {"k2", "k1"}, Store::LockMode::exclusive, &holder));
+  EXPECT_FALSE(s.held_by_other(a, 1, "k2", Store::LockMode::exclusive));
+  // Its own writes need nothing more; a row it has written it holds.
+  EXPECT_EQ(s.update(a, 1, "k1", "k1", {}, row("a"), nullptr), Store::Inserted::inserted);
+  EXPECT_TRUE(s.lock_rows(a, 1, {"k1"}, Store::LockMode::shared));
+  s.commit(a);
+  EXPECT_TRUE(s.lock_rows(c, 1, {"k1", "k2"}, Store::LockMode::exclusive));
+  s.rollback(c);
+  auto d = s.begin();
+  EXPECT_TRUE(s.lock_rows(d, 1, {"k1"}, Store::LockMode::exclusive));
+}
+
+// Range locks: a locking read's key range keeps another transaction's
+// inserts, and keys moved, out of it until the reader ends (InnoDB's
+// next-key locks, "Phantom Rows"); readers share a range; a range cannot be
+// taken over another's uncommitted write in it.
+TEST(TxnStore, RangeLocks) {
+  Store s;
+  auto seed = s.begin();
+  s.insert(seed, 1, "k2", {}, row("2"), nullptr);
+  s.insert(seed, 1, "k5", {}, row("5"), nullptr);
+  s.insert(seed, 1, "k9", {}, row("9"), nullptr);
+  s.commit(seed);
+  auto a = s.begin(), b = s.begin(), c = s.begin();
+  uint64_t holder = 0;
+  Store::KeyRange r;
+  r.low = "k2";
+  r.high = "k5";
+  r.high_inclusive = false;
+  EXPECT_TRUE(r.contains("k2"));
+  EXPECT_TRUE(r.contains("k3"));
+  EXPECT_FALSE(r.contains("k5"));
+  EXPECT_FALSE(r.contains("k1"));
+  EXPECT_TRUE(s.lock_range(a, 1, r));
+  // The reader's own insert is not held; another table's keys are their own.
+  EXPECT_EQ(s.insert(a, 1, "k4", {}, row("4"), nullptr), Store::Inserted::inserted);
+  EXPECT_EQ(s.insert(b, 2, "k3", {}, row("3"), nullptr), Store::Inserted::inserted);
+  // Another's insert into the range, or a key moved into it, waits.
+  EXPECT_EQ(s.insert(b, 1, "k3", {}, row("3"), nullptr, &holder), Store::Inserted::locked);
+  EXPECT_EQ(holder, a.id());
+  EXPECT_EQ(s.insert(b, 1, "k6", {}, row("6"), nullptr), Store::Inserted::inserted);
+  EXPECT_EQ(s.update(b, 1, "k6", "k35", {}, row("4"), nullptr, &holder), Store::Inserted::locked);
+  EXPECT_EQ(holder, a.id());
+  // A range over another's uncommitted key is refused, naming it.
+  EXPECT_FALSE(s.lock_range(c, 1, r, &holder));
+  EXPECT_EQ(holder, a.id());
+  Store::KeyRange beyond;
+  beyond.low = "k6";
+  EXPECT_FALSE(s.lock_range(c, 1, beyond, &holder));
+  EXPECT_EQ(holder, b.id());
+  s.commit(a);
+  EXPECT_EQ(s.insert(b, 1, "k3", {}, row("3"), nullptr), Store::Inserted::inserted);
+  s.commit(b);
+
+  // Readers share a range; each one's insert into it waits for the other.
+  auto d = s.begin(), e = s.begin();
+  Store::KeyRange high;
+  high.low = "k7";
+  high.high = "k8";
+  EXPECT_TRUE(s.lock_range(d, 1, high));
+  EXPECT_TRUE(s.lock_range(e, 1, high));
+  EXPECT_EQ(s.insert(d, 1, "k75", {}, row("75"), nullptr, &holder), Store::Inserted::locked);
+  EXPECT_EQ(holder, e.id());
+  s.commit(e);
+  EXPECT_EQ(s.insert(d, 1, "k75", {}, row("75"), nullptr), Store::Inserted::inserted);
+  s.commit(d);
+}
+
+// A statement undone gives back the locks it took, and a lock it took
+// exclusively that the transaction held shared goes back to shared.
+TEST(TxnStore, AnUndoneStatementGivesBackItsReadLocks) {
+  Store s;
+  auto seed = s.begin();
+  s.insert(seed, 1, "k1", {}, row("1"), nullptr);
+  s.commit(seed);
+  auto a = s.begin(), b = s.begin();
+  uint64_t holder = 0;
+  EXPECT_TRUE(s.lock_rows(a, 1, {"k1"}, Store::LockMode::shared));
+  s.begin_statement(a);
+  EXPECT_TRUE(s.lock_rows(a, 1, {"k1"}, Store::LockMode::exclusive));
+  EXPECT_TRUE(s.lock_range(a, 1, Store::KeyRange{}));
+  s.undo_statement(a);
+  EXPECT_TRUE(s.lock_rows(b, 1, {"k1"}, Store::LockMode::shared));
+  EXPECT_FALSE(s.lock_rows(b, 1, {"k1"}, Store::LockMode::exclusive, &holder));
+  EXPECT_EQ(holder, a.id());
+  EXPECT_EQ(s.insert(b, 1, "k0", {}, row("0"), nullptr), Store::Inserted::inserted);
+}
+
 }  // namespace
 }  // namespace kvasir::txn

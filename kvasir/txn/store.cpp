@@ -26,16 +26,63 @@ void Store::take_snapshot(Transaction& t, bool fresh) {
   if (fresh || !t._snapshot) t._snapshot = _last_commit;
 }
 
+bool Store::KeyRange::contains(const std::string& key) const {
+  if (low && (low_inclusive ? key < *low : key <= *low)) return false;
+  if (high && (high_inclusive ? key > *high : key >= *high)) return false;
+  return true;
+}
+
 void Store::release(Transaction& t) {
   for (const auto& name : t._locks) {
     const auto it = _locks.find(name);
-    if (it != _locks.end() && it->second == t._id) _locks.erase(it);
+    if (it == _locks.end()) continue;
+    if (it->second.exclusive == t._id) it->second.exclusive = 0;
+    it->second.shared.erase(t._id);
+    if (it->second.exclusive == 0 && it->second.shared.empty()) _locks.erase(it);
   }
+  std::erase_if(_ranges, [&](const RangeLock& r) { return r.holder == t._id; });
   t._locks.clear();
   t._writes.clear();
   t._statement_undo.clear();
   t._statement_locks.clear();
+  t._statement_ranges.clear();
   t._snapshot.reset();
+}
+
+bool Store::holds_anything(uint64_t holder) const {
+  for (const auto& [name, h] : _locks)
+    if (h.exclusive == holder || h.shared.contains(holder)) return true;
+  return std::any_of(_ranges.begin(), _ranges.end(), [&](const RangeLock& r) { return r.holder == holder; });
+}
+
+std::optional<uint64_t> Store::conflicting(const Transaction& t, const std::string& name, LockMode mode) const {
+  const auto it = _locks.find(name);
+  if (it == _locks.end()) return std::nullopt;
+  if (it->second.exclusive != 0 && it->second.exclusive != t._id) return it->second.exclusive;
+  if (mode == LockMode::exclusive)
+    for (const auto other : it->second.shared)
+      if (other != t._id) return other;
+  return std::nullopt;
+}
+
+void Store::take(Transaction& t, const std::string& name, LockMode mode) {
+  auto& h = _locks[name];
+  const bool had_shared = h.shared.contains(t._id);
+  if (h.exclusive == t._id || (mode == LockMode::shared && had_shared)) return;
+  if (mode == LockMode::exclusive) {
+    h.exclusive = t._id;
+    h.shared.erase(t._id);
+  } else {
+    h.shared.insert(t._id);
+  }
+  t._statement_locks.emplace_back(name, had_shared);
+  t._locks.insert(name);
+}
+
+std::optional<uint64_t> Store::range_holder(const Transaction& t, uint64_t table, const std::string& key) const {
+  for (const auto& r : _ranges)
+    if (r.table == table && r.holder != t._id && r.range.contains(key)) return r.holder;
+  return std::nullopt;
 }
 
 std::vector<std::function<void()>> Store::waking(uint64_t holder) {
@@ -53,8 +100,7 @@ std::vector<std::function<void()>> Store::waking(uint64_t holder) {
 
 Store::Wait Store::wait(uint64_t waiter, uint64_t holder, std::function<void()> wake) {
   dannan::contract::Lock lock(_mutex);
-  const bool holds = std::any_of(_locks.begin(), _locks.end(), [&](const auto& l) { return l.second == holder; });
-  if (!holds) return Wait::free;
+  if (!holds_anything(holder)) return Wait::free;
   // Follow what the holder waits for: back at the waiter is a cycle.
   for (uint64_t at = holder;;) {
     if (at == waiter) return Wait::deadlock;
@@ -121,6 +167,7 @@ void Store::begin_statement(Transaction& t) {
   dannan::contract::Lock lock(_mutex);
   t._statement_undo.clear();
   t._statement_locks.clear();
+  t._statement_ranges.clear();
 }
 
 void Store::undo_statement(Transaction& t) {
@@ -136,15 +183,29 @@ void Store::undo_statement(Transaction& t) {
       }
       if (writes.empty()) t._writes.erase(undo->table);
     }
-    for (const auto& name : t._statement_locks) {
+    // Each lock as it was before the statement, newest first.
+    for (auto taken = t._statement_locks.rbegin(); taken != t._statement_locks.rend(); ++taken) {
+      const auto& [name, had_shared] = *taken;
       const auto it = _locks.find(name);
-      if (it != _locks.end() && it->second == t._id) _locks.erase(it);
-      t._locks.erase(name);
+      if (it == _locks.end()) continue;
+      auto& h = it->second;
+      if (h.exclusive == t._id) {
+        h.exclusive = 0;
+        if (had_shared) h.shared.insert(t._id);
+      } else {
+        h.shared.erase(t._id);
+      }
+      const bool still = h.exclusive == t._id || h.shared.contains(t._id);
+      if (h.exclusive == 0 && h.shared.empty()) _locks.erase(it);
+      if (!still) t._locks.erase(name);
     }
+    std::erase_if(_ranges,
+                  [&](const RangeLock& r) { return std::find(t._statement_ranges.begin(), t._statement_ranges.end(), r.id) != t._statement_ranges.end(); });
     // Those waiting may find what they wanted free now.
-    if (!t._statement_locks.empty()) wakes = waking(t._id);
+    if (!t._statement_locks.empty() || !t._statement_ranges.empty()) wakes = waking(t._id);
     t._statement_undo.clear();
     t._statement_locks.clear();
+    t._statement_ranges.clear();
   }
   for (auto& wake : wakes) wake();
 }
@@ -171,18 +232,53 @@ std::optional<std::string> Store::unique_holder(const Transaction& t, uint64_t t
 }
 
 std::optional<uint64_t> Store::locked_by_other(const Transaction& t, const std::vector<std::string>& names) const {
-  for (const auto& name : names) {
-    const auto held = _locks.find(name);
-    if (held != _locks.end() && held->second != t._id) return held->second;
-  }
+  for (const auto& name : names)
+    if (const auto other = conflicting(t, name, LockMode::exclusive)) return other;
   return std::nullopt;
 }
 
 void Store::take_locks(Transaction& t, const std::vector<std::string>& names) {
-  for (const auto& name : names) {
-    if (_locks.emplace(name, t._id).second) t._statement_locks.push_back(name);
-    t._locks.insert(name);
+  for (const auto& name : names) take(t, name, LockMode::exclusive);
+}
+
+bool Store::lock_rows(Transaction& t, uint64_t table, const std::vector<std::string>& keys, LockMode mode, uint64_t* holder) {
+  dannan::contract::Lock lock(_mutex);
+  std::vector<std::string> names;
+  for (const auto& key : keys) names.push_back(lock_name(table, "k" + key));
+  for (const auto& name : names)
+    if (const auto other = conflicting(t, name, mode)) {
+      if (holder) *holder = *other;
+      return false;
+    }
+  for (const auto& name : names) take(t, name, mode);
+  return true;
+}
+
+bool Store::held_by_other(const Transaction& t, uint64_t table, const std::string& key, LockMode mode) {
+  dannan::contract::Lock lock(_mutex);
+  return conflicting(t, lock_name(table, "k" + key), mode).has_value();
+}
+
+bool Store::lock_range(Transaction& t, uint64_t table, const KeyRange& range, uint64_t* holder) {
+  dannan::contract::Lock lock(_mutex);
+  // Another's write in the range not yet committed holds its row's lock
+  // exclusively; the names of one table's rows sort as their keys.
+  const std::string prefix = lock_name(table, "k");
+  for (auto it = _locks.lower_bound(prefix + range.low.value_or("")); it != _locks.end() && it->first.starts_with(prefix); ++it) {
+    const std::string key = it->first.substr(prefix.size());
+    if (!range.contains(key)) {
+      if (range.high && key > *range.high) break;
+      continue;
+    }
+    if (it->second.exclusive != 0 && it->second.exclusive != t._id) {
+      if (holder) *holder = it->second.exclusive;
+      return false;
+    }
   }
+  const uint64_t id = _next_range++;
+  _ranges.push_back({id, t._id, table, range});
+  t._statement_ranges.push_back(id);
+  return true;
 }
 
 void Store::write(Transaction& t, uint64_t table, const std::string& key, Transaction::Pending pending) {
@@ -200,7 +296,10 @@ Store::Inserted Store::insert(Transaction& t, uint64_t table, const std::string&
   // The names this row must hold: its key, and each unique value.
   std::vector<std::string> names{lock_name(table, "k" + key)};
   for (const auto& u : unique) names.push_back(lock_name(table, "u" + u));
-  if (const auto other = locked_by_other(t, names)) {
+  // Another's lock on the row's names, or a range lock over its key.
+  auto other = locked_by_other(t, names);
+  if (!other) other = range_holder(t, table, key);
+  if (other) {
     if (holder) *holder = *other;
     return Inserted::locked;
   }
@@ -225,7 +324,10 @@ Store::Inserted Store::update(Transaction& t, uint64_t table, const std::string&
   std::vector<std::string> names{lock_name(table, "k" + key)};
   if (new_key != key) names.push_back(lock_name(table, "k" + new_key));
   for (const auto& u : unique) names.push_back(lock_name(table, "u" + u));
-  if (const auto other = locked_by_other(t, names)) {
+  // A key moved into another's locked range waits as an insert there does.
+  auto other = locked_by_other(t, names);
+  if (!other && new_key != key) other = range_holder(t, table, new_key);
+  if (other) {
     if (holder) *holder = *other;
     return Inserted::locked;
   }

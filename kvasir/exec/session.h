@@ -210,6 +210,22 @@ class Session : private VariableSource {
   void check_isolation() const;
   // A statement that reads takes its snapshot as the isolation level says.
   void begin_reading(txn::Transaction& t);
+  // INSERT ... SELECT's source is being read: inside the INSERT's statement,
+  // which alone ends it, and as FOR SHARE unless under READ COMMITTED.
+  bool _insert_source = false;
+  // The SELECT's locking clause for the table it reads, by the name the
+  // statement gives it: nothing for none; 3568 for an OF naming another
+  // table, 3569 for two clauses over it (observed on MySQL 8.4.13).
+  const sql::Select::Locking* locking_clause(const sql::Select& select, const std::string& qualifier) const;
+  // A locking read's rows (SELECT ... FOR UPDATE / FOR SHARE): the rows as
+  // UPDATE reads them, the latest committed and the transaction's own, less
+  // those SKIP LOCKED passes over; the rows `passes` keeps locked in the
+  // clause's mode, and the table's keys locked from others' inserts as
+  // InnoDB's next-key locks keep them, but under READ COMMITTED or SKIP
+  // LOCKED. A row held elsewhere makes the statement wait (LockWaitNeeded),
+  // or, with NOWAIT, is 3572.
+  std::vector<txn::Row> locked_rows(const sql::Select::Locking& clause, txn::Transaction& t, const catalog::Table& table, const txn::Store::KeyRange& range,
+                                    const std::function<bool(const txn::Row&)>& passes);
   // The database a [schema.]name refers to: the one named, else the current
   // one (1046 when there is none).
   std::string database_of(const std::vector<std::string>& name) const;
