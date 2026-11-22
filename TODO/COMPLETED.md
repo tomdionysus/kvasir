@@ -2,6 +2,41 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-22: A real MySQL client library drives a node in the tests (step 1, most of it)
+
+- Measured first on a build node, one claim per step: libmysqlclient
+  8.4.13 client-only builds in 334 s at -j1 (230 edges; needs pkg-config
+  and libtirpc-dev, no bison); Connector/C++ 26.10.0 WITH_JDBC in 824 s
+  with its X DevAPI, far less without it. Found: 26.10.0's merged static
+  library (`libmysqlcppconn-static.a`) holds only libmysqlclient's objects,
+  none of the driver's; the driver's own `libjdbc.a` links.
+- `cmake/mysql_client.cmake`: both fetched by URL and SHA-256, the client
+  and the classic API only, built once into `KVASIR_MYSQL_CLIENT_ROOT` (658 s
+  at -j1 on a Pi, download included) and found there by every later
+  configure; `KVASIR_MYSQL_CLIENT_TESTS` (off in the Debian build); hosted
+  CI caches the libraries per pin and architecture; the tidy step builds
+  them before reading the compile commands.
+- `kvasir::server::Node`: kvasir-node's assembly moved into the library,
+  so a test serves a node on a loopback port.
+- `server_mysql_client_test.cpp`, 7 tests through Connector/C++: sign-in
+  over TLS by the full path and then the fast path, a wrong password (1045,
+  28000), text statements and their column metadata, prepared statements
+  in the binary protocol, DatabaseMetaData's getTables and getColumns, a
+  rollback, an unknown table (1146, 42S02).
+- Found: getTables compares with STRCMP, which the node refused. STRCMP
+  added from the manual's examples, watched failing first. Its result
+  column is not yet checked against the reference server, which was not
+  running (Docker on the Mac was down), nor is the negative `LIMIT ?`
+  through COM_STMT_EXECUTE.
+- Found while writing the tests, not a difference: Connector/C++ writes any
+  binary DOUBLE as "%f" would (3.500000) in getString, whatever the server
+  sent.
+- libtirpc-dev installed on node-b and node-c (board notes posted).
+- Gate (node-c, 2026-11-22): release, clang, ASan and TSan each **401
+  tests, 966 of 966** statements, TSan with no reports; tidy clean.
+- Branches: the merged `feature/coverage` deleted locally and on GitHub
+  (its work was on develop under the history scrub's hashes).
+
 ## 2026-11-20 to 22: Dannan 0.10.0, the node's settings, and the stack's housekeeping
 
 - Dannan 0.10.0 (fa35ad8), read in full before the repin: its ack-level

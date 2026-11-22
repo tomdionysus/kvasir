@@ -79,6 +79,7 @@ add_library(kvasir ${kvasir_library_type}
   server/accounts.cpp
   server/commands.cpp
   server/connection.cpp
+  server/node.cpp
   server/node_settings.cpp
   server/pool_checker.cpp
   server/sign_in.cpp

@@ -85,6 +85,11 @@ add_subdirectory(tools)
 
 if(KVASIR_BUILD_TESTING)
   find_package(GTest 1.14 CONFIG REQUIRED)
+  # Off where nothing may be downloaded (the Debian package's build).
+  option(KVASIR_MYSQL_CLIENT_TESTS "Drive a node with a real MySQL client library in kvasir_tests, built from Oracle's source" ON)
+  if(KVASIR_MYSQL_CLIENT_TESTS)
+    include(cmake/mysql_client.cmake)
+  endif()
   add_subdirectory(kvasir/test)
 endif()
 

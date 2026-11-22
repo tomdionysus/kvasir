@@ -55,14 +55,22 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            g++ clang clang-format clang-tidy cmake ninja-build git ca-certificates openssl \
-            libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev \
+            g++ clang clang-format clang-tidy cmake ninja-build pkg-config git ca-certificates openssl \
+            libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev libtirpc-dev \
             libclang-rt-19-dev  # clang's sanitizer and libFuzzer runtimes
 
       - uses: actions/checkout@v4
 
       - name: Trust the checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # The tests' MySQL client libraries, built from Oracle's source once
+      # per pin and architecture (cmake/mysql_client.cmake).
+      - name: MySQL client libraries
+        uses: actions/cache@v4
+        with:
+          path: build-ci/mysql-client
+          key: mysql-client-${{ matrix.arch }}-${{ hashFiles('cmake/mysql_client.cmake') }}
 
       - name: ${{ matrix.step }}
         run: tools/ci.sh ${{ matrix.step }}
@@ -108,14 +116,20 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            g++ cmake ninja-build git ca-certificates openssl \
-            libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev lcov \
+            g++ cmake ninja-build pkg-config git ca-certificates openssl \
+            libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev libtirpc-dev lcov \
             curl gnupg  # Codecov's uploader verifies its own signature
 
       - uses: actions/checkout@v4
 
       - name: Trust the checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: MySQL client libraries
+        uses: actions/cache@v4
+        with:
+          path: build-ci/mysql-client
+          key: mysql-client-x86-64-${{ hashFiles('cmake/mysql_client.cmake') }}
 
       - name: Build and test
         run: tools/ci.sh coverage

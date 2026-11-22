@@ -19,8 +19,6 @@
 //   kvasir-node --ack-level ephemeral --tls-certificate node.pem --tls-key node.key --users "root:<credential>"
 
 #include <algorithm>
-#include <atomic>
-#include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>
 #include <csignal>
 #include <iostream>
@@ -30,16 +28,10 @@
 #include <vector>
 
 #include "dannan/config/config.h"
-#include "dannan/listen/listener.h"
-#include "dannan/sched/worker_pool.h"
 #include "dannan/status/log.h"
-#include "kvasir/catalog/catalog.h"
-#include "kvasir/exec/variables.h"
 #include "kvasir/server/accounts.h"
-#include "kvasir/server/connection.h"
+#include "kvasir/server/node.h"
 #include "kvasir/server/node_settings.h"
-#include "kvasir/server/pool_checker.h"
-#include "kvasir/server/stream_transport.h"
 #include "kvasir/version.h"
 
 namespace {
@@ -65,69 +57,13 @@ int hash_password() {
   return 0;
 }
 
-// The version a client is told (the design: 8.4.<n>-kvasir, n the MySQL 8.4
-// release the differential gate was recorded against).
-constexpr const char* server_version = "8.4.13-kvasir";
-constexpr const char* version_comment = "Kvasir - The Distributed Relational Database (in memory, not durable)";
-
-int serve(const kvasir::server::NodeSettings& node, const dannan::status::ScopedLogger& log) {
-  // What every connection refers to, made before the io context and gone
-  // after it.
-  const kvasir::exec::VariableRegistry registry(node.ack_level, server_version, version_comment);
-  kvasir::catalog::Catalog catalog;
-  kvasir::txn::Store rows;
-  const kvasir::server::Accounts accounts(node.users);
-  kvasir::server::VerifierCache verifiers;
-  dannan::sched::ClassGates gates;
-  dannan::sched::WorkerPoolConfig pool_config;
-  pool_config.threads = 2;
-  pool_config.name = "kvasir-sign-in";
-  pool_config.reserve = {0, 0, 0, 0};
-  dannan::sched::WorkerPool pool(pool_config, gates);
-  pool.start();
-  kvasir::server::PoolPasswordChecker checker(accounts, pool, dannan::contract::steady_time_source());
-  // Lugh's rules: five free failures per account, twenty per address, then
-  // a wait from a second, doubling, to fifteen minutes; forgotten after an
-  // hour without a failure.
-  dannan::listen::Backoff principals({5, std::chrono::seconds(1), std::chrono::minutes(15), std::chrono::hours(1)});
-  dannan::listen::Backoff sources({20, std::chrono::seconds(1), std::chrono::minutes(15), std::chrono::hours(1)});
-  const kvasir::server::SignInBackoff backoff{principals, sources, dannan::contract::steady_time_source()};
-  kvasir::server::NodeStatistics statistics(dannan::contract::steady_time_source());
-
-  boost::asio::io_context io;
-  dannan::listen::ListenerConfig config;
-  config.name = "mysql";
-  config.host = node.host;
-  config.port = node.port;
-  config.certificates = std::make_shared<dannan::listen::Certificates>(dannan::listen::CertificatePaths{node.certificate, node.key, {}});
-  // MySQL's TLS begins after the client's SSLRequest, in place.
-  config.start_tls = true;
-  dannan::listen::StreamListener listener(io, config);
-  std::atomic<uint32_t> next_id{1};
-  listener.start(io.get_executor(), [&](std::shared_ptr<dannan::listen::Stream> stream) {
-    kvasir::server::ConnectionSettings settings;
-    settings.server_version = server_version;
-    settings.connection_id = next_id++;
-    const auto executor = stream->get_executor();
-    std::make_shared<kvasir::server::Connection>(std::make_shared<kvasir::server::StreamTransport>(std::move(stream)), executor, settings, registry, catalog,
-                                                 rows, verifiers, checker, &backoff, &statistics)
-        ->start();
-  });
-  boost::asio::signal_set signals(io, SIGINT, SIGTERM);
-  signals.async_wait([&](const boost::system::error_code&, int) {
-    listener.stop();
-    io.stop();
-  });
-  log.info(std::string(kvasir::version) + " serving MySQL on " + node.host + ":" + std::to_string(listener.port()) + " (" + std::to_string(accounts.size()) +
-           " accounts, ack_level " + node.ack_level + ")");
-
-  std::vector<std::thread> threads;
-  const unsigned count = std::max(2u, std::thread::hardware_concurrency());
-  for (unsigned i = 1; i < count; ++i) threads.emplace_back([&io] { io.run(); });
-  io.run();
-  for (auto& t : threads) t.join();
-  // The pool posts its answers to the io context: it stops while that lives.
-  pool.stop();
+int serve(const kvasir::server::NodeSettings& settings, const dannan::status::ScopedLogger& log) {
+  kvasir::server::Node node(settings);
+  boost::asio::signal_set signals(node.io(), SIGINT, SIGTERM);
+  signals.async_wait([&node](const boost::system::error_code&, int) { node.stop(); });
+  log.info(std::string(kvasir::version) + " serving MySQL on " + settings.host + ":" + std::to_string(node.port()) + " (" + std::to_string(node.accounts()) +
+           " accounts, ack_level " + settings.ack_level + ")");
+  node.run(std::max(2u, std::thread::hardware_concurrency()));
   log.info("stopped");
   return 0;
 }

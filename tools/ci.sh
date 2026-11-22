@@ -23,9 +23,12 @@
 # Builds go under build-ci/ (KVASIR_CI_OUT to move it), one job per CPU
 # (KVASIR_CI_JOBS to set it: 2 on the shared build nodes). Dannan is fetched at
 # the pinned tag from the sibling checkout when there is one, else from its
-# repository (KVASIR_DANNAN_REPOSITORY to name another). Needs g++ cmake
-# ninja-build libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev, and for its
-# step clang, libclang-rt-19-dev, clang-format, clang-tidy or lcov.
+# repository (KVASIR_DANNAN_REPOSITORY to name another). The tests' MySQL
+# client libraries are built once, into build-ci/mysql-client, and every step
+# after finds them there (cmake/mysql_client.cmake). Needs g++ cmake
+# ninja-build pkg-config libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev
+# libtirpc-dev, and for its step clang, libclang-rt-19-dev, clang-format,
+# clang-tidy or lcov.
 
 set -eu
 
@@ -48,9 +51,11 @@ fi
 configure() {
   dir="$1"
   shift
-  cmake -S "$top" -B "$out/$dir" -G Ninja -DKVASIR_BUILD_TESTING=ON -DKVASIR_WARNINGS_AS_ERRORS=ON -DKVASIR_DANNAN_REPOSITORY="$KVASIR_DANNAN_REPOSITORY" "$@"
+  cmake -S "$top" -B "$out/$dir" -G Ninja -DKVASIR_BUILD_TESTING=ON -DKVASIR_WARNINGS_AS_ERRORS=ON -DKVASIR_DANNAN_REPOSITORY="$KVASIR_DANNAN_REPOSITORY" \
+    $client "$@"
   cmake --build "$out/$dir" -j "$jobs"
 }
+client="-DKVASIR_MYSQL_CLIENT_ROOT=$out/mysql-client -DKVASIR_MYSQL_CLIENT_JOBS=$jobs"
 
 # Both libraries carry the sanitizer, not only the tests that link them:
 # their undefined symbols name the runtime's entry points (`prefix`, __asan_
@@ -129,8 +134,11 @@ case "$step" in
     # Configured, not built: clang-tidy reads the compile commands. Use after
     # move counts the unsequenced kind too, a value moved into one argument
     # and read in another (the stack's rule, 2026-11-20).
+    # The client test's headers come from the MySQL client build, so it runs
+    # first (once; later configures find it).
     CXX=clang++ cmake -S "$top" -B "$out/tidy" -G Ninja -DKVASIR_BUILD_TESTING=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-      -DKVASIR_DANNAN_REPOSITORY="$KVASIR_DANNAN_REPOSITORY"
+      -DKVASIR_DANNAN_REPOSITORY="$KVASIR_DANNAN_REPOSITORY" $client
+    cmake --build "$out/tidy" -j "$jobs" --target kvasir_mysql_client
     tidy=$(command -v run-clang-tidy || command -v run-clang-tidy-19)
     "$tidy" -p "$out/tidy" -j "$jobs" -quiet -checks='-*,bugprone-use-after-move' -warnings-as-errors='*' -header-filter="$top/kvasir/.*" "$top/kvasir/.*"
     ;;

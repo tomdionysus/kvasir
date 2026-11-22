@@ -143,6 +143,13 @@ std::optional<std::optional<int64_t>> Evaluator::constant_integer(const Expr& x)
   return scratch.integer_argument(x);
 }
 
+Evaluator::Derivation Evaluator::text_derivation(const Expr& e) const {
+  const auto t = type(e);
+  if (t.field_type == f::null) return {binary_collation, ignorable_coercibility};
+  if (is_string_type(t)) return derivation(e, t);
+  return {_settings.result_collation, numeric_coercibility};
+}
+
 std::optional<Evaluator::Merged> Evaluator::string_function(const Expr& e) const {
   if (e.kind != sql::ExprKind::call) return std::nullopt;
   const auto& name = e.value;
@@ -152,18 +159,29 @@ std::optional<Evaluator::Merged> Evaluator::string_function(const Expr& e) const
     size_t least, most;
   };
   static constexpr size_t any = std::numeric_limits<size_t>::max();
-  static constexpr std::array<Arity, 26> arities = {
+  static constexpr std::array<Arity, 27> arities = {
       {{"CONCAT", 1, any},  {"CONCAT_WS", 2, any}, {"LENGTH", 1, 1},  {"OCTET_LENGTH", 1, 1}, {"CHAR_LENGTH", 1, 1}, {"CHARACTER_LENGTH", 1, 1},
        {"SUBSTRING", 2, 3}, {"SUBSTR", 2, 3},      {"MID", 2, 3},     {"LEFT", 2, 2},         {"RIGHT", 2, 2},       {"TRIM", 1, 2},
        {"LTRIM", 1, 1},     {"RTRIM", 1, 1},       {"REPLACE", 3, 3}, {"LOCATE", 2, 3},       {"INSTR", 2, 2},       {"POSITION", 2, 2},
        {"LPAD", 3, 3},      {"RPAD", 3, 3},        {"REPEAT", 2, 2},  {"REVERSE", 1, 1},      {"UPPER", 1, 1},       {"UCASE", 1, 1},
-       {"LOWER", 1, 1},     {"LCASE", 1, 1}}};
+       {"LOWER", 1, 1},     {"LCASE", 1, 1},       {"STRCMP", 2, 2}}};
   const auto found = std::find_if(arities.begin(), arities.end(), [&](const Arity& a) { return a.name == name; });
   if (found == arities.end()) return std::nullopt;
   if (e.args.size() < found->least || e.args.size() > found->most) wrong_count(name);
   const bool concat = name == "CONCAT", concat_ws = name == "CONCAT_WS";
   const bool left_right = is_left_right(name);
   Merged m;
+  if (name == "STRCMP") {
+    // -1, 0 or 1: a signed integer of two characters, NULL when either
+    // argument is. The two compare as strings under their collations
+    // aggregated as a comparison's, 1267 when they cannot be.
+    const auto collation = aggregate_collations({text_derivation(*e.args[0]), text_derivation(*e.args[1])}, "strcmp").first;
+    if (!collation_by_id(collation))
+      throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'comparing strings under this collation'");
+    m.type = integer_type(1, false, !type(*e.args[0]).nullable() && !type(*e.args[1]).nullable());
+    m.derivation = {binary_collation, numeric_coercibility};
+    return m;
+  }
   if (is_length(name)) {
     m.type = integer_type(9, false, !type(*e.args[0]).nullable());
     m.derivation = {binary_collation, numeric_coercibility};
@@ -411,15 +429,9 @@ Value Evaluator::string_function_value(const Expr& e) {
     // Compared under the two strings' collation; byte for byte when either
     // is binary, or when their collations do not agree (observed: no
     // error).
-    const auto derived = [&](const Expr& x) -> Derivation {
-      const auto t = type(x);
-      if (t.field_type == f::null) return {binary_collation, ignorable_coercibility};
-      if (is_string_type(t)) return derivation(x, t);
-      return {_settings.result_collation, numeric_coercibility};
-    };
     uint16_t collation = binary_collation;
     try {
-      collation = aggregate_collations({derived(needle_expr), derived(haystack_expr)}, "locate").first;
+      collation = aggregate_collations({text_derivation(needle_expr), text_derivation(haystack_expr)}, "locate").first;
     } catch (const SqlError&) {
     }
     const Collation* compare = collation_by_id(collation);
@@ -434,6 +446,15 @@ Value Evaluator::string_function_value(const Expr& e) {
       if (compare->compare(std::string_view(*haystack).substr(begin, end - begin), *needle) == 0) return i + 1;
     }
     return int64_t{0};
+  }
+  if (name == "STRCMP") {
+    const auto a = text(*e.args[0]);
+    if (!a) return {};
+    const auto b = text(*e.args[1]);
+    if (!b) return {};
+    const auto collation = aggregate_collations({text_derivation(*e.args[0]), text_derivation(*e.args[1])}, "strcmp").first;
+    const int order = collation_by_id(collation)->compare(*a, *b);
+    return int64_t{order < 0 ? -1 : order > 0 ? 1 : 0};
   }
   if (name == "LPAD" || name == "RPAD") {
     const auto s = text(*e.args[0]);

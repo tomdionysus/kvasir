@@ -636,6 +636,23 @@ TEST(ExecSession, SessionFunctions) {
   EXPECT_EQ(row(run(s, "SELECT ROW_COUNT(), FOUND_ROWS()")), (std::vector<std::string>{"-1", "1"}));
 }
 
+// The manual's examples (String Comparison Functions, STRCMP): -1, 0 or 1
+// by the collation the two arguments aggregate to, NULL for a NULL, and 1267
+// for collations that cannot be reconciled. Connector/C++'s getTables uses it.
+TEST(ExecSession, Strcmp) {
+  auto s = make();
+  EXPECT_EQ(row(run(s, "SELECT STRCMP('text', 'text2'), STRCMP('text2', 'text'), STRCMP('text', 'text'), STRCMP(NULL, 'a'), STRCMP('a', NULL)")),
+            (std::vector<std::string>{"-1", "1", "0", "NULL", "NULL"}));
+  run(s,
+      "SET @s1 = _utf8mb4 'x' COLLATE utf8mb4_0900_ai_ci, @s2 = _utf8mb4 'X' COLLATE utf8mb4_0900_ai_ci, "
+      "@s3 = _utf8mb4 'x' COLLATE utf8mb4_0900_as_cs, @s4 = _utf8mb4 'X' COLLATE utf8mb4_0900_as_cs");
+  EXPECT_EQ(row(run(s, "SELECT STRCMP(@s1, @s2), STRCMP(@s3, @s4), STRCMP(@s1, @s3 COLLATE utf8mb4_0900_ai_ci)")), (std::vector<std::string>{"0", "-1", "0"}));
+  const auto mixed = refusal(s, "SELECT STRCMP(@s1, @s3)");
+  EXPECT_EQ(mixed.code, 1267);
+  EXPECT_EQ(mixed.message, "Illegal mix of collations (utf8mb4_0900_ai_ci,IMPLICIT) and (utf8mb4_0900_as_cs,IMPLICIT) for operation 'strcmp'");
+  EXPECT_EQ(refusal(s, "SELECT STRCMP('a')").code, 1582);
+}
+
 TEST(ExecSession, ColumnNames) {
   auto s = make();
   const auto o = run(s, "SELECT 1+1, 'abc', 1 AS one, @@version_comment, @a");

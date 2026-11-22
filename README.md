@@ -25,10 +25,13 @@ compiler (GCC 14 or Clang 19), CMake 3.24 or later, Boost 1.83 or later, OpenSSL
 and yaml-cpp, and GoogleTest for the tests. Dannan is fetched at its pinned
 release from a checkout beside this one (`../dannan`); to fetch it from GitHub
 instead, add `-DKVASIR_DANNAN_REPOSITORY=https://github.com/tomdionysus/dannan.git`.
-On Debian 13:
+The tests drive a node with a real MySQL client library, which the first test
+build downloads from Oracle and builds (about 480 MB of source, needing
+pkg-config and libtirpc's headers); `-DKVASIR_MYSQL_CLIENT_TESTS=OFF` leaves
+those tests out. On Debian 13:
 
 ```
-sudo apt install g++ cmake ninja-build libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev
+sudo apt install g++ cmake ninja-build pkg-config libboost-dev libssl-dev libyaml-cpp-dev libgtest-dev libtirpc-dev
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DKVASIR_BUILD_TESTING=ON
 cmake --build build
 ./build/kvasir_tests
@@ -137,7 +140,10 @@ and `asan` and `tsan`, run before a release. `deb` builds a Debian package
 (`docs/packaging.md`) to keep the packaging working; no package is published while
 Kvasir is a prototype. Build options are
 `KVASIR_BUILD_TESTING`, `KVASIR_BUILD_FUZZING` (clang with libFuzzer),
-`KVASIR_WARNINGS_AS_ERRORS` and `KVASIR_SYSTEM_DANNAN` (the packaging build).
+`KVASIR_WARNINGS_AS_ERRORS`, `KVASIR_SYSTEM_DANNAN` (the packaging build), and
+for the tests `KVASIR_MYSQL_CLIENT_TESTS`, `KVASIR_MYSQL_CLIENT_ROOT` (where the
+MySQL client libraries are built once and found after) and
+`KVASIR_MYSQL_CLIENT_JOBS`.
 
 Conventions: [CONTRIBUTING.md](CONTRIBUTING.md). Everyone taking part follows the
 [Code of Conduct](CODE_OF_CONDUCT.md).

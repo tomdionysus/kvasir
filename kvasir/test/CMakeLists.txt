@@ -43,6 +43,12 @@ add_executable(kvasir_tests
 # Dannan's test package: the fuzz harness and the simulation checkers, with
 # its installed simulator fixtures (dannan/test/fixtures/sim/).
 target_link_libraries(kvasir_tests PRIVATE kvasir dannan::testing GTest::gtest_main kvasir_warnings)
+# A node driven by a real MySQL client library (cmake/mysql_client.cmake).
+if(KVASIR_MYSQL_CLIENT_TESTS)
+  target_sources(kvasir_tests PRIVATE server_mysql_client_test.cpp)
+  target_link_libraries(kvasir_tests PRIVATE kvasir::mysql_jdbc)
+  add_dependencies(kvasir_tests kvasir_mysql_client)
+endif()
 # Dannan's fixtures write only inside Kvasir's build tree.
 target_compile_definitions(kvasir_tests PRIVATE DANNAN_TEST_TEMP_ROOT="${PROJECT_BINARY_DIR}/test-tmp"
                                                   KVASIR_DIFFERENTIAL_DIR="${CMAKE_CURRENT_SOURCE_DIR}/differential")

@@ -1,6 +1,6 @@
 # Kvasir - Active Work
 
-Last updated: 2026-11-22, written for a session starting with no memory of
+Last updated: 2026-11-22 (afternoon), written for a session starting with no memory of
 it. What landed, and how, is in `TODO/COMPLETED.md`; this file is the plan.
 
 ## Read, in this order
@@ -28,13 +28,11 @@ it. What landed, and how, is in `TODO/COMPLETED.md`; this file is the plan.
 - **`develop`** is ahead of `main`: Dannan 0.10.0 and its adoptions, the
   node's logging and setting names, the commit protocol for one range
   (step 3), Connector/J's metadata against a node (step 1d), the fuzz
-  targets on Dannan's harness, and fixes. Last gate (a build node,
-  2026-11-21, 1d57d0e): release, clang, ASan and TSan each **393 tests, 966
-  of 966** differential statements; hosted CI green. Coverage 99.1% of
-  lines (round 6).
-- **Nothing is running and no claim is held.** Work stopped 2026-11-21
-  01:15Z on the maintainer's word, at the client library's first step
-  (below), before any build.
+  targets on Dannan's harness, a real MySQL client library driving a node
+  in the tests, STRCMP, and fixes. Last gate (node-c, 2026-11-22): release,
+  clang, ASan and TSan each **401 tests, 966 of 966** differential
+  statements. Coverage 99.1% of lines (round 6, before the client tests).
+- **Nothing is running and no claim is held.**
 
 ## Rulings in force
 
@@ -80,25 +78,18 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
 
 ## Next, in order
 
-1. **The real MySQL client in the tests.** Sources (checked 2026-11-21):
-   - MySQL 8.4.13:
-     `https://cdn.mysql.com/Downloads/MySQL-8.4/mysql-8.4.13.tar.gz`
-     (479,316,148 bytes, sha256
-     f6ddc7f7fb6462bab8b533b13c06af3fff57fa9ca12259b81ab13cd9930b9d58;
-     GitHub tag `mysql-8.4.13`).
-   - Connector/C++ 26.10.0 (no GitHub tag; its last is 9.7.0):
-     `https://cdn.mysql.com/Downloads/Connector-C++/mysql-connector-c++-26.10.0-src.tar.gz`
-     (4,792,185 bytes, sha256
-     25d83a76164da29592b4e029c6e771cd05139453be2f8fc206cc7c73d19fa9b2).
-   - Oracle's APT repository has x86-64 packages only; the build nodes have
-     libssl, ncurses, zlib and zstd headers but no bison. Both tarballs sit
-     in node-c's `/root/kvasir-work/deps-probe`.
-   Steps: measure a client-only build of libmysqlclient and a WITH_JDBC
-   build of Connector/C++ on a build node; fetch and build both in the test
-   build only (pinned by URL and hash); then tests driving a node over TLS
-   as a client would: caching_sha2_password's fast and full paths, prepared
-   statements (a negative `LIMIT ?`: SQL's EXECUTE gives 1690, Kvasir 1210),
-   metadata, and the transport's remaining uncovered lines.
+1. **The real MySQL client in the tests: what is left.** Landed on
+   `feature/mysql-client` (2026-11-22, see COMPLETED): libmysqlclient
+   8.4.13 and Connector/C++ 26.10.0 built from source by
+   `cmake/mysql_client.cmake`, and `kvasir::server::Node` driven by them
+   (sign-in by both paths, refusal, text and prepared statements, metadata,
+   rollback, errors); STRCMP added for getTables. Left, each needing the
+   reference server (Docker on the Mac, which was not running 2026-11-22):
+   - STRCMP's result column (type, length, flags) and its gate statements;
+   - a negative `LIMIT ?` through COM_STMT_EXECUTE (SQL's EXECUTE gives
+     1690, Kvasir 1210), as a client-library test once MySQL's answer is
+     known;
+   - then a coverage run for the transport's remaining uncovered lines.
 2. **Step 2b: each node's state in Dagda**, in the cluster's shape. Waits on
    Dagda's durable AcceptorStore (after its 0.4.0, which carries the
    register map; 0.4.0 waits on the maintainer's word to tag). Dagda's
@@ -155,7 +146,8 @@ Each to be closed, or kept by a decision.
 
 - Not yet checked on the reference server: FLOAT operands of the flow
   control functions (Kvasir merges them as DOUBLE); LPAD or RPAD with a
-  NULL length (Kvasir: a LONG BLOB).
+  NULL length (Kvasir: a LONG BLOB); STRCMP's result column (Kvasir: a
+  signed BIGINT of length 2, as MySQL's source reads).
 - A handshake asking for a character set no session speaks (latin1,
   utf8mb3) leaves the server's utf8mb4; MySQL takes it. Character set and
   collation variables refuse what Kvasir does not convert (1235) and
@@ -203,6 +195,11 @@ Each to be closed, or kept by a decision.
   runs: `sh tools/record_mysql.sh kvasir/test/differential/session.sql >
   build/session.expected.new`, then copy it over `session.expected`.
   Probes: `cd build/mysql84 && sh probe.sh` with SQL on stdin.
+- The tests' MySQL client libraries (`cmake/mysql_client.cmake`): built
+  once per build node into `build-ci/mysql-client` (about 11 minutes at
+  -j1 on a Pi, download included); a node needs pkg-config and
+  libtirpc-dev (on node-b and node-c since 2026-11-22). Their sources sit
+  in `build-ci/*/mysql-client-build/` for reading what a client sends.
 - Real drivers: `build/connectors/` (Connector/J in Docker on the Mac,
   `e2e-jdbc/Meta.java`; Go and Python programs beside it), against the
   reference server on the `kvasir-probe` network and against a throwaway

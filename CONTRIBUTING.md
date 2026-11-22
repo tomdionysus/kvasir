@@ -56,6 +56,10 @@ cmake --build build -j2
 or `tools/ci.sh release`, which does the same. Dannan is fetched at its pinned
 tag from the sibling checkout (`../dannan`), or from the repository
 `KVASIR_DANNAN_REPOSITORY` names. Run the test binary rather than `ctest`.
+A real MySQL client library (libmysqlclient 8.4.13 and Connector/C++ 26.10.0,
+built from Oracle's source by `cmake/mysql_client.cmake`) drives a node in the
+tests only, never in Kvasir itself; it is built once into
+`KVASIR_MYSQL_CLIENT_ROOT` (`build-ci/mysql-client` for `tools/ci.sh`).
 ASan and TSan (`tools/ci.sh asan`, `tsan`) run once before a feature with code
 changes is merged, and to hunt a bug; they build Dannan from source,
 instrumented. Hosted CI runs `tools/ci.sh`'s `check`, `release`, `clang`,
