@@ -2,6 +2,40 @@
 
 The record, newest first. Each entry says what landed, with its gate counts.
 
+## 2026-11-20 to 22: Dannan 0.10.0, the node's settings, and the stack's housekeeping
+
+- Dannan 0.10.0 (fa35ad8), read in full before the repin: its ack-level
+  names, `encoding::utf8_length` in place of three UTF-8 scanners of
+  Kvasir's own, `encoding::hex`, `DANNAN_SANITIZE` for the sanitizer steps
+  (which check both libraries carry the runtime's symbols), Dannan's
+  `install-debs` in the deb step, its tools not built. The fuzz targets
+  moved onto Dannan's harness (d4c61e6).
+- kvasir-node (07c593a): its lines through Dannan's `SwappableSink` and a
+  scoped logger; `log.level` and `log.format` (the stack's names, agreed
+  with Dannan's session); every flag and variable named from its key
+  (`--listen-host`, `--listen-port`, `--users`; `users` has no variable,
+  since a credential holds commas).
+- A collation of another character set is refused before a character set
+  not yet held (ea246e1), found when a gate statement was pushed untested
+  in a version-fix commit (`git commit -a` swept it in) and turned develop
+  red; fixed the same day.
+- Hosted CI runs less (081e3da): not for TODO, docs or Markdown alone; a
+  newer push cancels the older run; CodeQL on main and weekly.
+- The ack-levels standard: a store may offer a subset of the levels,
+  refusing the rest by name (c92aba1, agreed with Dagda).
+- The README says Kvasir is a prototype and drops the apt install (no
+  package is published until a durable store and a tested cluster);
+  CODE_OF_CONDUCT.md added; GitHub's description and topics set at the
+  maintainer's word.
+- History rewritten twice at the maintainer's word to remove identifying
+  data (names, hosts, the coordinating session's name, once split across a
+  line); main, develop and the 0.1.0 tag force-pushed; backups in
+  `~/devroot/backups/2026-11-20-kvasir.tar.gz`.
+- The real MySQL client library: Connector/C++ 26.10.0 and libmysqlclient
+  8.4.13 from Oracle's source, ruled; stopped before the first build.
+- The plan rewritten (2026-11-22) as the current plan only; its history is
+  here and in the design.
+
 ## 2026-11-21: Step 1d: Connector/J's getTables and getColumns against a node
 
 - Connector/J 9.1.0's DatabaseMetaData.getTables and getColumns (four

@@ -69,10 +69,12 @@ node.
 
 Kvasir is "MySQL compatible, not MySQL based": the MySQL 8.4 Reference Manual and its
 client/server protocol are the specification, and nothing of MySQL is copied. Each
-behaviour is tested, and a differential gate replays 962 statements, among them what
-Connector/J, Python's and Go's drivers send as they connect, and compares every
-column's type, length, flags, value and error with what a MySQL 8.4.13 server
-answered: all 962 match.
+behaviour is tested, and a differential gate replays 966 statements, among them what
+Connector/J, Python's and Go's drivers send as they connect and the queries behind
+Connector/J's metadata calls, and compares every column's type, length, flags,
+value and error with what a MySQL 8.4.13 server answered: all 966 match.
+Connector/J's `getTables` and `getColumns` against a running node answer as
+MySQL's do, field for field.
 
 - **Connections.** The MySQL client/server protocol over TLS, `caching_sha2_password`
   only, accounts from the settings with Argon2id credentials, and a back-off on

@@ -28,8 +28,8 @@ serves and which discipline it follows.
 - `main` is the last stable state. Nothing is committed to it directly; stable
   states reach it by merging `develop`.
 - `develop` is where work happens.
-- Work that needs isolation branches off `develop` as `feature/<short-name>` and
-  merges back into `develop`.
+- Each feature or milestone is a branch off `develop`, `feature/<short-name>`,
+  gated there and squash-merged back into `develop` as one commit.
 
 ## Tags and releases
 
@@ -54,14 +54,17 @@ cmake --build build -j2
 ```
 
 or `tools/ci.sh release`, which does the same. Dannan is fetched at its pinned
-tag from the sibling checkout, or from its repository. Run the test binary
-rather than `ctest`. Sanitizers run before a release, or to hunt a bug that
-cannot be pinned any other way. Hosted CI runs `tools/ci.sh`'s `check`,
-`release`, `clang` and `coverage` steps on each push, never the sanitizer
-steps. The differential gate replays MySQL 8.4's recorded answers inside
+tag from the sibling checkout (`../dannan`), or from the repository
+`KVASIR_DANNAN_REPOSITORY` names. Run the test binary rather than `ctest`.
+ASan and TSan (`tools/ci.sh asan`, `tsan`) run once before a feature with code
+changes is merged, and to hunt a bug; they build Dannan from source,
+instrumented. Hosted CI runs `tools/ci.sh`'s `check`, `release`, `clang`,
+`tidy`, `coverage`, `fuzz` and `deb` steps on pushes to `develop` and `main`.
+The differential gate replays MySQL 8.4's recorded answers inside
 `kvasir_tests`; recording them against a MySQL 8.4 server
-(`tools/record_mysql.sh`), and multi-node beds, are done by hand on the build
-servers.
+(`tools/record_mysql.sh`) is done by hand. The commit protocol's simulations
+(Dannan's simulator) and the fuzz targets' smoke runs are in `kvasir_tests`
+too.
 
 Write tests from the MySQL 8.4 manual's documented behaviour, the design and
 the laws, not from the current behaviour.
@@ -69,7 +72,9 @@ the laws, not from the current behaviour.
 ## Dependencies
 
 Dannan, Dagda (from the persistence stage), Boost (Asio), OpenSSL, yaml-cpp
-(through Dannan's configuration reader), plus GoogleTest for the test build.
+(through Dannan's configuration reader), plus GoogleTest for the test build,
+which is also gaining Oracle's MySQL Connector/C++, to drive a node as a client
+would (tests only, never linked by Kvasir).
 Prefer writing something by hand over adding a library, and say so if a
 dependency really is the right call. The SQL parser is written by hand, and
 nothing of MySQL or MariaDB is linked or copied.
@@ -80,8 +85,8 @@ One layout for all the projects, as `../dannan/CONTRIBUTING.md` "Layout" gives
 it, with `<p>` = `kvasir`: the library target `kvasir` in `kvasir/`, public
 headers in `kvasir/include/kvasir/`, subsystems in `kvasir/<subsystem>/`
 (`protocol`, `sql`, `catalog`, `exec`, `txn`, `server`), tests in
-`kvasir/test/` (one binary `kvasir_tests`), fuzz targets in `kvasir/fuzz/` (the
-MySQL packet reader first), tools in `tools/`. No presets.
+`kvasir/test/` (one binary `kvasir_tests`), fuzz targets in `kvasir/fuzz/`
+(registered with Dannan's fuzz harness), tools in `tools/`. No presets.
 
 ## Shared code
 
