@@ -62,6 +62,10 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
 - **Tests**: GoogleTest; from the MySQL 8.4 manual and the reference server,
   watched to fail first; a test is never deleted. Test once; no flaky tests.
 - **Coverage ~100%** (2026-11-20).
+- **Three replicas by default** (2026-11-22): a range's rows on three nodes,
+  surviving any one lost with a majority left.
+- **Next while the store and cluster wait** (2026-11-22): the SQL writes,
+  INSERT IGNORE, REPLACE, ON DUPLICATE KEY UPDATE and INSERT ... SELECT.
 - **Hosted CI** (2026-11-20): keep it green; check after each push; it runs
   only on `develop`, `main` and pull requests, never for TODO, docs or
   Markdown alone, a newer push cancelling the older run, CodeQL on `main`
@@ -92,6 +96,11 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    peer that hangs up. Left in connection.cpp: the lock-wait timer and the
    wake that comes before the wait (both want Dannan's injected time in the
    connection), and a payload error the reader can no longer raise.
+1a. **The SQL writes** (the maintainer's choice, 2026-11-22, while 2 to 4
+   wait): INSERT IGNORE, REPLACE, INSERT ... ON DUPLICATE KEY UPDATE and
+   INSERT ... SELECT, each observed on the reference server first and put in
+   the gate, each ACID as every statement is (a REPLACE's delete and insert,
+   an upsert's read and write, one statement's whole effect or none).
 2. **Step 2b: each node's state in Dagda**, in the cluster's shape. Waits on
    Dagda's durable AcceptorStore (after its 0.4.0, which carries the
    register map; 0.4.0 waits on the maintainer's word to tag). Dagda's
@@ -162,8 +171,7 @@ Each to be closed, or kept by a decision.
 - A statement that waited for a lock lets go of its earlier locks and takes
   them again; MySQL's keeps them.
 - GROUP_CONCAT, the JSON aggregates and WITH ROLLUP are refused (1235);
-  1056 names the function in upper case; DISTINCT with ORDER BY on a column
-  not selected is not refused (MySQL: 3065).
+  1056 names the function in upper case.
 - An engine other than InnoDB is refused as unknown. Column names compare
   case-insensitively in ASCII only. utf8mb3_bin columns cannot yet be
   compared in expressions. Rows without ORDER BY come in key or insertion
@@ -241,7 +249,6 @@ Each to be closed, or kept by a decision.
 
 Nothing blocks Kvasir's next item. Open, none blocking:
 - Dagda 0.4.0's tag (Dagda's to put to him).
-- The default replica count (three proposed).
 - Two figures Kvasir gave Dannan as proposals: a range splits at about
   64 MiB of folded data; a range is unavailable to writes for at most
   about 1 s while it moves.

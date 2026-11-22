@@ -1288,6 +1288,31 @@ Outcome Session::select_from_table(const sql::Select& select) {
     bool descending = false;
   };
   std::vector<Sort> sorts;
+  // Under DISTINCT an ORDER BY expression that is not a select item may name
+  // only columns the list holds; else 3065, naming the first other column
+  // (observed on MySQL 8.4.13).
+  const auto refuse_unlisted = [&](const sql::Expr& e, size_t position) {
+    for (const auto& o : outputs)
+      if (o.expr && (o.expr == &e || sql::to_string(*o.expr) == sql::to_string(e))) return;
+    const auto listed = [&](size_t i) { return std::any_of(outputs.begin(), outputs.end(), [&](const Output& o) { return o.column == i; }); };
+    std::function<const sql::Expr*(const sql::Expr&)> stray = [&](const sql::Expr& x) -> const sql::Expr* {
+      if (x.kind == sql::ExprKind::column) {
+        const auto i = columns.index(x.path);
+        return i && !listed(*i) ? &x : nullptr;
+      }
+      for (const auto& a : x.args)
+        if (a)
+          if (const auto* s = stray(*a)) return s;
+      if (x.operand)
+        if (const auto* s = stray(*x.operand)) return s;
+      return x.otherwise ? stray(*x.otherwise) : nullptr;
+    };
+    if (const auto* s = stray(e))
+      throw SqlError(3065, "HY000",
+                     "Expression #" + std::to_string(position) + " of ORDER BY clause is not in SELECT list, references column '" + database + "." +
+                         columns.qualifier() + "." + table->columns[*columns.index(s->path)].name +
+                         "' which is not in SELECT list; this is incompatible with DISTINCT");
+  };
   // A position counts the columns a star gives (observed); one of those is
   // sorted by as its column named.
   std::vector<std::unique_ptr<sql::Expr>> star_columns;
@@ -1318,6 +1343,7 @@ Outcome Session::select_from_table(const sql::Select& select) {
     sort.expr = e;
     sort.descending = order.descending;
     in_clause("order clause", [&] { sort.type = evaluator.type(*e); });
+    if (select.distinct) refuse_unlisted(*e, sorts.size() + 1);
     sort.collation = order_collation(*e, sort.type, columns, settings.result_collation);
     sorts.push_back(sort);
   }

@@ -721,6 +721,42 @@ TEST(ExecSession, AGeneratedColumnNameIsCutTo255Bytes) {
   EXPECT_TRUE(s.warnings().empty());
 }
 
+// Under DISTINCT, an ORDER BY expression that is not a select item may name
+// only the list's columns: else 3065, naming the expression's position and
+// the first other column (observed on MySQL 8.4.13).
+TEST(ExecSession, DistinctOrdersOnlyByWhatItLists) {
+  catalog::Catalog node;
+  txn::Store rows;
+  auto s = make(node, rows);
+  run(s, "CREATE DATABASE kv_d");
+  run(s, "CREATE TABLE kv_d.t (a INT PRIMARY KEY, b INT, c INT)");
+  run(s, "INSERT INTO kv_d.t VALUES (1, 2, 3), (2, 2, 1)");
+  const auto message = [](int n, const std::string& column) {
+    return "Expression #" + std::to_string(n) + " of ORDER BY clause is not in SELECT list, references column '" + column +
+           "' which is not in SELECT list; this is incompatible with DISTINCT";
+  };
+  auto r = refusal(s, "SELECT DISTINCT b FROM kv_d.t ORDER BY c");
+  EXPECT_EQ(r.code, 3065);
+  EXPECT_EQ(r.sqlstate, "HY000");
+  EXPECT_EQ(r.message, message(1, "kv_d.t.c"));
+  EXPECT_EQ(refusal(s, "SELECT DISTINCT b FROM kv_d.t ORDER BY a").message, message(1, "kv_d.t.a"));
+  EXPECT_EQ(refusal(s, "SELECT DISTINCT b FROM kv_d.t ORDER BY b, c").message, message(2, "kv_d.t.c"));
+  EXPECT_EQ(refusal(s, "SELECT DISTINCT b FROM kv_d.t ORDER BY c + b").message, message(1, "kv_d.t.c"));
+  EXPECT_EQ(refusal(s, "SELECT DISTINCT b FROM kv_d.t ORDER BY ABS(c)").message, message(1, "kv_d.t.c"));
+  EXPECT_EQ(refusal(s, "SELECT DISTINCT b FROM kv_d.t AS u ORDER BY c DESC").message, message(1, "kv_d.u.c"));
+  EXPECT_EQ(refusal(s, "SELECT DISTINCT b + c FROM kv_d.t ORDER BY c").message, message(1, "kv_d.t.c"));
+
+  EXPECT_EQ(row(run(s, "SELECT DISTINCT b FROM kv_d.t ORDER BY b + 1")), (std::vector<std::string>{"2"}));
+  EXPECT_EQ(row(run(s, "SELECT DISTINCT b AS x FROM kv_d.t ORDER BY x")), (std::vector<std::string>{"2"}));
+  EXPECT_EQ(row(run(s, "SELECT DISTINCT b FROM kv_d.t ORDER BY 1")), (std::vector<std::string>{"2"}));
+  EXPECT_EQ(row(run(s, "SELECT DISTINCT b FROM kv_d.t ORDER BY t.b")), (std::vector<std::string>{"2"}));
+  EXPECT_EQ(row(run(s, "SELECT DISTINCT b + c FROM kv_d.t ORDER BY b + c")), (std::vector<std::string>{"3"}));
+  EXPECT_EQ(row(run(s, "SELECT DISTINCT b, c FROM kv_d.t ORDER BY c")), (std::vector<std::string>{"2", "1"}));
+  EXPECT_EQ(row(run(s, "SELECT DISTINCT * FROM kv_d.t ORDER BY c")), (std::vector<std::string>{"2", "2", "1"}));
+  // Without DISTINCT, any column.
+  EXPECT_EQ(row(run(s, "SELECT b FROM kv_d.t ORDER BY c")), (std::vector<std::string>{"2"}));
+}
+
 // Leading blanks and control characters leave a name; an alias keeps at most
 // 256 bytes, a character whole, and an alias changed is warned of, 1466 with
 // its unchanged text or 1474 when nothing is left; a generated name changes

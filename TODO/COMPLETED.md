@@ -38,6 +38,13 @@ The record, newest first. Each entry says what landed, with its gate counts.
   left, ahead of the SELECT's own warnings.
 - Gate (node-c): release, ASan and TSan each **408 tests, 980 of 980**
   statements, TSan with no reports.
+- DISTINCT with an ORDER BY naming a column the list does not hold: 3065,
+  as MySQL (the known difference closed).
+- Gate (node-c): release, ASan and TSan each **409 tests, 993 of 993**
+  statements, TSan with no reports.
+- The maintainer's rulings (2026-11-22, through the question tool): three
+  replicas by default; the SQL writes next while the store and the cluster
+  wait.
 
 ## 2026-11-22: A real MySQL client library drives a node in the tests (step 1, most of it)
 
