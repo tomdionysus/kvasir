@@ -36,11 +36,23 @@ struct Stored {
   // The value as stored, in the text a client is sent; for stored and
   // truncated only.
   std::string text;
+  // For the rest, what a statement that ignores errors (INSERT IGNORE) stores
+  // in its place (observed on MySQL 8.4.13): a number past the type's range
+  // its limit, a number with more after it its leading number (rounded as
+  // a string rounds), anything else not a number 0, text too long cut to the
+  // column, text not of the column's character set cut before its first bad
+  // byte.
+  std::string lenient;
 };
 
 // `from` is the type of the expression `value` came from (a hex literal is a
 // number in a numeric column, bytes in a string one).
 Stored store(const catalog::ColumnType& type, const Value& value, const ResultType& from);
+
+// What a NOT NULL column without a default takes when a statement that
+// ignores errors gives it NULL or nothing: 0 in the type's form, '' for
+// text, zero bytes filling a BINARY.
+std::string implicit_default(const catalog::ColumnType& type);
 
 // Where the first `count` characters of UTF-8 text end: a CHAR or VARCHAR
 // column's length, and a key's prefix on a text column.

@@ -899,32 +899,44 @@ std::string escaped_bytes(const std::string& s) {
 }
 
 // A value as a column stores it, or the error MySQL gives a row for it
-// (strict mode).
-std::string stored_text(const catalog::Column& column, const Value& value, const ResultType& from, size_t row_number, std::vector<Warning>& warnings) {
+// (strict mode). A statement that ignores errors (INSERT IGNORE) is given
+// each as a warning instead, and the value MySQL stores in its place
+// (observed on MySQL 8.4.13).
+std::string stored_text(const catalog::Column& column, const Value& value, const ResultType& from, size_t row_number, std::vector<Warning>& warnings,
+                        bool ignore = false) {
   const std::string at_row = " at row " + std::to_string(row_number);
   const auto stored = store(column.type, value, from);
   const auto value_text = [&]() { return to_text(value, from).value_or("NULL"); };
+  const auto failed = [&](const char* level, uint16_t code, const char* sqlstate, const std::string& message) -> std::string {
+    if (!ignore) throw SqlError(code, sqlstate, message);
+    warnings.push_back({level, code, message});
+    return stored.lenient;
+  };
+  const std::string truncated = "Data truncated for column '" + column.name + "'" + at_row;
   switch (stored.result) {
     case Stored::Result::truncated:
-      warnings.push_back({"Note", 1265, "Data truncated for column '" + column.name + "'" + at_row});
+      warnings.push_back({"Note", 1265, truncated});
       [[fallthrough]];
     case Stored::Result::stored:
       return stored.text;
     case Stored::Result::out_of_range:
-      throw SqlError(1264, "22003", "Out of range value for column '" + column.name + "'" + at_row);
+      return failed("Warning", 1264, "22003", "Out of range value for column '" + column.name + "'" + at_row);
     case Stored::Result::too_long:
+      if (ignore) return failed("Warning", 1265, "01000", truncated);
       throw SqlError(1406, "22001", "Data too long for column '" + column.name + "'" + at_row);
     case Stored::Result::garbage:
-      if (column.type.kind != catalog::TypeKind::decimal) throw SqlError(1265, "01000", "Data truncated for column '" + column.name + "'" + at_row);
+      if (column.type.kind != catalog::TypeKind::decimal) return failed("Warning", 1265, "01000", truncated);
+      // A DECIMAL's leading number is kept with a note.
+      if (ignore) return failed("Note", 1265, "01000", truncated);
       [[fallthrough]];
     case Stored::Result::invalid:
       break;
   }
   if (catalog::is_text(column.type.kind))
-    throw SqlError(1366, "HY000", "Incorrect string value: '" + escaped_bytes(value_text()) + "' for column '" + column.name + "'" + at_row);
-  throw SqlError(1366, "HY000",
-                 std::string("Incorrect ") + (column.type.kind == catalog::TypeKind::decimal ? "decimal" : "integer") + " value: '" + value_text() +
-                     "' for column '" + column.name + "'" + at_row);
+    return failed("Warning", 1366, "HY000", "Incorrect string value: '" + escaped_bytes(value_text()) + "' for column '" + column.name + "'" + at_row);
+  return failed("Warning", 1366, "HY000",
+                std::string("Incorrect ") + (column.type.kind == catalog::TypeKind::decimal ? "decimal" : "integer") + " value: '" + value_text() +
+                    "' for column '" + column.name + "'" + at_row);
 }
 
 // The row's unique key values, each with its key's name, for the store.
@@ -940,11 +952,15 @@ std::vector<std::string> unique_names(const catalog::Table& table, std::optional
 
 // Error 1062 for the key the store says another row holds ("" for the
 // primary key).
-[[noreturn]] void duplicate_entry(const catalog::Table& table, std::optional<size_t> primary, const std::string& duplicate, const txn::Row& row) {
+SqlError duplicate_error(const catalog::Table& table, std::optional<size_t> primary, const std::string& duplicate, const txn::Row& row) {
   const auto name = duplicate.substr(0, duplicate.find('\0'));
   const auto& key =
       duplicate.empty() ? table.keys[*primary] : *std::find_if(table.keys.begin(), table.keys.end(), [&](const catalog::Key& k) { return k.name == name; });
-  throw SqlError(1062, "23000", "Duplicate entry '" + key_text(table, key, row) + "' for key '" + table.name + "." + key.name + "'");
+  return SqlError(1062, "23000", "Duplicate entry '" + key_text(table, key, row) + "' for key '" + table.name + "." + key.name + "'");
+}
+
+[[noreturn]] void duplicate_entry(const catalog::Table& table, std::optional<size_t> primary, const std::string& duplicate, const txn::Row& row) {
+  throw duplicate_error(table, primary, duplicate, row);
 }
 
 // The collation an ORDER BY value sorts under: a column's own, else the
@@ -1801,12 +1817,22 @@ Outcome Session::insert(const sql::Statement& statement) {
   auto& t = transaction();
   _rows.begin_statement(t);
   Outcome outcome;
+  // Rows INSERT IGNORE skipped as duplicates.
+  uint64_t duplicates = 0;
   try {
     Evaluator evaluator(eval_settings());
     const auto primary = table->primary_key();
     // AUTO_INCREMENT: the statement's first need reserves a value for each
     // of its rows (observed: the values of a failed statement are lost).
     uint64_t next_auto = 0, reserved = 0, first_auto = 0;
+    // INSERT IGNORE: a row's errors that can be ignored are warnings, a NOT
+    // NULL column given NULL or nothing takes its type's implicit default,
+    // and a row a key already holds is skipped (observed on MySQL 8.4.13).
+    const auto ignorable = [&](const SqlError& e, txn::Row& row, size_t i) {
+      if (!in.ignore) throw e;
+      _warnings.push_back({"Warning", e.code(), e.what()});
+      row[i] = implicit_default(table->columns[i].type);
+    };
     for (size_t r = 0; r < in.rows.size(); ++r) {
       txn::Row row(table->columns.size());
       std::vector<bool> set(table->columns.size(), false);
@@ -1818,7 +1844,7 @@ Outcome Session::insert(const sql::Statement& statement) {
         } else if (column.default_kind == catalog::Column::Default::value) {
           row[i] = column.default_value;
         } else if (column.default_kind == catalog::Column::Default::none && !column.nullable) {
-          throw SqlError(1364, "HY000", "Field '" + column.name + "' doesn't have a default value");
+          ignorable(SqlError(1364, "HY000", "Field '" + column.name + "' doesn't have a default value"), row, i);
         }
         set[i] = true;
       };
@@ -1837,11 +1863,11 @@ Outcome Session::insert(const sql::Statement& statement) {
           if (column.auto_increment) {
             generate = i;
           } else if (!column.nullable) {
-            throw SqlError(1048, "23000", "Column '" + column.name + "' cannot be null");
+            ignorable(SqlError(1048, "23000", "Column '" + column.name + "' cannot be null"), row, i);
           }
           continue;
         }
-        row[i] = stored_text(column, value, from, r + 1, _warnings);
+        row[i] = stored_text(column, value, from, r + 1, _warnings, in.ignore);
         // 0 in an AUTO_INCREMENT column asks for the next value.
         if (column.auto_increment) {
           if (*row[i] == "0") {
@@ -1854,15 +1880,16 @@ Outcome Session::insert(const sql::Statement& statement) {
       }
       for (size_t i = 0; i < table->columns.size(); ++i)
         if (!set[i]) use_default(i);
+      uint64_t generated = 0;
       if (generate) {
         if (reserved == 0) {
           reserved = in.rows.size() - r;
           next_auto = _rows.reserve_auto(table->id, table->auto_increment, reserved);
         }
-        const uint64_t value = next_auto++;
+        generated = next_auto++;
         --reserved;
-        if (first_auto == 0) first_auto = value;
-        row[*generate] = std::to_string(value);
+        if (first_auto == 0) first_auto = generated;
+        row[*generate] = std::to_string(generated);
       }
       std::string key;
       if (primary) {
@@ -1880,8 +1907,18 @@ Outcome Session::insert(const sql::Statement& statement) {
           break;
         case txn::Store::Inserted::locked:
           throw LockWaitNeeded(t.id(), holder);
-        case txn::Store::Inserted::duplicate:
-          duplicate_entry(*table, primary, duplicate, row);
+        case txn::Store::Inserted::duplicate: {
+          const auto e = duplicate_error(*table, primary, duplicate, row);
+          if (!in.ignore) throw e;
+          // Skipped; the value it was generated is the next row's.
+          _warnings.push_back({"Warning", e.code(), e.what()});
+          ++duplicates;
+          if (generate) {
+            --next_auto;
+            ++reserved;
+            if (first_auto == generated) first_auto = 0;
+          }
+        }
       }
     }
     if (first_auto) {
@@ -1894,7 +1931,9 @@ Outcome Session::insert(const sql::Statement& statement) {
     throw;
   }
   end_statement(false);
-  if (in.rows.size() > 1) outcome.info = "Records: " + std::to_string(in.rows.size()) + "  Duplicates: 0  Warnings: " + std::to_string(_warnings.size());
+  if (in.rows.size() > 1)
+    outcome.info =
+        "Records: " + std::to_string(in.rows.size()) + "  Duplicates: " + std::to_string(duplicates) + "  Warnings: " + std::to_string(_warnings.size());
   return outcome;
 }
 

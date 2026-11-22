@@ -201,6 +201,8 @@ struct Insert {
   // given, in order.
   bool has_columns = false;
   std::vector<std::vector<ExprPtr>> rows;
+  // INSERT IGNORE: a row's errors that can be ignored become warnings.
+  bool ignore = false;
 };
 
 // UPDATE table [AS alias] SET column = value, ... and DELETE FROM table [AS

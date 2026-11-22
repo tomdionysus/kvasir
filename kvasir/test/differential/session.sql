@@ -630,6 +630,46 @@ SELECT DISTINCT b + c FROM kv_distinct.t ORDER BY b + c
 SELECT DISTINCT b, c FROM kv_distinct.t ORDER BY c
 SELECT DISTINCT * FROM kv_distinct.t ORDER BY c
 DROP DATABASE kv_distinct
+CREATE DATABASE kv_ignore
+CREATE TABLE kv_ignore.t (id INT AUTO_INCREMENT PRIMARY KEY, u VARCHAR(3) UNIQUE, n INT NOT NULL, d TINYINT, e TINYINT UNSIGNED, m DECIMAL(4,1), f FLOAT, g DOUBLE NOT NULL, c CHAR(2), b BINARY(2), vb VARBINARY(2), tx TINYTEXT NOT NULL)
+INSERT INTO kv_ignore.t (id, u, n, g, tx) VALUES (1, 'a', 1, 1, 'x')
+INSERT IGNORE INTO kv_ignore.t (id, u, n, g, tx) VALUES (1, 'b', 2, 2, 'x'), (2, 'a', 3, 3, 'x'), (3, 'c', 4, 4, 'x')
+SHOW WARNINGS
+INSERT IGNORE INTO kv_ignore.t (id, u, n, g, tx) VALUES (1, 'z', 1, 1, 'x')
+SHOW WARNINGS
+INSERT IGNORE INTO kv_ignore.t (u, n, d, e, g, tx) VALUES ('dddd', NULL, 300, -1, NULL, NULL)
+SHOW WARNINGS
+INSERT IGNORE INTO kv_ignore.t (u, d, e, g, tx) VALUES ('e', -300, 256, '1e400', REPEAT('y', 300))
+SHOW WARNINGS
+INSERT IGNORE INTO kv_ignore.t (u, n, m, f, g, tx) VALUES ('f', 'x', 12345, 'abc', '7z', 'x')
+SHOW WARNINGS
+INSERT IGNORE INTO kv_ignore.t (u, n, d, m, g, tx) VALUES ('h', '12x', ' 5 ', -99999.99, 1e308 * 10, 'x')
+SHOW WARNINGS
+INSERT IGNORE INTO kv_ignore.t (u, n, m, g, c, b, vb, tx) VALUES ('i', 1, '1.25', 2, 'abc', 'xyz', 0x616263, 'x')
+SHOW WARNINGS
+INSERT IGNORE INTO kv_ignore.t (u, n, m, g, tx) VALUES ('j', 1, '12.3x', 1, 'x'), ('c', 1, 1, 1, 'x'), ('k', 1, 1, 1, 'x')
+SHOW WARNINGS
+SELECT * FROM kv_ignore.t ORDER BY id
+SELECT LAST_INSERT_ID()
+INSERT IGNORE INTO kv_ignore.t (nope) VALUES (1)
+INSERT IGNORE INTO kv_ignore.t VALUES (1)
+DROP DATABASE kv_ignore
+CREATE DATABASE kv_ignore2
+CREATE TABLE kv_ignore2.t (k INT AUTO_INCREMENT PRIMARY KEY, i INT, m DECIMAL(4,1), mu DECIMAL(4,1) UNSIGNED, v VARCHAR(4), b BINARY(2) NOT NULL, dd DOUBLE)
+INSERT IGNORE INTO kv_ignore2.t (i, m) VALUES ('12.7x', 'x')
+SHOW WARNINGS
+INSERT IGNORE INTO kv_ignore2.t (i, m, mu) VALUES ('1e3', '1e400', -5)
+SHOW WARNINGS
+INSERT IGNORE INTO kv_ignore2.t (i, m) VALUES ('99999999999999999999999', '-1e400')
+SHOW WARNINGS
+INSERT IGNORE INTO kv_ignore2.t (v, dd) VALUES (0x61ff62, '-1e400')
+SHOW WARNINGS
+INSERT IGNORE INTO kv_ignore2.t (i, b) VALUES (' -7.5 ', NULL)
+SHOW WARNINGS
+INSERT IGNORE INTO kv_ignore2.t (i, m, dd) VALUES ('-12.5x', '  ', '')
+SHOW WARNINGS
+SELECT k, i, m, mu, v, LENGTH(b), b = 0x0000, dd FROM kv_ignore2.t ORDER BY k
+DROP DATABASE kv_ignore2
 SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 SELECT REPEAT('ab',3), REPEAT('ab',0), REPEAT('ab',-1), REPEAT(NULL,2), REPEAT(1,2), REVERSE('abc'), REVERSE('héllo'), REVERSE(NULL), REVERSE(123), REVERSE(_binary'ab')
 SELECT REPEAT('ab', 40000000)

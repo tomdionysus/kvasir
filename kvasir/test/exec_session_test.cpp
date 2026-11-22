@@ -1640,10 +1640,43 @@ TEST(ExecSessionRows, UpdatesInTransactions) {
   EXPECT_EQ(rows_of(run(b.s, "SELECT n FROM c")), (Rows{{"2"}}));
 }
 
+// INSERT IGNORE's OK: only the rows inserted are affected; several rows give
+// "Records: n  Duplicates: d  Warnings: w"; a skipped row's generated value
+// is the next row's, and the statement's id is the first row inserted's
+// (observed on MySQL 8.4.13 through PyMySQL).
+TEST(ExecSessionRows, InsertIgnoreCountsWhatItInserted) {
+  TableBed b;
+  run(b.s, "CREATE TABLE g (id INT AUTO_INCREMENT PRIMARY KEY, u VARCHAR(3) UNIQUE, n INT NOT NULL)");
+  run(b.s, "INSERT INTO g VALUES (1, 'a', 1)");
+  auto o = run(b.s, "INSERT IGNORE INTO g VALUES (1, 'b', 2), (2, 'a', 3), (3, 'c', 4)");
+  EXPECT_EQ(o.affected_rows, 1u);
+  EXPECT_EQ(o.info, "Records: 3  Duplicates: 2  Warnings: 2");
+  o = run(b.s, "INSERT IGNORE INTO g VALUES (1, 'b', 2)");
+  EXPECT_EQ(o.affected_rows, 0u);
+  EXPECT_EQ(o.info, "");
+  EXPECT_EQ(b.s.warnings().size(), 1u);
+  o = run(b.s, "INSERT IGNORE INTO g (u, n) VALUES ('dddd', NULL)");
+  EXPECT_EQ(o.affected_rows, 1u);
+  EXPECT_EQ(o.last_insert_id, 4u);
+  EXPECT_EQ(b.s.warnings().size(), 2u);
+  o = run(b.s, "INSERT IGNORE INTO g (u, n) VALUES ('c', 1), ('e', 1)");
+  EXPECT_EQ(o.affected_rows, 1u);
+  EXPECT_EQ(o.info, "Records: 2  Duplicates: 1  Warnings: 1");
+  EXPECT_EQ(o.last_insert_id, 5u);
+  o = run(b.s, "INSERT IGNORE INTO g (u, n) VALUES ('c', 1)");
+  EXPECT_EQ(o.affected_rows, 0u);
+  EXPECT_EQ(o.last_insert_id, 0u);
+  o = run(b.s, "INSERT IGNORE INTO g (u, n) VALUES ('h', 1)");
+  EXPECT_EQ(o.last_insert_id, 8u);
+  EXPECT_EQ(rows_of(run(b.s, "SELECT id, u, n FROM g ORDER BY id")),
+            (Rows{{"1", "a", "1"}, {"3", "c", "4"}, {"4", "ddd", "0"}, {"5", "e", "1"}, {"8", "h", "1"}}));
+}
+
 TEST(ExecSessionRows, InsertsKvasirDoesNotYetCarryOut) {
   TableBed b;
   run(b.s, "CREATE TABLE n (a INT, b INT)");
-  b.expect_refused("INSERT IGNORE INTO n VALUES (1, 2)", 1235, "42000", "This version of Kvasir doesn't yet support 'INSERT IGNORE'");
+  b.expect_refused("INSERT INTO n VALUES (1, 2) ON DUPLICATE KEY UPDATE a = 3", 1235, "42000",
+                   "This version of Kvasir doesn't yet support 'ON DUPLICATE KEY UPDATE'");
   b.expect_refused("REPLACE INTO n VALUES (1, 2)", 1235, "42000", "This version of Kvasir doesn't yet support 'REPLACE'");
   b.expect_refused("INSERT INTO n (a, b) VALUES (5, a)", 1235, "42000", "This version of Kvasir doesn't yet support 'columns in VALUES'");
 }

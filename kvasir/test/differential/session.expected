@@ -2703,6 +2703,211 @@ row 1	2	3
 end
 statement DROP DATABASE kv_distinct
 end
+statement CREATE DATABASE kv_ignore
+end
+statement CREATE TABLE kv_ignore.t (id INT AUTO_INCREMENT PRIMARY KEY, u VARCHAR(3) UNIQUE, n INT NOT NULL, d TINYINT, e TINYINT UNSIGNED, m DECIMAL(4,1), f FLOAT, g DOUBLE NOT NULL, c CHAR(2), b BINARY(2), vb VARBINARY(2), tx TINYTEXT NOT NULL)
+end
+statement INSERT INTO kv_ignore.t (id, u, n, g, tx) VALUES (1, 'a', 1, 1, 'x')
+end
+statement INSERT IGNORE INTO kv_ignore.t (id, u, n, g, tx) VALUES (1, 'b', 2, 2, 'x'), (2, 'a', 3, 3, 'x'), (3, 'c', 4, 4, 'x')
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1062	Duplicate entry '1' for key 't.PRIMARY'
+row Warning	1062	Duplicate entry 'a' for key 't.u'
+end
+statement INSERT IGNORE INTO kv_ignore.t (id, u, n, g, tx) VALUES (1, 'z', 1, 1, 'x')
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1062	Duplicate entry '1' for key 't.PRIMARY'
+end
+statement INSERT IGNORE INTO kv_ignore.t (u, n, d, e, g, tx) VALUES ('dddd', NULL, 300, -1, NULL, NULL)
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1265	Data truncated for column 'u' at row 1
+row Warning	1048	Column 'n' cannot be null
+row Warning	1264	Out of range value for column 'd' at row 1
+row Warning	1264	Out of range value for column 'e' at row 1
+row Warning	1048	Column 'g' cannot be null
+row Warning	1048	Column 'tx' cannot be null
+end
+statement INSERT IGNORE INTO kv_ignore.t (u, d, e, g, tx) VALUES ('e', -300, 256, '1e400', REPEAT('y', 300))
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1264	Out of range value for column 'd' at row 1
+row Warning	1264	Out of range value for column 'e' at row 1
+row Warning	1264	Out of range value for column 'g' at row 1
+row Warning	1265	Data truncated for column 'tx' at row 1
+row Warning	1364	Field 'n' doesn't have a default value
+end
+statement INSERT IGNORE INTO kv_ignore.t (u, n, m, f, g, tx) VALUES ('f', 'x', 12345, 'abc', '7z', 'x')
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1366	Incorrect integer value: 'x' for column 'n' at row 1
+row Warning	1264	Out of range value for column 'm' at row 1
+row Warning	1265	Data truncated for column 'f' at row 1
+row Warning	1265	Data truncated for column 'g' at row 1
+end
+statement INSERT IGNORE INTO kv_ignore.t (u, n, d, m, g, tx) VALUES ('h', '12x', ' 5 ', -99999.99, 1e308 * 10, 'x')
+error 1690|22003|DOUBLE value is out of range in '(1e308 * 10)'
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1265	Data truncated for column 'n' at row 1
+row Warning	1264	Out of range value for column 'm' at row 1
+row Error	1690	DOUBLE value is out of range in '(1e308 * 10)'
+end
+statement INSERT IGNORE INTO kv_ignore.t (u, n, m, g, c, b, vb, tx) VALUES ('i', 1, '1.25', 2, 'abc', 'xyz', 0x616263, 'x')
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Note	1265	Data truncated for column 'm' at row 1
+row Warning	1265	Data truncated for column 'c' at row 1
+row Warning	1265	Data truncated for column 'b' at row 1
+row Warning	1265	Data truncated for column 'vb' at row 1
+end
+statement INSERT IGNORE INTO kv_ignore.t (u, n, m, g, tx) VALUES ('j', 1, '12.3x', 1, 'x'), ('c', 1, 1, 1, 'x'), ('k', 1, 1, 1, 'x')
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Note	1265	Data truncated for column 'm' at row 1
+row Warning	1062	Duplicate entry 'c' for key 't.u'
+end
+statement SELECT * FROM kv_ignore.t ORDER BY id
+column id|LONG|63|11|0|NOT_NULL PRI_KEY AUTO_INCREMENT NUM PART_KEY
+column u|VAR_STRING|255|12|0|UNIQUE_KEY PART_KEY
+column n|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+column d|TINY|63|4|0|NUM
+column e|TINY|63|3|0|UNSIGNED NUM
+column m|NEWDECIMAL|63|6|1|NUM
+column f|FLOAT|63|12|31|NUM
+column g|DOUBLE|63|22|31|NOT_NULL NO_DEFAULT_VALUE NUM
+column c|STRING|255|8|0|
+column b|STRING|63|2|0|BINARY
+column vb|VAR_STRING|63|2|0|BINARY
+column tx|BLOB|255|1020|0|NOT_NULL BLOB NO_DEFAULT_VALUE
+row 1	a	1	\N	\N	\N	\N	1	\N	\N	\N	x
+row 3	c	4	\N	\N	\N	\N	4	\N	\N	\N	x
+row 4	ddd	0	127	0	\N	\N	0	\N	\N	\N	
+row 5	e	0	-128	255	\N	\N	1.7976931348623157e308	\N	\N	\N	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+row 6	f	0	\N	\N	999.9	0	7	\N	\N	\N	x
+row 7	i	1	\N	\N	1.3	\N	2	ab	xy	ab	x
+row 8	j	1	\N	\N	12.3	\N	1	\N	\N	\N	x
+row 9	k	1	\N	\N	1.0	\N	1	\N	\N	\N	x
+end
+statement SELECT LAST_INSERT_ID()
+column LAST_INSERT_ID()|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+row 8
+end
+statement INSERT IGNORE INTO kv_ignore.t (nope) VALUES (1)
+error 1054|42S22|Unknown column 'nope' in 'field list'
+end
+statement INSERT IGNORE INTO kv_ignore.t VALUES (1)
+error 1136|21S01|Column count doesn't match value count at row 1
+end
+statement DROP DATABASE kv_ignore
+end
+statement CREATE DATABASE kv_ignore2
+end
+statement CREATE TABLE kv_ignore2.t (k INT AUTO_INCREMENT PRIMARY KEY, i INT, m DECIMAL(4,1), mu DECIMAL(4,1) UNSIGNED, v VARCHAR(4), b BINARY(2) NOT NULL, dd DOUBLE)
+end
+statement INSERT IGNORE INTO kv_ignore2.t (i, m) VALUES ('12.7x', 'x')
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1265	Data truncated for column 'i' at row 1
+row Warning	1366	Incorrect decimal value: 'x' for column 'm' at row 1
+row Warning	1364	Field 'b' doesn't have a default value
+end
+statement INSERT IGNORE INTO kv_ignore2.t (i, m, mu) VALUES ('1e3', '1e400', -5)
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1264	Out of range value for column 'm' at row 1
+row Warning	1264	Out of range value for column 'mu' at row 1
+row Warning	1364	Field 'b' doesn't have a default value
+end
+statement INSERT IGNORE INTO kv_ignore2.t (i, m) VALUES ('99999999999999999999999', '-1e400')
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1264	Out of range value for column 'i' at row 1
+row Warning	1264	Out of range value for column 'm' at row 1
+row Warning	1364	Field 'b' doesn't have a default value
+end
+statement INSERT IGNORE INTO kv_ignore2.t (v, dd) VALUES (0x61ff62, '-1e400')
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1366	Incorrect string value: '\xFFb' for column 'v' at row 1
+row Warning	1264	Out of range value for column 'dd' at row 1
+row Warning	1364	Field 'b' doesn't have a default value
+end
+statement INSERT IGNORE INTO kv_ignore2.t (i, b) VALUES (' -7.5 ', NULL)
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1048	Column 'b' cannot be null
+end
+statement INSERT IGNORE INTO kv_ignore2.t (i, m, dd) VALUES ('-12.5x', '  ', '')
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1265	Data truncated for column 'i' at row 1
+row Warning	1366	Incorrect decimal value: '  ' for column 'm' at row 1
+row Warning	1265	Data truncated for column 'dd' at row 1
+row Warning	1364	Field 'b' doesn't have a default value
+end
+statement SELECT k, i, m, mu, v, LENGTH(b), b = 0x0000, dd FROM kv_ignore2.t ORDER BY k
+column k|LONG|63|11|0|NOT_NULL PRI_KEY AUTO_INCREMENT NUM PART_KEY
+column i|LONG|63|11|0|NUM
+column m|NEWDECIMAL|63|6|1|NUM
+column mu|NEWDECIMAL|63|5|1|UNSIGNED NUM
+column v|VAR_STRING|255|16|0|
+column LENGTH(b)|LONGLONG|63|10|0|NOT_NULL BINARY NUM
+column b = 0x0000|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column dd|DOUBLE|63|22|31|NUM
+row 1	13	0.0	\N	\N	2	1	\N
+row 2	1000	999.9	0.0	\N	2	1	\N
+row 3	2147483647	-999.9	\N	\N	2	1	\N
+row 4	\N	\N	\N	a	2	1	-1.7976931348623157e308
+row 5	-8	\N	\N	\N	2	1	\N
+row 6	-13	0.0	\N	\N	2	1	0
+end
+statement DROP DATABASE kv_ignore2
+end
 statement SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 column LPAD('ab',5,'xy')|VAR_STRING|255|20|31|
 column RPAD('ab',5,'xy')|VAR_STRING|255|20|31|

@@ -369,7 +369,7 @@ class Parser {
     auto& in = s.insert;
     if (word("DELAYED")) return unsupported(s, "INSERT DELAYED");
     if (!accept_word("LOW_PRIORITY")) accept_word("HIGH_PRIORITY");
-    if (word("IGNORE")) return unsupported(s, "INSERT IGNORE");
+    in.ignore = accept_word("IGNORE");
     accept_word("INTO");
     in.table = table_name();
     if (word("PARTITION")) return unsupported(s, "INSERT ... PARTITION");

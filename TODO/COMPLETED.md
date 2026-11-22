@@ -45,6 +45,14 @@ The record, newest first. Each entry says what landed, with its gate counts.
 - The maintainer's rulings (2026-11-22, through the question tool): three
   replicas by default; the SQL writes next while the store and the cluster
   wait.
+- INSERT IGNORE, the first of the SQL writes: duplicates skipped (1062,
+  the AUTO_INCREMENT value handed on), NOT NULL columns given their
+  implicit default (1048, 1364), values stored as MySQL stores them without
+  strict mode with the warnings strict mode would raise (store.h's lenient
+  value), the OK's affected rows and info as PyMySQL saw them. Found: FLOAT
+  display (six significant digits in MySQL), recorded.
+- Gate (node-c): release, ASan and TSan each **410 tests, 1033 of 1033**
+  statements, TSan with no reports.
 
 ## 2026-11-22: A real MySQL client library drives a node in the tests (step 1, most of it)
 

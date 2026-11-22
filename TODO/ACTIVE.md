@@ -97,8 +97,9 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    wake that comes before the wait (both want Dannan's injected time in the
    connection), and a payload error the reader can no longer raise.
 1a. **The SQL writes** (the maintainer's choice, 2026-11-22, while 2 to 4
-   wait): INSERT IGNORE, REPLACE, INSERT ... ON DUPLICATE KEY UPDATE and
-   INSERT ... SELECT, each observed on the reference server first and put in
+   wait): INSERT IGNORE (landed 2026-11-22), then REPLACE, INSERT ... ON
+   DUPLICATE KEY UPDATE and INSERT ... SELECT, each observed on the
+   reference server first and put in
    the gate, each ACID as every statement is (a REPLACE's delete and insert,
    an upsert's read and write, one statement's whole effect or none).
 2. **Step 2b: each node's state in Dagda**, in the cluster's shape. Waits on
@@ -166,6 +167,11 @@ Each to be closed, or kept by a decision.
 - REPEAT of a utf8mb3 system variable past 16 MB is a LONG_BLOB; MySQL's is
   a MEDIUM_BLOB of 16777215.
 - A constant string read as an integer ('2x') warns once; MySQL twice.
+- A FLOAT column shows the shortest text that reads back as the same float
+  (1.2345678, 3.4028235e38); MySQL shows six significant digits (1.23457,
+  3.40282e38, 16777200) and computes with the float widened to a double
+  (f + 0 is 1.2345677614212036). Found 2026-11-22 by INSERT IGNORE's
+  FLOAT limit.
 - Arithmetic on a bare NULL literal is DOUBLE 23/31; MySQL's lengths are
   smaller.
 - A statement that waited for a lock lets go of its earlier locks and takes

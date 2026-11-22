@@ -699,7 +699,11 @@ TEST(SqlParser, Insert) {
   EXPECT_EQ(s.insert.rows[0][1]->kind, ExprKind::default_value);
   s = one("INSERT LOW_PRIORITY INTO t VALUES (1)");
   EXPECT_TRUE(s.unsupported.empty());
-  EXPECT_EQ(one("INSERT IGNORE INTO t VALUES (1)").unsupported, "INSERT IGNORE");
+  s = one("INSERT IGNORE INTO t VALUES (1)");
+  EXPECT_TRUE(s.unsupported.empty());
+  EXPECT_TRUE(s.insert.ignore);
+  EXPECT_FALSE(one("INSERT INTO t VALUES (1)").insert.ignore);
+  EXPECT_TRUE(one("INSERT LOW_PRIORITY IGNORE t VALUES (1)").insert.ignore);
   EXPECT_EQ(one("INSERT INTO t VALUES (1) ON DUPLICATE KEY UPDATE a = 2").unsupported, "ON DUPLICATE KEY UPDATE");
   EXPECT_EQ(one("INSERT INTO t VALUES (1) AS n").unsupported, "INSERT ... AS");
   EXPECT_EQ(one("INSERT INTO t SELECT 1").unsupported, "INSERT ... SELECT");
