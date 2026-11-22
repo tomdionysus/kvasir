@@ -1336,14 +1336,42 @@ std::string mysql_text(const Expr& e, const ColumnSource* c) {
   }
 }
 
+namespace {
+
+// A name without its leading blanks and control characters, cut to at most
+// `longest` bytes, a character whole.
+std::string trimmed_name(const std::string& name, size_t longest) {
+  size_t begin = 0;
+  while (begin < name.size() && (static_cast<uint8_t>(name[begin]) <= 0x20 || name[begin] == 0x7f)) ++begin;
+  std::string out = name.substr(begin);
+  if (out.size() > longest) {
+    size_t end = longest;
+    while (end > 0 && (static_cast<uint8_t>(out[end]) & 0xc0) == 0x80) --end;
+    out.resize(end);
+  }
+  return out;
+}
+
+constexpr size_t longest_alias = 256;
+constexpr size_t longest_generated_name = 255;
+
+}  // namespace
+
+std::string alias_name(const std::string& alias) { return trimmed_name(alias, longest_alias); }
+
+std::optional<Warning> alias_warning(const std::string& alias) {
+  const auto kept = alias_name(alias);
+  if (kept.size() == alias.size()) return std::nullopt;
+  if (kept.empty()) return Warning{"Warning", 1474, "Name '" + alias + "' has become ''"};
+  return Warning{"Warning", 1466, "Leading spaces are removed from name '" + alias + "'"};
+}
+
 std::string column_name(const sql::SelectItem& item) {
-  if (item.has_alias) return item.alias;
+  if (item.has_alias) return alias_name(item.alias);
   if (item.star) return "*";
   // A generated name is held in utf8mb3, where a character past the BMP
-  // (four bytes in UTF-8) becomes '?', and cut to at most 255 bytes, a
-  // character whole (observed).
+  // (four bytes in UTF-8) becomes '?' (observed).
   const auto narrowed = [](const std::string& name) {
-    constexpr size_t longest = 255;
     std::string out;
     for (size_t i = 0; i < name.size(); ++i) {
       if ((static_cast<uint8_t>(name[i]) & 0xf8) == 0xf0 && i + 3 < name.size()) {
@@ -1353,12 +1381,7 @@ std::string column_name(const sql::SelectItem& item) {
         out.push_back(name[i]);
       }
     }
-    if (out.size() > longest) {
-      size_t end = longest;
-      while (end > 0 && (static_cast<uint8_t>(out[end]) & 0xc0) == 0x80) --end;
-      out.resize(end);
-    }
-    return out;
+    return trimmed_name(out, longest_generated_name);
   };
   if (item.expr && item.expr->kind == ExprKind::string) return narrowed(item.expr->path.empty() ? item.expr->value : item.expr->path.front());
   return narrowed(item.text);

@@ -721,6 +721,48 @@ TEST(ExecSession, AGeneratedColumnNameIsCutTo255Bytes) {
   EXPECT_TRUE(s.warnings().empty());
 }
 
+// Leading blanks and control characters leave a name; an alias keeps at most
+// 256 bytes, a character whole, and an alias changed is warned of, 1466 with
+// its unchanged text or 1474 when nothing is left; a generated name changes
+// without a warning (observed on MySQL 8.4.13).
+TEST(ExecSession, AnAliasIsTrimmedAndCutWithAWarning) {
+  auto s = make();
+  const auto names = [](const Outcome& o) {
+    std::vector<std::string> out;
+    for (const auto& c : o.result->columns) out.push_back(c.name);
+    return out;
+  };
+  auto o = run(s, "SELECT 1 AS '  x', '  y', 2 AS '\tt'");
+  EXPECT_EQ(names(o), (std::vector<std::string>{"x", "y", "t"}));
+  ASSERT_EQ(s.warnings().size(), 2u);
+  EXPECT_EQ(s.warnings()[0].code, 1466);
+  EXPECT_EQ(s.warnings()[0].message, "Leading spaces are removed from name '  x'");
+  EXPECT_EQ(s.warnings()[1].message, "Leading spaces are removed from name '\tt'");
+
+  o = run(s, "SELECT 1 AS ' '");
+  EXPECT_EQ(names(o), (std::vector<std::string>{""}));
+  ASSERT_EQ(s.warnings().size(), 1u);
+  EXPECT_EQ(s.warnings()[0].code, 1474);
+  EXPECT_EQ(s.warnings()[0].message, "Name ' ' has become ''");
+
+  const std::string b(300, 'b');
+  std::string ae = "a";
+  for (int i = 0; i < 200; ++i) ae += "é";
+  o = run(s, "SELECT 1 AS " + b + ", 2 AS `" + ae + "`");
+  EXPECT_EQ(names(o)[0], std::string(256, 'b'));
+  EXPECT_EQ(names(o)[1], ae.substr(0, 255));
+  ASSERT_EQ(s.warnings().size(), 2u);
+  EXPECT_EQ(s.warnings()[0].message, "Leading spaces are removed from name '" + b + "'");
+
+  // From a table, the same.
+  run(s, "CREATE DATABASE kv_alias");
+  run(s, "CREATE TABLE kv_alias.t (a INT)");
+  o = run(s, "SELECT a AS '  z' FROM kv_alias.t");
+  EXPECT_EQ(names(o), (std::vector<std::string>{"z"}));
+  EXPECT_EQ(s.warnings().size(), 1u);
+  run(s, "DROP DATABASE kv_alias");
+}
+
 // CREATE DATABASE, DROP DATABASE, SHOW DATABASES and USE, observed on MySQL
 // 8.4.13, 2026-11-16 (lower_case_table_names = 0).
 TEST(ExecSession, Databases) {

@@ -680,8 +680,17 @@ Outcome Session::run(const sql::Statement& statement) {
   if (!statement.unsupported.empty())
     throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support '" + statement.unsupported + "'");
   switch (statement.kind) {
-    case Kind::select:
-      return select(statement.select);
+    case Kind::select: {
+      // An alias MySQL changes is warned of as the statement is read, before
+      // anything the SELECT itself warns of.
+      std::vector<Warning> names;
+      for (const auto& item : statement.select.items)
+        if (item.has_alias)
+          if (auto w = alias_warning(item.alias)) names.push_back(std::move(*w));
+      auto out = select(statement.select);
+      _warnings.insert(_warnings.begin(), names.begin(), names.end());
+      return out;
+    }
     case Kind::show_warnings:
       return show_warnings(statement);
     case Kind::set:
@@ -1245,7 +1254,7 @@ Outcome Session::select_from_table(const sql::Select& select) {
       // A column keeps the name it was written with, without its qualifier;
       // a view's, the view's own (observed).
       const auto i = *columns.index(item.expr->path);
-      result.columns.push_back(columns.column(i, item.has_alias ? item.alias : _view ? table->columns[i].name : item.expr->path.back()));
+      result.columns.push_back(columns.column(i, item.has_alias ? alias_name(item.alias) : _view ? table->columns[i].name : item.expr->path.back()));
       outputs.push_back({i, item.expr.get(), type});
     } else {
       if (_view && through_temporary_table(select) && mentions_column(*item.expr)) type = as_view_field(type);
@@ -1431,7 +1440,7 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
     }
     std::optional<size_t> column;
     if (item.expr->kind == sql::ExprKind::column && columns) column = columns->index(item.expr->path);
-    const auto column_named = [&] { return item.has_alias ? item.alias : _view ? table->columns[*column].name : item.expr->path.back(); };
+    const auto column_named = [&] { return item.has_alias ? alias_name(item.alias) : _view ? table->columns[*column].name : item.expr->path.back(); };
     outputs.push_back({column, item.expr.get(), column ? column_named() : column_name(item), {}});
   }
 

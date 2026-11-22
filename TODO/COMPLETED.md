@@ -31,6 +31,13 @@ The record, newest first. Each entry says what landed, with its gate counts.
   MySQL also cuts an alias past 256 bytes, with warning 1466.
 - Gate (node-c): release, ASan and TSan each **407 tests, 976 of 976**
   statements, TSan with no reports.
+- Names as MySQL keeps them (observed, then MySQL's Name_string::copy read
+  as a guide): leading blanks and control characters go from every name;
+  an alias keeps 256 bytes, a generated name 255, a character whole; an
+  alias changed warns 1466 (its text as written) or 1474 when nothing is
+  left, ahead of the SELECT's own warnings.
+- Gate (node-c): release, ASan and TSan each **408 tests, 980 of 980**
+  statements, TSan with no reports.
 
 ## 2026-11-22: A real MySQL client library drives a node in the tests (step 1, most of it)
 

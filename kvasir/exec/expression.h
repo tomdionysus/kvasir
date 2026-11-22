@@ -270,7 +270,14 @@ ResultType reported(const ResultType& type, std::optional<uint16_t> results);
 std::string mysql_text(const sql::Expr& expr, const ColumnSource* columns = nullptr);
 
 // A result column's name, as MySQL gives it: the alias; else a string
-// literal's value; else the item as written.
+// literal's value; else the item as written. Leading blanks and control
+// characters go; a generated name keeps at most 255 bytes, an alias 256, a
+// character whole (observed).
 std::string column_name(const sql::SelectItem& item);
+// An alias as a result column's name holds it.
+std::string alias_name(const std::string& alias);
+// What MySQL warns of an alias it changed: 1466 (with its unchanged text) or,
+// when nothing is left, 1474; nothing for one kept whole.
+std::optional<Warning> alias_warning(const std::string& alias);
 
 }  // namespace kvasir::exec

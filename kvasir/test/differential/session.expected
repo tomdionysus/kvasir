@@ -2618,6 +2618,29 @@ column LENGTH('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 column ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé|VAR_STRING|255|792|31|NOT_NULL
 row 300	éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé
 end
+statement SELECT 1 AS '  x', '  y', 2 AS ' '
+column x|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+column y|VAR_STRING|255|12|31|NOT_NULL
+column |LONGLONG|63|2|0|NOT_NULL BINARY NUM
+row 1	y	2
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1466	Leading spaces are removed from name '  x'
+row Warning	1474	Name ' ' has become ''
+end
+statement SELECT 1 AS bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+column bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+row 1
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1466	Leading spaces are removed from name 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+end
 statement CREATE DATABASE kv_strcmp
 end
 statement CREATE TABLE kv_strcmp.t (a INT)

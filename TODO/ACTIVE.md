@@ -172,10 +172,6 @@ Each to be closed, or kept by a decision.
 - SHOW DATABASES lists Kvasir's databases and information_schema, not
   mysql, performance_schema or sys.
 - An alias holding a character past the BMP is accepted (MySQL: 3854).
-- An alias longer than 256 bytes is kept whole; MySQL cuts it to 256 bytes
-  (a character whole) with warning 1466 "Leading spaces are removed from
-  name '<the whole alias>'" (observed 2026-11-22). Generated names are cut
-  to 255 bytes as MySQL cuts them.
 - information_schema: only SCHEMATA, TABLES and COLUMNS; TABLES' times are
   refused until temporal types; its storage figures are Kvasir's own.
   TABLES lists none of information_schema's own views (MySQL lists each as

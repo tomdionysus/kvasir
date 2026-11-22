@@ -609,6 +609,10 @@ SELECT STRCMP(@s1, @s2), STRCMP(@s3, @s4), STRCMP(@s1, @s3 COLLATE utf8mb4_0900_
 SELECT STRCMP(@s1, @s3)
 SELECT STRCMP('a')
 SELECT LENGTH('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'), 'éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé'
+SELECT 1 AS '  x', '  y', 2 AS ' '
+SHOW WARNINGS
+SELECT 1 AS bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+SHOW WARNINGS
 CREATE DATABASE kv_strcmp
 CREATE TABLE kv_strcmp.t (a INT)
 SELECT TABLE_NAME, IF(STRCMP(TABLE_TYPE,'BASE TABLE'), IF(STRCMP(TABLE_TYPE,'SYSTEM VIEW'), TABLE_TYPE, 'VIEW'), 'TABLE') AS TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'kv_strcmp'
