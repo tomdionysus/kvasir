@@ -97,9 +97,9 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    wake that comes before the wait (both want Dannan's injected time in the
    connection), and a payload error the reader can no longer raise.
 1a. **The SQL writes** (the maintainer's choice, 2026-11-22, while 2 to 4
-   wait): INSERT IGNORE and REPLACE (landed 2026-11-22), then INSERT ... ON
-   DUPLICATE KEY UPDATE and INSERT ... SELECT (and REPLACE ... SELECT with
-   it), each observed on the
+   wait): INSERT IGNORE, REPLACE and ON DUPLICATE KEY UPDATE (landed
+   2026-11-22), then INSERT ... SELECT (and REPLACE ... SELECT with it),
+   each observed on the
    reference server first and put in
    the gate, each ACID as every statement is (a REPLACE's delete and insert,
    an upsert's read and write, one statement's whole effect or none).

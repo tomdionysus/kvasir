@@ -411,8 +411,30 @@ class Parser {
       } while (symbol(",") && (take(), true));
     }
     if (in.replace) return;
-    if (word("AS")) return unsupported(s, "INSERT ... AS");
-    if (word("ON")) return unsupported(s, "ON DUPLICATE KEY UPDATE");
+    if (accept_word("AS")) {
+      in.row_alias = name();
+      if (symbol("(")) {
+        take();
+        do in.row_alias_columns.push_back(name());
+        while (symbol(",") && (take(), true));
+        expect_symbol(")");
+      }
+    }
+    if (accept_word("ON")) {
+      expect_word("DUPLICATE");
+      expect_word("KEY");
+      expect_word("UPDATE");
+      do {
+        std::vector<std::string> column{name()};
+        while (symbol(".") && column.size() < 3) {
+          take();
+          column.push_back(name_after_dot());
+        }
+        if (!symbol("=") && !symbol(":=")) fail(peek());
+        take();
+        in.on_duplicate.emplace_back(std::move(column), insert_value());
+      } while (symbol(",") && (take(), true));
+    }
   }
 
   // UPDATE after UPDATE: [LOW_PRIORITY] table [[AS] alias] SET ... then

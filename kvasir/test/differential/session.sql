@@ -689,6 +689,30 @@ REPLACE IGNORE INTO kv_replace.t VALUES (1)
 REPLACE INTO kv_replace.t VALUES (1) ON DUPLICATE KEY UPDATE n = 1
 SELECT * FROM kv_replace.t ORDER BY id
 DROP DATABASE kv_replace
+CREATE DATABASE kv_upsert
+CREATE TABLE kv_upsert.t (id INT AUTO_INCREMENT PRIMARY KEY, u VARCHAR(3) UNIQUE, n INT NOT NULL DEFAULT 0, s VARCHAR(5))
+INSERT INTO kv_upsert.t (id, u, n) VALUES (1, 'a', 1), (2, 'b', 2)
+INSERT INTO kv_upsert.t (u, n) VALUES ('c', 3) ON DUPLICATE KEY UPDATE n = n + 100
+INSERT INTO kv_upsert.t (u, n) VALUES ('a', 5) ON DUPLICATE KEY UPDATE n = n + 100, s = CONCAT(u, '!')
+INSERT INTO kv_upsert.t (u, n) VALUES ('a', 5) ON DUPLICATE KEY UPDATE n = n
+INSERT INTO kv_upsert.t (u, n) VALUES ('b', 7) ON DUPLICATE KEY UPDATE n = VALUES(n)
+SHOW WARNINGS
+INSERT INTO kv_upsert.t (u, n) VALUES ('b', 8) AS new ON DUPLICATE KEY UPDATE n = new.n + t.n
+INSERT INTO kv_upsert.t (u, n) VALUES ('b', 9) AS new (x, y) ON DUPLICATE KEY UPDATE n = y + new.y, s = x
+INSERT INTO kv_upsert.t (id, u, n) VALUES (1, 'b', 0) ON DUPLICATE KEY UPDATE n = 42
+SELECT * FROM kv_upsert.t ORDER BY id
+INSERT INTO kv_upsert.t (u, n) VALUES ('a', 1), ('d', 4), ('a', 2) ON DUPLICATE KEY UPDATE n = n + VALUES(n), s = DEFAULT
+SHOW WARNINGS
+INSERT INTO kv_upsert.t (u, n) VALUES ('a', 1) ON DUPLICATE KEY UPDATE u = 'b'
+INSERT INTO kv_upsert.t (u, n) VALUES ('a', 1) ON DUPLICATE KEY UPDATE id = id + 10, n = id
+INSERT INTO kv_upsert.t (u, n) VALUES ('z', 1) ON DUPLICATE KEY UPDATE nope = 1
+INSERT INTO kv_upsert.t (u, n) VALUES ('a', 1) ON DUPLICATE KEY UPDATE n = NULL
+INSERT IGNORE INTO kv_upsert.t (u, n) VALUES ('a', 1) ON DUPLICATE KEY UPDATE n = NULL, s = 'toolong'
+SHOW WARNINGS
+INSERT INTO kv_upsert.t (u, n) VALUES ('d', 1) ON DUPLICATE KEY UPDATE s = 'toolong'
+SELECT * FROM kv_upsert.t ORDER BY id
+SELECT LAST_INSERT_ID()
+DROP DATABASE kv_upsert
 SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 SELECT REPEAT('ab',3), REPEAT('ab',0), REPEAT('ab',-1), REPEAT(NULL,2), REPEAT(1,2), REVERSE('abc'), REVERSE('héllo'), REVERSE(NULL), REVERSE(123), REVERSE(_binary'ab')
 SELECT REPEAT('ab', 40000000)

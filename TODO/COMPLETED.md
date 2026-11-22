@@ -61,6 +61,13 @@ The record, newest first. Each entry says what landed, with its gate counts.
   generated, for INSERT too.
 - Gate (node-c): release, ASan and TSan each **411 tests, 1052 of 1052**
   statements, TSan with no reports.
+- INSERT ... ON DUPLICATE KEY UPDATE: the row a key holds updated through
+  an upsert column source (the held row by the table's names, the new row
+  by VALUES(column), warning 1287, or the row alias and its column names);
+  1, 2 or 0 affected, Duplicates, the OK's id and the AUTO_INCREMENT hand-on
+  as PyMySQL saw them; 1062 for an update that collides, IGNORE's warnings.
+- Gate (node-c): release, ASan and TSan each **412 tests, 1076 of 1076**
+  statements, TSan with no reports.
 
 ## 2026-11-22: A real MySQL client library drives a node in the tests (step 1, most of it)
 

@@ -410,6 +410,7 @@ ResultType Evaluator::type(const Expr& e) const {
         Value unused;
         if (_settings.variables->session_function(e.value, t, unused)) return t;
       }
+      if (const auto found = inserted(e)) return found->type;
       not_yet("function " + e.value);
     case ExprKind::case_when:
       return flow_type(e).type;
@@ -523,6 +524,13 @@ uint16_t Evaluator::explicit_collation(const Expr& e) const {
   }
   if (!sql::same_word(info->charset, charset)) throw not_valid();
   return info->id;
+}
+
+std::optional<ColumnSource::Found> Evaluator::inserted(const sql::Expr& e) const {
+  if (e.kind != sql::ExprKind::call || !sql::same_word(e.value, "VALUES") || e.args.size() != 1 || !e.args[0] || e.args[0]->kind != sql::ExprKind::column ||
+      !_settings.columns)
+    return std::nullopt;
+  return _settings.columns->inserted_column(e.args[0]->path.back());
 }
 
 std::optional<uint16_t> Evaluator::string_collation(const std::vector<Operand>& operands, const std::string& operation) const {
@@ -973,6 +981,7 @@ Value Evaluator::value(const Expr& e) {
       if (number_function(e)) return number_function_value(e);
       type(e);
       if (is_aggregate(e)) return _settings.aggregates->aggregate_value(e);
+      if (inserted(e)) return _settings.columns->inserted_value(e.args[0]->path.back());
       ResultType t;
       Value v;
       _settings.variables->session_function(e.value, t, v);

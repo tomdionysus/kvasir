@@ -844,6 +844,69 @@ class TableColumns : public ColumnSource {
   const txn::Row* _row = nullptr;
 };
 
+// What ON DUPLICATE KEY UPDATE reads: the row a key already holds, named as
+// the table's columns are; the row being inserted by the row alias
+// (alias.column, or the alias's own column names) and by VALUES(column).
+class UpsertColumns : public ColumnSource {
+ public:
+  UpsertColumns(const TableColumns& held, const catalog::Table& table, const EvalSettings& eval, const sql::Insert& in)
+      : _held(held), _table(table), _eval(eval), _in(in) {}
+
+  std::optional<Found> find_column(const std::vector<std::string>& path) const override {
+    if (auto found = _held.find_column(path)) return found;
+    const auto i = new_index(path);
+    if (!i) return std::nullopt;
+    return Found{column_result_type(_table, *i, _eval), column_collation_id(_table.columns[*i])};
+  }
+  Value column_value(const std::vector<std::string>& path) const override {
+    if (_held.find_column(path)) return _held.column_value(path);
+    const auto i = new_index(path);
+    return i ? inserted_at(*i) : Value{};
+  }
+  std::string written(const std::vector<std::string>& path) const override { return _held.written(path); }
+  std::optional<Found> inserted_column(const std::string& name) const override {
+    const auto i = _table.column(name);
+    if (!i) return std::nullopt;
+    return Found{column_result_type(_table, *i, _eval), column_collation_id(_table.columns[*i])};
+  }
+  Value inserted_value(const std::string& name) const override {
+    const auto i = _table.column(name);
+    return i ? inserted_at(*i) : Value{};
+  }
+
+  void set_inserted(const txn::Row* row) { _inserted = row; }
+
+ private:
+  // A column of the inserted row by the row alias: alias.column, or a name
+  // the alias gives a column, in the order the INSERT lists them (the
+  // table's when it lists none).
+  std::optional<size_t> new_index(const std::vector<std::string>& path) const {
+    if (_in.row_alias.empty()) return std::nullopt;
+    const auto& names = _in.row_alias_columns;
+    const auto by_alias_name = [&](const std::string& n) -> std::optional<size_t> {
+      for (size_t k = 0; k < names.size(); ++k) {
+        if (!sql::same_word(names[k], n)) continue;
+        if (_in.has_columns) return k < _in.columns.size() ? _table.column(_in.columns[k]) : std::nullopt;
+        return k < _table.columns.size() ? std::optional<size_t>(k) : std::nullopt;
+      }
+      return std::nullopt;
+    };
+    if (path.size() == 2 && path[0] == _in.row_alias) return names.empty() ? _table.column(path[1]) : by_alias_name(path[1]);
+    if (path.size() == 1 && !names.empty()) return by_alias_name(path[0]);
+    return std::nullopt;
+  }
+  Value inserted_at(size_t i) const {
+    if (!_inserted || !(*_inserted)[i]) return {};
+    return value_of(_table.columns[i].type, *(*_inserted)[i]);
+  }
+
+  const TableColumns& _held;
+  const catalog::Table& _table;
+  EvalSettings _eval;
+  const sql::Insert& _in;
+  const txn::Row* _inserted = nullptr;
+};
+
 // Whether MySQL reads an information_schema view through a temporary table
 // for this SELECT, which changes some columns' types (observed with ORDER
 // BY; GROUP BY and DISTINCT taken as the same).
@@ -866,6 +929,14 @@ ResultType as_view_field(ResultType t) {
   if (t.field_type == f::tiny || t.field_type == f::short_ || t.field_type == f::int24 || t.field_type == f::long_ || t.field_type == f::longlong)
     t.field_type = t.length >= 10 ? f::longlong : f::long_;
   return t;
+}
+
+// Whether an expression calls VALUES() anywhere in it.
+bool mentions_values(const sql::Expr& e) {
+  if (e.kind == sql::ExprKind::call && sql::same_word(e.value, "VALUES")) return true;
+  for (const auto& a : e.args)
+    if (a && mentions_values(*a)) return true;
+  return (e.operand && mentions_values(*e.operand)) || (e.otherwise && mentions_values(*e.otherwise));
 }
 
 // Whether an expression names a column anywhere in it.
@@ -1814,10 +1885,42 @@ Outcome Session::insert(const sql::Statement& statement) {
       if (mentions_column(*e)) throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'columns in VALUES'");
   }
 
+  // ON DUPLICATE KEY UPDATE's assignments, read over the row a key holds and
+  // the row being inserted, checked before any row (observed: an unknown
+  // column is 1054 though nothing is duplicated).
+  const auto upsert_settings_base = eval_settings();
+  TableColumns held(*table, database, "", upsert_settings_base);
+  UpsertColumns upsert(held, *table, upsert_settings_base, in);
+  auto upsert_settings = upsert_settings_base;
+  upsert_settings.columns = &upsert;
+  Evaluator upserting(upsert_settings);
+  struct UpsertSet {
+    size_t column;
+    const sql::Expr* value;
+  };
+  std::vector<UpsertSet> upsert_sets;
+  bool deprecated_values = false;
+  for (const auto& [path, value] : in.on_duplicate) {
+    const auto i = held.index(path);
+    if (!i) {
+      std::string name;
+      for (size_t k = 0; k < path.size(); ++k) name += (k ? "." : "") + path[k];
+      throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + name + "' in 'field list'");
+    }
+    if (value->kind != sql::ExprKind::default_value) upserting.type(*value);
+    deprecated_values = deprecated_values || mentions_values(*value);
+    upsert_sets.push_back({*i, value.get()});
+  }
+  if (deprecated_values)
+    _warnings.push_back({"Warning", 1287,
+                         "'VALUES function' is deprecated and will be removed in a future release. Please use an alias (INSERT INTO ... VALUES (...) AS "
+                         "alias) and replace VALUES(col) in the ON DUPLICATE KEY UPDATE clause with alias.col instead"});
+
   auto& t = transaction();
   _rows.begin_statement(t);
   Outcome outcome;
-  // Rows INSERT IGNORE skipped as duplicates.
+  // Rows INSERT IGNORE skipped, REPLACE deleted, or ON DUPLICATE KEY UPDATE
+  // met.
   uint64_t duplicates = 0;
   try {
     Evaluator evaluator(eval_settings());
@@ -1831,10 +1934,10 @@ Outcome Session::insert(const sql::Statement& statement) {
     // INSERT IGNORE: a row's errors that can be ignored are warnings, a NOT
     // NULL column given NULL or nothing takes its type's implicit default,
     // and a row a key already holds is skipped (observed on MySQL 8.4.13).
-    const auto ignorable = [&](const SqlError& e, txn::Row& row, size_t i) {
+    const auto ignorable = [&](const SqlError& e, txn::Row& target, size_t i) {
       if (!in.ignore) throw e;
       _warnings.push_back({"Warning", e.code(), e.what()});
-      row[i] = implicit_default(table->columns[i].type);
+      target[i] = implicit_default(table->columns[i].type);
     };
     for (size_t r = 0; r < in.rows.size(); ++r) {
       txn::Row row(table->columns.size());
@@ -1916,15 +2019,92 @@ Outcome Session::insert(const sql::Statement& statement) {
           break;
         }
         if (inserted == txn::Store::Inserted::locked) throw LockWaitNeeded(t.id(), holder);
+        if (!upsert_sets.empty()) {
+          // ON DUPLICATE KEY UPDATE: the row holding the key, read as UPDATE
+          // reads, is updated as the assignments say; 2 affected when it
+          // changes, 0 when not, and its value given to the AUTO_INCREMENT
+          // column is the OK's id (observed).
+          std::optional<txn::Store::Keyed> found;
+          for (auto& held_row : _rows.current(t, table->id)) {
+            const auto theirs = unique_names(*table, primary, held_row.row);
+            if (duplicate.empty() ? held_row.key == key : std::find(theirs.begin(), theirs.end(), duplicate) != theirs.end()) {
+              found = std::move(held_row);
+              break;
+            }
+          }
+          ++duplicates;
+          if (generate) {
+            --next_auto;
+            ++reserved;
+            if (first_auto == generated) first_auto = 0;
+          }
+          if (!found) break;
+          txn::Row updated = found->row;
+          held.set_row(&updated);
+          upsert.set_inserted(&row);
+          try {
+            // Each value sees the columns set before it.
+            for (const auto& assignment : upsert_sets) {
+              const size_t i = assignment.column;
+              const auto& column = table->columns[i];
+              if (assignment.value->kind == sql::ExprKind::default_value) {
+                if (column.default_kind == catalog::Column::Default::value) {
+                  updated[i] = column.default_value;
+                } else if (column.default_kind == catalog::Column::Default::none && !column.nullable) {
+                  ignorable(SqlError(1364, "HY000", "Field '" + column.name + "' doesn't have a default value"), updated, i);
+                } else {
+                  updated[i].reset();
+                }
+                continue;
+              }
+              const auto from = upserting.type(*assignment.value);
+              const auto value = upserting.value(*assignment.value);
+              if (is_null(value)) {
+                if (!column.nullable) {
+                  ignorable(SqlError(1048, "23000", "Column '" + column.name + "' cannot be null"), updated, i);
+                } else {
+                  updated[i].reset();
+                }
+                continue;
+              }
+              updated[i] = stored_text(column, value, from, r + 1, _warnings, in.ignore);
+              if (column.auto_increment && (*updated[i])[0] != '-') _rows.saw_auto(table->id, table->auto_increment, std::stoull(*updated[i]));
+            }
+          } catch (...) {
+            held.set_row(nullptr);
+            upsert.set_inserted(nullptr);
+            throw;
+          }
+          held.set_row(nullptr);
+          upsert.set_inserted(nullptr);
+          if (updated == found->row) break;
+          const std::string new_key = primary ? encode_key(*table, table->keys[*primary], updated) : found->key;
+          std::string clash;
+          switch (_rows.update(t, table->id, found->key, new_key, unique_names(*table, primary, updated), updated, &clash, &holder)) {
+            case txn::Store::Inserted::inserted:
+              outcome.affected_rows += 2;
+              if (auto_column && updated[*auto_column] && (*updated[*auto_column])[0] != '-')
+                explicit_auto = std::strtoull(updated[*auto_column]->c_str(), nullptr, 10);
+              break;
+            case txn::Store::Inserted::locked:
+              throw LockWaitNeeded(t.id(), holder);
+            case txn::Store::Inserted::duplicate: {
+              const auto e = duplicate_error(*table, primary, clash, updated);
+              if (!in.ignore) throw e;
+              _warnings.push_back({"Warning", e.code(), e.what()});
+            }
+          }
+          break;
+        }
         if (in.replace) {
           // REPLACE: the row holding the key goes, read as UPDATE reads, and
           // the row is tried again; each counts (observed).
           std::string victim = key;
           if (!duplicate.empty()) {
-            for (const auto& held : _rows.current(t, table->id)) {
-              const auto theirs = unique_names(*table, primary, held.row);
+            for (const auto& candidate : _rows.current(t, table->id)) {
+              const auto theirs = unique_names(*table, primary, candidate.row);
               if (std::find(theirs.begin(), theirs.end(), duplicate) != theirs.end()) {
-                victim = held.key;
+                victim = candidate.key;
                 break;
               }
             }

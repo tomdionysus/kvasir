@@ -2979,6 +2979,88 @@ row 11	y	\N	7
 end
 statement DROP DATABASE kv_replace
 end
+statement CREATE DATABASE kv_upsert
+end
+statement CREATE TABLE kv_upsert.t (id INT AUTO_INCREMENT PRIMARY KEY, u VARCHAR(3) UNIQUE, n INT NOT NULL DEFAULT 0, s VARCHAR(5))
+end
+statement INSERT INTO kv_upsert.t (id, u, n) VALUES (1, 'a', 1), (2, 'b', 2)
+end
+statement INSERT INTO kv_upsert.t (u, n) VALUES ('c', 3) ON DUPLICATE KEY UPDATE n = n + 100
+end
+statement INSERT INTO kv_upsert.t (u, n) VALUES ('a', 5) ON DUPLICATE KEY UPDATE n = n + 100, s = CONCAT(u, '!')
+end
+statement INSERT INTO kv_upsert.t (u, n) VALUES ('a', 5) ON DUPLICATE KEY UPDATE n = n
+end
+statement INSERT INTO kv_upsert.t (u, n) VALUES ('b', 7) ON DUPLICATE KEY UPDATE n = VALUES(n)
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1287	'VALUES function' is deprecated and will be removed in a future release. Please use an alias (INSERT INTO ... VALUES (...) AS alias) and replace VALUES(col) in the ON DUPLICATE KEY UPDATE clause with alias.col instead
+end
+statement INSERT INTO kv_upsert.t (u, n) VALUES ('b', 8) AS new ON DUPLICATE KEY UPDATE n = new.n + t.n
+end
+statement INSERT INTO kv_upsert.t (u, n) VALUES ('b', 9) AS new (x, y) ON DUPLICATE KEY UPDATE n = y + new.y, s = x
+end
+statement INSERT INTO kv_upsert.t (id, u, n) VALUES (1, 'b', 0) ON DUPLICATE KEY UPDATE n = 42
+end
+statement SELECT * FROM kv_upsert.t ORDER BY id
+column id|LONG|63|11|0|NOT_NULL PRI_KEY AUTO_INCREMENT NUM PART_KEY
+column u|VAR_STRING|255|12|0|UNIQUE_KEY PART_KEY
+column n|LONG|63|11|0|NOT_NULL NUM
+column s|VAR_STRING|255|20|0|
+row 1	a	42	a!
+row 2	b	18	b
+row 3	c	3	\N
+end
+statement INSERT INTO kv_upsert.t (u, n) VALUES ('a', 1), ('d', 4), ('a', 2) ON DUPLICATE KEY UPDATE n = n + VALUES(n), s = DEFAULT
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1287	'VALUES function' is deprecated and will be removed in a future release. Please use an alias (INSERT INTO ... VALUES (...) AS alias) and replace VALUES(col) in the ON DUPLICATE KEY UPDATE clause with alias.col instead
+end
+statement INSERT INTO kv_upsert.t (u, n) VALUES ('a', 1) ON DUPLICATE KEY UPDATE u = 'b'
+error 1062|23000|Duplicate entry 'b' for key 't.u'
+end
+statement INSERT INTO kv_upsert.t (u, n) VALUES ('a', 1) ON DUPLICATE KEY UPDATE id = id + 10, n = id
+end
+statement INSERT INTO kv_upsert.t (u, n) VALUES ('z', 1) ON DUPLICATE KEY UPDATE nope = 1
+error 1054|42S22|Unknown column 'nope' in 'field list'
+end
+statement INSERT INTO kv_upsert.t (u, n) VALUES ('a', 1) ON DUPLICATE KEY UPDATE n = NULL
+error 1048|23000|Column 'n' cannot be null
+end
+statement INSERT IGNORE INTO kv_upsert.t (u, n) VALUES ('a', 1) ON DUPLICATE KEY UPDATE n = NULL, s = 'toolong'
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1048	Column 'n' cannot be null
+row Warning	1265	Data truncated for column 's' at row 1
+end
+statement INSERT INTO kv_upsert.t (u, n) VALUES ('d', 1) ON DUPLICATE KEY UPDATE s = 'toolong'
+error 1406|22001|Data too long for column 's' at row 1
+end
+statement SELECT * FROM kv_upsert.t ORDER BY id
+column id|LONG|63|11|0|NOT_NULL PRI_KEY AUTO_INCREMENT NUM PART_KEY
+column u|VAR_STRING|255|12|0|UNIQUE_KEY PART_KEY
+column n|LONG|63|11|0|NOT_NULL NUM
+column s|VAR_STRING|255|20|0|
+row 2	b	18	b
+row 3	c	3	\N
+row 9	d	4	\N
+row 11	a	0	toolo
+end
+statement SELECT LAST_INSERT_ID()
+column LAST_INSERT_ID()|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+row 9
+end
+statement DROP DATABASE kv_upsert
+end
 statement SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 column LPAD('ab',5,'xy')|VAR_STRING|255|20|31|
 column RPAD('ab',5,'xy')|VAR_STRING|255|20|31|

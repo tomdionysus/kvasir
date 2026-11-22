@@ -205,6 +205,13 @@ struct Insert {
   bool ignore = false;
   // REPLACE: a row a key already holds is deleted for the new one.
   bool replace = false;
+  // VALUES ... AS alias [(column, ...)]: the rows' name in ON DUPLICATE KEY
+  // UPDATE, and its own names for their columns.
+  std::string row_alias;
+  std::vector<std::string> row_alias_columns;
+  // ON DUPLICATE KEY UPDATE column = value, ...: the row a key already holds
+  // is updated so instead.
+  std::vector<std::pair<std::vector<std::string>, ExprPtr>> on_duplicate;
 };
 
 // UPDATE table [AS alias] SET column = value, ... and DELETE FROM table [AS

@@ -1707,11 +1707,52 @@ TEST(ExecSessionRows, ReplaceDeletesWhatItsRowWouldDuplicate) {
   b.expect_refused("REPLACE INTO r (u, n) VALUES ('q', NULL)", 1048, "23000", "Column 'n' cannot be null");
 }
 
+// INSERT ... ON DUPLICATE KEY UPDATE: a row inserted is 1 affected, a row
+// updated 2, one the assignments leave as it was 0; several rows give
+// "Records: n  Duplicates: d  Warnings: w"; the OK's id is a generated
+// value, else the updated row's AUTO_INCREMENT value; LAST_INSERT_ID()
+// moves only for a generated one (observed on MySQL 8.4.13 through PyMySQL).
+TEST(ExecSessionRows, OnDuplicateKeyUpdateUpdatesTheRowAKeyHolds) {
+  TableBed b;
+  run(b.s, "CREATE TABLE p (id INT AUTO_INCREMENT PRIMARY KEY, u VARCHAR(3) UNIQUE, n INT NOT NULL DEFAULT 0)");
+  run(b.s, "INSERT INTO p VALUES (1, 'a', 1), (2, 'b', 2)");
+  auto o = run(b.s, "INSERT INTO p (u, n) VALUES ('c', 3) ON DUPLICATE KEY UPDATE n = n + 100");
+  EXPECT_EQ(o.affected_rows, 1u);
+  EXPECT_EQ(o.last_insert_id, 3u);
+  o = run(b.s, "INSERT INTO p (u, n) VALUES ('a', 5) ON DUPLICATE KEY UPDATE n = n + 100");
+  EXPECT_EQ(o.affected_rows, 2u);
+  EXPECT_EQ(o.last_insert_id, 1u);
+  o = run(b.s, "INSERT INTO p (u, n) VALUES ('a', 5) ON DUPLICATE KEY UPDATE n = n");
+  EXPECT_EQ(o.affected_rows, 0u);
+  EXPECT_EQ(o.last_insert_id, 0u);
+  o = run(b.s, "INSERT INTO p (u, n) VALUES ('b', 7) ON DUPLICATE KEY UPDATE n = VALUES(n)");
+  EXPECT_EQ(o.affected_rows, 2u);
+  ASSERT_EQ(b.s.warnings().size(), 1u);
+  EXPECT_EQ(b.s.warnings()[0].code, 1287);
+  run(b.s, "INSERT INTO p (u, n) VALUES ('b', 8) AS new ON DUPLICATE KEY UPDATE n = new.n + p.n");
+  run(b.s, "INSERT INTO p (u, n) VALUES ('b', 9) AS new (x, y) ON DUPLICATE KEY UPDATE n = y + new.y");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT id, u, n FROM p ORDER BY id")), (Rows{{"1", "a", "101"}, {"2", "b", "18"}, {"3", "c", "3"}}));
+  o = run(b.s, "INSERT INTO p (u, n) VALUES ('a', 1), ('d', 4), ('a', 2) ON DUPLICATE KEY UPDATE n = n + VALUES(n)");
+  EXPECT_EQ(o.affected_rows, 5u);
+  EXPECT_EQ(o.info, "Records: 3  Duplicates: 2  Warnings: 1");
+  EXPECT_EQ(o.last_insert_id, 9u);
+  b.expect_refused("INSERT INTO p (u, n) VALUES ('a', 1) ON DUPLICATE KEY UPDATE u = 'b'", 1062, "23000", "Duplicate entry 'b' for key 'p.u'");
+  o = run(b.s, "INSERT INTO p (u, n) VALUES ('a', 1) ON DUPLICATE KEY UPDATE id = id + 10, n = id");
+  EXPECT_EQ(o.affected_rows, 2u);
+  EXPECT_EQ(o.last_insert_id, 11u);
+  b.expect_refused("INSERT INTO p (u, n) VALUES ('z', 1) ON DUPLICATE KEY UPDATE nope = 1", 1054, "42S22", "Unknown column 'nope' in 'field list'");
+  b.expect_refused("INSERT INTO p (u, n) VALUES ('a', 1) ON DUPLICATE KEY UPDATE n = NULL", 1048, "23000", "Column 'n' cannot be null");
+  o = run(b.s, "INSERT IGNORE INTO p (u, n) VALUES ('a', 1) ON DUPLICATE KEY UPDATE n = NULL");
+  EXPECT_EQ(o.affected_rows, 2u);
+  EXPECT_EQ(b.s.warnings().size(), 1u);
+  EXPECT_EQ(rows_of(run(b.s, "SELECT id, u, n FROM p ORDER BY id")), (Rows{{"2", "b", "18"}, {"3", "c", "3"}, {"9", "d", "4"}, {"11", "a", "0"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT LAST_INSERT_ID()")), (Rows{{"9"}}));
+}
+
 TEST(ExecSessionRows, InsertsKvasirDoesNotYetCarryOut) {
   TableBed b;
   run(b.s, "CREATE TABLE n (a INT, b INT)");
-  b.expect_refused("INSERT INTO n VALUES (1, 2) ON DUPLICATE KEY UPDATE a = 3", 1235, "42000",
-                   "This version of Kvasir doesn't yet support 'ON DUPLICATE KEY UPDATE'");
+  b.expect_refused("INSERT INTO n SELECT 1, 2", 1235, "42000", "This version of Kvasir doesn't yet support 'INSERT ... SELECT'");
   b.expect_refused("REPLACE INTO n SELECT 1, 2", 1235, "42000", "This version of Kvasir doesn't yet support 'REPLACE ... SELECT'");
   b.expect_refused("INSERT INTO n (a, b) VALUES (5, a)", 1235, "42000", "This version of Kvasir doesn't yet support 'columns in VALUES'");
 }

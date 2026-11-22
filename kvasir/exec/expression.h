@@ -84,6 +84,10 @@ class ColumnSource {
   // The column as an error message names it: by default its path as
   // written, each name backquoted (observed: a HAVING alias is `x`).
   virtual std::string written(const std::vector<std::string>& path) const;
+  // VALUES(column) in ON DUPLICATE KEY UPDATE: the column of the row being
+  // inserted, and its value; nothing anywhere else.
+  virtual std::optional<Found> inserted_column(const std::string&) const { return std::nullopt; }
+  virtual Value inserted_value(const std::string&) const { return {}; }
 };
 
 // Where aggregates are read from: the group at hand's, each call by its
@@ -201,6 +205,9 @@ class Evaluator {
   // its result holds, or nothing for a name that is not one of them.
   std::optional<Merged> string_function(const sql::Expr& e) const;
   Value string_function_value(const sql::Expr& e);
+  // VALUES(column) as ON DUPLICATE KEY UPDATE reads it: the inserted row's
+  // column, or nothing when `e` is not that or the statement has none.
+  std::optional<ColumnSource::Found> inserted(const sql::Expr& e) const;
   // An argument's collation as a string function compares it: a string's
   // own, a number's the connection's at NUMERIC coercibility, NULL's binary
   // at IGNORABLE.
