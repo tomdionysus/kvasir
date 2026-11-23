@@ -210,9 +210,6 @@ Each to be closed, or kept by a decision.
 - REPEAT of a utf8mb3 system variable past 16 MB is a LONG_BLOB; MySQL's is
   a MEDIUM_BLOB of 16777215.
 - A constant string read as an integer ('2x') warns once; MySQL twice.
-- GROUP BY a primary key with expressions in the list (MIN(f), f + 0, a
-  comparison): MySQL reports each expression column BINARY NUM, Kvasir NUM
-  (found 2026-11-22 with FLOAT columns; the values agree).
 - A FLOAT inside CONCAT: Kvasir writes it as a FLOAT column shows (six
   digits, fixed from 1e-15 to below 1e15); MySQL's CONCAT turns to exponent
   notation sooner (1e14 as '1e14', 1.5e-10 as '1.5e-10').

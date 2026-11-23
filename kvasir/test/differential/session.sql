@@ -775,7 +775,19 @@ SELECT * FROM kv_float.t WHERE k = 15
 INSERT IGNORE INTO kv_float.t (k, f) VALUES (19, 1e39), (20, -1e39)
 SHOW WARNINGS
 SELECT f FROM kv_float.t WHERE k >= 19 ORDER BY k
+SELECT k, f, MIN(f), f + 0, f = 1.2345678 FROM kv_float.t GROUP BY k ORDER BY k
 DROP DATABASE kv_float
+CREATE DATABASE kv_grouped
+CREATE TABLE kv_grouped.t (k INT PRIMARY KEY, i INT, u INT UNIQUE, c INT, KEY (i))
+INSERT INTO kv_grouped.t VALUES (1, 1, 1, 1), (2, 1, 2, 1), (3, 2, NULL, 2)
+SELECT k + 0 AS e1, c + 0 AS e2, MIN(c) AS e3 FROM kv_grouped.t GROUP BY k
+SELECT i, i + 0 AS e1, MIN(c) + 0 AS e2, MIN(c) AS e3 FROM kv_grouped.t GROUP BY i
+SELECT c, c + 0 AS e1, MIN(c) + 0 AS e2, MIN(k) AS e3 FROM kv_grouped.t GROUP BY c
+SELECT u, u + 0 AS e1, COUNT(*) AS n FROM kv_grouped.t GROUP BY u ORDER BY u
+SELECT c + 0 AS e1, MIN(i) AS e2 FROM kv_grouped.t GROUP BY c, k
+SELECT i + 0 AS e1, COUNT(*) AS n FROM kv_grouped.t GROUP BY i, c
+SELECT c + 0 AS e1 FROM kv_grouped.t GROUP BY c, i
+DROP DATABASE kv_grouped
 SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 SELECT REPEAT('ab',3), REPEAT('ab',0), REPEAT('ab',-1), REPEAT(NULL,2), REPEAT(1,2), REVERSE('abc'), REVERSE('héllo'), REVERSE(NULL), REVERSE(123), REVERSE(_binary'ab')
 SELECT REPEAT('ab', 40000000)

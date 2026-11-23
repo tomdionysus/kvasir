@@ -101,6 +101,11 @@ The record, newest first. Each entry says what landed, with its gate counts.
   Found with it and recorded: GROUP BY a primary key reports expression
   columns NUM (MySQL BINARY NUM); CONCAT of a FLOAT.
 - Gate (node-c): release, ASan and TSan each **419 tests, 1139 of 1139**
+  statements, TSan with no reports. CI green on 561c44d, coverage 99.2%.
+- Grouped columns typed as MySQL types them when it groups off an index
+  (the leading columns of any index): the list's expressions keep their own
+  types; a temporary table otherwise, and always under SELECT DISTINCT.
+- Gate (node-c): release, ASan and TSan each **419 tests, 1151 of 1151**
   statements, TSan with no reports.
 
 ## 2026-11-22: A real MySQL client library drives a node in the tests (step 1, most of it)

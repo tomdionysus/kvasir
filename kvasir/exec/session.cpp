@@ -1850,6 +1850,24 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
       if (g->kind == sql::ExprKind::column) grouped.push_back(*columns->index(g->path));
   }
   const auto has = [](const std::vector<size_t>& v, size_t i) { return std::find(v.begin(), v.end(), i) != v.end(); };
+  // Grouped by the leading columns of an index (in any order), MySQL reads
+  // the groups off the index with no temporary table (observed: expressions
+  // keep BINARY; GROUP BY c, k with k the primary key still uses one). A view
+  // has no index.
+  const auto grouped_by_index = [&](const std::vector<const sql::Expr*>& by) {
+    if (!table || _view) return false;
+    for (const auto* g : by)
+      if (g->kind != sql::ExprKind::column) return false;
+    std::vector<size_t> distinct;
+    for (const auto i : grouped)
+      if (!has(distinct, i)) distinct.push_back(i);
+    for (const auto& key : table->keys) {
+      bool leading = key.parts.size() >= distinct.size();
+      for (size_t p = 0; leading && p < distinct.size(); ++p) leading = !key.parts[p].prefix && has(distinct, key.parts[p].column);
+      if (leading) return true;
+    }
+    return false;
+  };
 
   if (columns && has_mode(_variables.text("sql_mode"), "ONLY_FULL_GROUP_BY") && !per_row) {
     // A key every column of which is grouped or fixed fixes the row.
@@ -1908,7 +1926,8 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
     for (const auto* g : groups_by) all_fixed = all_fixed && g->kind == sql::ExprKind::column && has(fixed, *columns->index(g->path));
     bool distinct = false;
     for (const auto& spec : specs) distinct = distinct || spec.call().distinct;
-    temporary = !all_fixed && !distinct;
+    // SELECT DISTINCT goes through one all the same.
+    temporary = !all_fixed && !distinct && (select.distinct || !grouped_by_index(groups_by));
   }
   ResultSet result;
   for (const auto& o : outputs) {
