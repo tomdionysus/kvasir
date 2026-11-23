@@ -191,3 +191,17 @@ module is written to. Each goes into the differential gate as it is built.
   format is kept with 1292 "Truncated incorrect date value:
   '2024-02-29xyz'". Leading spaces are skipped. %h %p, %r, %b, %W %D %M,
   %X %V %w and %Y %j all read.
+
+## UNIX_TIMESTAMP and FROM_UNIXTIME (T4c, probed)
+
+- UNIX_TIMESTAMP(x): LONGLONG length 21 when x has no fraction digits, else
+  NEWDECIMAL with x's digits (a constant string's own: '...56.5' gives 1,
+  length 14; DATETIME(3) gives 3, length 16); a constant string that is no
+  datetime ('x') NEWDECIMAL(19, 6) and 0.000000 with 1292. NOT_NULL for a
+  non-NULL constant string or number (a CAST is nullable). Before 1970 or
+  past 3001-01-19 03:14:07 UTC: 0. A DATE is its midnight; a TIME takes
+  the statement's date. In the session's zone.
+- FROM_UNIXTIME(n): DATETIME, n's fraction digits (a string 6, a DOUBLE 6,
+  rounded: .123456789 gives .123457), nullable; negative or past
+  32536771199 (3001-01-18 23:59:59 UTC) NULL, no warning. With a format:
+  VAR_STRING by DATE_FORMAT's lengths.

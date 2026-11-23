@@ -4160,6 +4160,91 @@ end
 statement SELECT WEEK('2024-01-01', 0, 1)
 error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near ', 1)' at line 1
 end
+statement SELECT STR_TO_DATE('29/02/2024', '%d/%m/%Y') a, STR_TO_DATE('2024-02-29 13:04:05', '%Y-%m-%d %H:%i:%s') b, STR_TO_DATE('13:04:05', '%H:%i:%s') c, STR_TO_DATE('2024-02-29 13:04:05.5', '%Y-%m-%d %H:%i:%s.%f') d, STR_TO_DATE('Feb 29 2024', '%b %d %Y') e, STR_TO_DATE('x', '%Y') f, STR_TO_DATE(NULL, '%Y') g, STR_TO_DATE('2024', NULL) h, STR_TO_DATE('2024', '%Y') i, STR_TO_DATE('1:04 PM', '%h:%i %p') j
+column a|DATE|63|10|0|BINARY
+column b|DATETIME|63|19|0|BINARY
+column c|TIME|63|10|0|BINARY
+column d|DATETIME|63|26|6|BINARY
+column e|DATE|63|10|0|BINARY
+column f|DATE|63|10|0|BINARY
+column g|DATE|63|10|0|BINARY
+column h|DATETIME|63|26|6|BINARY
+column i|DATE|63|10|0|BINARY
+column j|TIME|63|10|0|BINARY
+row 2024-02-29	2024-02-29 13:04:05	13:04:05	2024-02-29 13:04:05.500000	2024-02-29	\N	\N	\N	\N	13:04:00
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1411	Incorrect datetime value: 'x' for function str_to_date
+row Warning	1411	Incorrect datetime value: '2024' for function str_to_date
+end
+statement SELECT STR_TO_DATE('2024-02-30', '%Y-%m-%d') a, STR_TO_DATE('2024-02-29xyz', '%Y-%m-%d') b, STR_TO_DATE('24-2-9', '%y-%c-%e') c, STR_TO_DATE('Thursday 29th February 2024', '%W %D %M %Y') d, STR_TO_DATE('2024 9 1', '%X %V %w') e, STR_TO_DATE('2024 060', '%Y %j') f, STR_TO_DATE('  2024-02-29', '%Y-%m-%d') g, STR_TO_DATE('2024-02-29', '%Y-%m-%d %H') h, STR_TO_DATE('12:00:00 AM', '%r') i, STR_TO_DATE('2024-02-29', CONCAT('%Y-', '%m-%d')) k
+column a|DATE|63|10|0|BINARY
+column b|DATE|63|10|0|BINARY
+column c|DATE|63|10|0|BINARY
+column d|DATE|63|10|0|BINARY
+column e|DATE|63|10|0|BINARY
+column f|DATE|63|10|0|BINARY
+column g|DATE|63|10|0|BINARY
+column h|DATETIME|63|19|0|BINARY
+column i|TIME|63|10|0|BINARY
+column k|DATE|63|10|0|BINARY
+row \N	2024-02-29	2024-02-09	2024-02-29	2024-03-04	2024-02-29	2024-02-29	2024-02-29 00:00:00	00:00:00	2024-02-29
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1411	Incorrect datetime value: '2024-02-30' for function str_to_date
+row Warning	1292	Truncated incorrect date value: '2024-02-29xyz'
+end
+statement SELECT STR_TO_DATE('13:04:05 z', '%H:%i:%s') a, STR_TO_DATE('2024-02-29 13:04 z', '%Y-%m-%d %H:%i') b, STR_TO_DATE('13 PM', '%H %p') c, STR_TO_DATE('2024/02/29', '%Y-%m-%d') d, STR_TO_DATE('2024 9 1', '%Y %V %w') e, STR_TO_DATE('2024 9 1', '%Y %U %w') f, STR_TO_DATE('2024 9 0', '%x %v %w') g, STR_TO_DATE('abc', 'abc') h, STR_TO_DATE('2024.02,29', '%Y%.%m%.%d') i, STR_TO_DATE('25:00', '%H:%i') j
+column a|TIME|63|10|0|BINARY
+column b|DATETIME|63|19|0|BINARY
+column c|TIME|63|10|0|BINARY
+column d|DATE|63|10|0|BINARY
+column e|DATE|63|10|0|BINARY
+column f|DATE|63|10|0|BINARY
+column g|DATE|63|10|0|BINARY
+column h|DATE|63|10|0|BINARY
+column i|DATE|63|10|0|BINARY
+column j|TIME|63|10|0|BINARY
+row 13:04:05	2024-02-29 13:04:00	\N	\N	\N	2024-03-04	2024-03-03	\N	2024-02-29	\N
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1292	Truncated incorrect time value: '13:04:05 z'
+row Warning	1292	Truncated incorrect datetime value: '2024-02-29 13:04 z'
+row Warning	1411	Incorrect datetime value: '13 PM' for function str_to_date
+row Warning	1411	Incorrect datetime value: '2024/02/29' for function str_to_date
+row Warning	1411	Incorrect datetime value: '2024 9 1' for function str_to_date
+row Warning	1411	Incorrect datetime value: 'abc' for function str_to_date
+row Warning	1411	Incorrect datetime value: '25:00' for function str_to_date
+end
+statement SELECT STR_TO_DATE('2024 jan 5 MONDAY', '%Y %b %e %W') a, STR_TO_DATE('99-12-31 11:59:59 pm', '%y-%m-%d %r') b, STR_TO_DATE('2024-02-29 13:04:05.1234567', '%Y-%m-%d %T.%f') c, STR_TO_DATE('29', '%d') d, STR_TO_DATE('2024-02-29', '%Y-%m-%d%%') e, STR_TO_DATE(20240229, '%Y%m%d') f, STR_TO_DATE('2024-02-29', 5) g, STR_TO_DATE('0:30', '%l:%i') k
+column a|DATE|63|10|0|BINARY
+column b|DATETIME|63|19|0|BINARY
+column c|DATETIME|63|26|6|BINARY
+column d|DATE|63|10|0|BINARY
+column e|DATE|63|10|0|BINARY
+column f|DATE|63|10|0|BINARY
+column g|DATE|63|10|0|BINARY
+column k|TIME|63|10|0|BINARY
+row 2024-01-05	1999-12-31 23:59:59	2024-02-29 13:04:05.123456	\N	2024-02-29	2024-02-29	\N	\N
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1292	Truncated incorrect datetime value: '2024-02-29 13:04:05.1234567'
+row Warning	1411	Incorrect datetime value: '29' for function str_to_date
+row Warning	1411	Incorrect datetime value: '2024-02-29' for function str_to_date
+row Warning	1411	Incorrect datetime value: '0:30' for function str_to_date
+end
 statement SELECT EXTRACT(HOUR FROM 'abc'), EXTRACT(YEAR FROM 'abc'), EXTRACT(YEAR FROM NULL), EXTRACT(YEAR FROM 20240229), EXTRACT(HOUR FROM 101112), EXTRACT(DAY_HOUR FROM DATE '2024-02-29'), EXTRACT(DAY_SECOND FROM TIMESTAMP '2024-02-29 01:02:03')
 column EXTRACT(HOUR FROM 'abc')|LONGLONG|63|4|0|BINARY NUM
 column EXTRACT(YEAR FROM 'abc')|LONGLONG|63|5|0|BINARY NUM
@@ -4207,6 +4292,12 @@ column YEARWEEK(d, 1)|LONGLONG|63|7|0|BINARY NUM
 column DATE_FORMAT(d, CONCAT('%', 'Y'))|VAR_STRING|255|80|31|
 row 8	9	Thursday 29 February 2024 12:34:56 PM	12:34 PM	202409	2024
 row 8	9	Friday 1 March 2024 12:34:56 PM	12:34 PM	202409	2024
+end
+statement SELECT STR_TO_DATE(DATE_FORMAT(dt, '%d.%m.%Y %T'), '%d.%m.%Y %T'), STR_TO_DATE(CONCAT(d), CONCAT('%Y-%m-', 'X', IF(id = 1, '%d', '%e'))) FROM kv_temporal.t ORDER BY id
+column STR_TO_DATE(DATE_FORMAT(dt, '%d.%m.%Y %T'), '%d.%m.%Y %T')|DATETIME|63|19|0|BINARY
+column STR_TO_DATE(CONCAT(d), CONCAT('%Y-%m-', 'X', IF(id = 1, '%d', '%e')))|DATETIME|63|26|6|BINARY
+row 2024-02-29 12:34:56	\N
+row 2024-03-01 12:34:56	\N
 end
 statement INSERT INTO kv_temporal.t (id, d, t, dt, ts, y) VALUES (3, '24-3-2', '-1 02:00', '2024-03-02T01:02:03', '2024-03-02 01:02:03', '1999')
 end

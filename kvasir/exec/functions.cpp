@@ -143,6 +143,29 @@ std::optional<std::optional<int64_t>> Evaluator::constant_integer(const Expr& x)
   return scratch.integer_argument(x);
 }
 
+namespace {
+
+// A constant, or a pure string function over constants, which MySQL folds
+// when typing (observed: STR_TO_DATE's type follows CONCAT('%Y-', '%m')).
+bool foldable(const Expr& e) {
+  if (is_constant(e)) return true;
+  static constexpr std::array<std::string_view, 15> pure = {"CONCAT", "CONCAT_WS", "LOWER", "UPPER", "LCASE", "UCASE", "REPLACE", "SUBSTRING",
+                                                            "SUBSTR", "LEFT",      "RIGHT", "TRIM",  "LTRIM", "RTRIM", "REPEAT"};
+  if (e.kind != sql::ExprKind::call || std::find(pure.begin(), pure.end(), e.value) == pure.end()) return false;
+  return std::all_of(e.args.begin(), e.args.end(), [](const sql::ExprPtr& a) { return foldable(*a); });
+}
+
+}  // namespace
+
+std::optional<std::optional<std::string>> Evaluator::constant_text(const Expr& x) const {
+  if (!foldable(x)) return std::nullopt;
+  Evaluator scratch(_settings);
+  const auto t = scratch.type(x);
+  const auto v = scratch.value(x);
+  if (is_null(v)) return std::optional<std::string>{};
+  return to_text(v, t);
+}
+
 Evaluator::Derivation Evaluator::text_derivation(const Expr& e) const {
   const auto t = type(e);
   if (t.field_type == f::null) return {binary_collation, ignorable_coercibility};

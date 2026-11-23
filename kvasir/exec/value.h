@@ -80,6 +80,7 @@ inline constexpr uint16_t er_wrong_arguments = 1210;
 inline constexpr uint16_t er_not_supported_yet = 1235;
 inline constexpr uint16_t er_division_by_zero = 1365;
 inline constexpr uint16_t er_truncated_wrong_value = 1292;
+inline constexpr uint16_t er_wrong_value_for_type = 1411;
 inline constexpr uint16_t er_data_out_of_range = 1690;
 inline constexpr uint16_t er_bad_field_error = 1054;
 inline constexpr uint16_t er_ambiguous_field = 1052;

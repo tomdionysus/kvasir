@@ -229,6 +229,10 @@ class Evaluator {
   // A constant argument read as an integer when typing (nothing inside for
   // NULL), or nothing for one that is not a constant.
   std::optional<std::optional<int64_t>> constant_integer(const sql::Expr& e) const;
+  // A constant argument's text when typing, string functions over
+  // constants folded (nothing inside for NULL), or nothing for one that is
+  // not a constant.
+  std::optional<std::optional<std::string>> constant_text(const sql::Expr& e) const;
 
   // The mathematical functions (functions.cpp): ABS, SIGN, FLOOR, CEILING,
   // ROUND and TRUNCATE; nothing for a name that is not one of them.
@@ -263,6 +267,7 @@ class Evaluator {
   // nothing for a name that is not one of them.
   std::optional<ResultType> format_function(const sql::Expr& e) const;
   Value format_function_value(const sql::Expr& e);
+  Value str_to_date(const sql::Expr& e);
   Value timestamp_difference(const sql::Expr& e, std::string_view unit);
   Value extracted(const sql::Expr& e, std::string_view unit);
   // Two values one of which is temporal (cast.cpp): as moments when both

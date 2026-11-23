@@ -122,6 +122,24 @@ std::string_view month_name(uint32_t month);
 std::optional<std::string> format(const Moment& m, std::string_view format, bool time_only);
 uint32_t format_length(std::string_view format);
 
+// The parts a STR_TO_DATE format names: date specifiers, time specifiers,
+// %f.
+struct FormatParts {
+  bool date = false;
+  bool time = false;
+  bool fraction = false;
+};
+FormatParts format_parts(std::string_view format);
+
+// STR_TO_DATE's reading of text by a format (as MySQL's
+// extract_date_time): the moment, or nothing when the text does not match
+// or a field is out of range; `truncated` when text is left over.
+struct Parsed {
+  std::optional<Moment> moment;
+  bool truncated = false;
+};
+Parsed parse_format(std::string_view text, std::string_view format);
+
 // A DATETIME's text moved by `seconds` (a TIMESTAMP between UTC and a
 // session's zone).
 std::string shifted(std::string_view datetime, int fsp, int64_t seconds);

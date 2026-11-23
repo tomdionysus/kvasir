@@ -896,6 +896,14 @@ SELECT WEEK('2024-01-01') a, WEEK('2024-01-01', 1) b, WEEK('2024-12-31', 2) c, W
 SELECT YEARWEEK('2021-01-01') a, YEARWEEK('2021-01-01', 1) b, YEARWEEK('2024-12-31', 3) c, WEEKOFYEAR('2021-01-01') d, WEEKOFYEAR('2024-12-30') e, WEEK('2024-02-29', -1) f, WEEK('x') g, YEARWEEK('2027-01-01', 2), WEEK('2027-01-01', 2), YEARWEEK('2020-12-31', 6)
 SHOW WARNINGS
 SELECT WEEK('2024-01-01', 0, 1)
+SELECT STR_TO_DATE('29/02/2024', '%d/%m/%Y') a, STR_TO_DATE('2024-02-29 13:04:05', '%Y-%m-%d %H:%i:%s') b, STR_TO_DATE('13:04:05', '%H:%i:%s') c, STR_TO_DATE('2024-02-29 13:04:05.5', '%Y-%m-%d %H:%i:%s.%f') d, STR_TO_DATE('Feb 29 2024', '%b %d %Y') e, STR_TO_DATE('x', '%Y') f, STR_TO_DATE(NULL, '%Y') g, STR_TO_DATE('2024', NULL) h, STR_TO_DATE('2024', '%Y') i, STR_TO_DATE('1:04 PM', '%h:%i %p') j
+SHOW WARNINGS
+SELECT STR_TO_DATE('2024-02-30', '%Y-%m-%d') a, STR_TO_DATE('2024-02-29xyz', '%Y-%m-%d') b, STR_TO_DATE('24-2-9', '%y-%c-%e') c, STR_TO_DATE('Thursday 29th February 2024', '%W %D %M %Y') d, STR_TO_DATE('2024 9 1', '%X %V %w') e, STR_TO_DATE('2024 060', '%Y %j') f, STR_TO_DATE('  2024-02-29', '%Y-%m-%d') g, STR_TO_DATE('2024-02-29', '%Y-%m-%d %H') h, STR_TO_DATE('12:00:00 AM', '%r') i, STR_TO_DATE('2024-02-29', CONCAT('%Y-', '%m-%d')) k
+SHOW WARNINGS
+SELECT STR_TO_DATE('13:04:05 z', '%H:%i:%s') a, STR_TO_DATE('2024-02-29 13:04 z', '%Y-%m-%d %H:%i') b, STR_TO_DATE('13 PM', '%H %p') c, STR_TO_DATE('2024/02/29', '%Y-%m-%d') d, STR_TO_DATE('2024 9 1', '%Y %V %w') e, STR_TO_DATE('2024 9 1', '%Y %U %w') f, STR_TO_DATE('2024 9 0', '%x %v %w') g, STR_TO_DATE('abc', 'abc') h, STR_TO_DATE('2024.02,29', '%Y%.%m%.%d') i, STR_TO_DATE('25:00', '%H:%i') j
+SHOW WARNINGS
+SELECT STR_TO_DATE('2024 jan 5 MONDAY', '%Y %b %e %W') a, STR_TO_DATE('99-12-31 11:59:59 pm', '%y-%m-%d %r') b, STR_TO_DATE('2024-02-29 13:04:05.1234567', '%Y-%m-%d %T.%f') c, STR_TO_DATE('29', '%d') d, STR_TO_DATE('2024-02-29', '%Y-%m-%d%%') e, STR_TO_DATE(20240229, '%Y%m%d') f, STR_TO_DATE('2024-02-29', 5) g, STR_TO_DATE('0:30', '%l:%i') k
+SHOW WARNINGS
 SELECT EXTRACT(HOUR FROM 'abc'), EXTRACT(YEAR FROM 'abc'), EXTRACT(YEAR FROM NULL), EXTRACT(YEAR FROM 20240229), EXTRACT(HOUR FROM 101112), EXTRACT(DAY_HOUR FROM DATE '2024-02-29'), EXTRACT(DAY_SECOND FROM TIMESTAMP '2024-02-29 01:02:03')
 SHOW WARNINGS
 CREATE DATABASE kv_temporal
@@ -904,6 +912,7 @@ INSERT INTO kv_temporal.t (id, d, t, dt, ts, y) VALUES (1, '2024-02-29', '12:34:
 INSERT INTO kv_temporal.t (id, d, t, dt, ts, y) VALUES (2, 20240301, 123456, 20240301123456, NULL, 24)
 SELECT d + INTERVAL 1 YEAR, d + INTERVAL 1 HOUR, t + INTERVAL 1 SECOND, t + INTERVAL 1 MICROSECOND, dt - INTERVAL 1 MICROSECOND, ts + INTERVAL 1 DAY, y + INTERVAL 1 DAY, EXTRACT(HOUR_MICROSECOND FROM dt), TIMESTAMPDIFF(SECOND, d, dt) FROM kv_temporal.t ORDER BY id
 SELECT WEEK(d), WEEK(dt, 5), DATE_FORMAT(dt, '%W %e %M %Y %r'), TIME_FORMAT(t, '%l:%i %p'), YEARWEEK(d, 1), DATE_FORMAT(d, CONCAT('%', 'Y')) FROM kv_temporal.t ORDER BY id
+SELECT STR_TO_DATE(DATE_FORMAT(dt, '%d.%m.%Y %T'), '%d.%m.%Y %T'), STR_TO_DATE(CONCAT(d), CONCAT('%Y-%m-', 'X', IF(id = 1, '%d', '%e'))) FROM kv_temporal.t ORDER BY id
 INSERT INTO kv_temporal.t (id, d, t, dt, ts, y) VALUES (3, '24-3-2', '-1 02:00', '2024-03-02T01:02:03', '2024-03-02 01:02:03', '1999')
 SELECT * FROM kv_temporal.t ORDER BY id
 INSERT INTO kv_temporal.t (id, d) VALUES (4, '2024-02-30')

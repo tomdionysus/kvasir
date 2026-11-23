@@ -1333,3 +1333,8 @@ The record, newest first. Each entry says what landed, with its gate counts.
   noted for the next part.
 - Gate (node-c): release, ASan and TSan each **437 tests, 1432 of 1432**
   statements, TSan with no reports; coverage 99.3% of lines.
+- Temporal types, T4c second part: STR_TO_DATE (MySQL's extract_date_time,
+  typed by a format folded from constants). UNIX_TIMESTAMP and
+  FROM_UNIXTIME probed and noted for the next part.
+- Gate (node-c): release, ASan and TSan each **437 tests, 1441 of 1441**
+  statements, TSan with no reports; coverage 99.2% of lines.

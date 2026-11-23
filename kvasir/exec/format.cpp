@@ -31,7 +31,7 @@ struct Arity {
 };
 
 constexpr Arity format_functions[] = {
-    {"DATE_FORMAT", 2, 2}, {"TIME_FORMAT", 2, 2}, {"WEEK", 1, 2}, {"YEARWEEK", 1, 2}, {"WEEKOFYEAR", 1, 1},
+    {"DATE_FORMAT", 2, 2}, {"TIME_FORMAT", 2, 2}, {"WEEK", 1, 2}, {"YEARWEEK", 1, 2}, {"WEEKOFYEAR", 1, 1}, {"STR_TO_DATE", 2, 2},
 };
 
 const Arity* format_named(const std::string& name) {
@@ -50,6 +50,18 @@ std::optional<ResultType> Evaluator::format_function(const Expr& e) const {
     throw SqlError(1582, "42000", "Incorrect parameter count in the call to native function '" + e.value + "'");
   for (const auto& arg : e.args) type(*arg);
   if (e.value == "YEARWEEK") return integer_type(6, false, false);
+  if (e.value == "STR_TO_DATE") {
+    // By a constant format's specifiers: a time's only TIME, a date's and a
+    // time's DATETIME, else DATE (observed: 'abc' is DATE); %f six fraction
+    // digits. A NULL or varying format DATETIME(6).
+    const auto f = constant_text(*e.args[1]);
+    if (!f || !*f) return temporal_result_type(temporal::Kind::datetime, 6, false);
+    const auto parts = temporal::format_parts(**f);
+    const int fsp = parts.fraction ? 6 : 0;
+    if (parts.time && !parts.date) return temporal_result_type(temporal::Kind::time, fsp, false);
+    if (parts.time) return temporal_result_type(temporal::Kind::datetime, fsp, false);
+    return temporal_result_type(temporal::Kind::date, 0, false);
+  }
   if (e.value != "DATE_FORMAT" && e.value != "TIME_FORMAT") return integer_type(2, false, false);
   // A string: as long as its format can make it (observed: '%Y-%m-%d %H'
   // is 18 characters, %H counting 7), or ten times a format's own length
@@ -86,6 +98,7 @@ Value Evaluator::format_function_value(const Expr& e) {
     if (!out) return {};
     return *out;
   }
+  if (e.value == "STR_TO_DATE") return str_to_date(e);
   const auto m = datetime_argument(*e.args[0]);
   if (!m) return {};
   // WEEK's mode, NULL as 0 (observed); WEEKOFYEAR is mode 3.
@@ -97,6 +110,28 @@ Value Evaluator::format_function_value(const Expr& e) {
   const uint32_t week = temporal::week(*m, behaviour, &year);
   if (e.value == "YEARWEEK") return static_cast<int64_t>(year) * 100 + week;
   return static_cast<int64_t>(week);
+}
+
+Value Evaluator::str_to_date(const Expr& e) {
+  const auto t = *format_function(e);
+  const auto tv = value(*e.args[0]);
+  const auto fv = value(*e.args[1]);
+  if (is_null(tv) || is_null(fv)) return {};
+  const auto text = to_text(tv, type(*e.args[0])).value_or("");
+  const auto f = to_text(fv, type(*e.args[1])).value_or("");
+  const auto kind = temporal_kind_of(t);
+  const char* kind_name = kind == temporal::Kind::date ? "date" : kind == temporal::Kind::time ? "time" : "datetime";
+  const auto refused = [&] {
+    _warnings.push_back({"Warning", er_wrong_value_for_type, "Incorrect datetime value: '" + text.substr(0, 127) + "' for function str_to_date"});
+    return Value{};
+  };
+  const auto parsed = temporal::parse_format(text, f);
+  if (parsed.truncated) _warnings.push_back({"Warning", er_truncated_wrong_value, "Truncated incorrect " + std::string(kind_name) + " value: '" + text + "'"});
+  if (!parsed.moment) return refused();
+  auto m = *parsed.moment;
+  // A date part MySQL's strict mode refuses: a zero or impossible date.
+  if (kind != temporal::Kind::time && !temporal::valid_date(m.year, m.month, m.day)) return refused();
+  return temporal::text(m, kind, t.decimals);
 }
 
 }  // namespace kvasir::exec

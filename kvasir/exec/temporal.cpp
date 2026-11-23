@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <functional>
+#include <string>
 
 namespace kvasir::exec::temporal {
 
@@ -761,6 +763,230 @@ uint32_t format_length(std::string_view f) {
     }
   }
   return size;
+}
+
+FormatParts format_parts(std::string_view f) {
+  FormatParts out;
+  for (size_t i = 0; i + 1 < f.size(); ++i) {
+    if (f[i] != '%') continue;
+    const char spec = f[++i];
+    if (std::string_view("aDdbcjMmUuVvWwXxYye").find(spec) != std::string_view::npos) out.date = true;
+    if (std::string_view("fHhIiklprSsT").find(spec) != std::string_view::npos) out.time = true;
+    if (spec == 'f') out.fraction = true;
+  }
+  return out;
+}
+
+namespace {
+
+// Which of `names` the letters at `at` spell, whatever their case: 1 for
+// the first, 0 for none; `at` moves past them.
+int word_index(std::string_view s, size_t& at, std::string_view (*name)(uint32_t), uint32_t count, size_t length) {
+  size_t end = at;
+  while (end < s.size() && std::isalpha(static_cast<unsigned char>(s[end]))) ++end;
+  const auto word = s.substr(at, end - at);
+  for (uint32_t k = 0; k < count; ++k) {
+    auto candidate = name(k);
+    if (length) candidate = candidate.substr(0, length);
+    if (candidate.size() != word.size()) continue;
+    bool same = true;
+    for (size_t j = 0; j < word.size() && same; ++j)
+      same = std::tolower(static_cast<unsigned char>(word[j])) == std::tolower(static_cast<unsigned char>(candidate[j]));
+    if (same) {
+      at = end;
+      return static_cast<int>(k) + 1;
+    }
+  }
+  return 0;
+}
+
+std::string_view month_from_zero(uint32_t k) { return month_name(k + 1); }
+
+}  // namespace
+
+Parsed parse_format(std::string_view s, std::string_view f) {
+  Parsed out;
+  Moment m;
+  size_t v = 0;
+  bool usa_time = false;
+  uint32_t daypart = 0;
+  int64_t yearday = 0, week_number = -1, weekday = 0, strict_year = -1;
+  bool sunday_first = false, strict_week = false, strict_year_sunday = false;
+  // Up to `n` digits as a number; none is a mismatch (observed: 'x' by '%Y'
+  // is 1411 alone, no truncation).
+  bool no_digits = false;
+  const auto digits = [&](size_t n, size_t* read = nullptr) {
+    int64_t value = 0;
+    size_t k = 0;
+    for (; k < n && v < s.size() && digit(s[v]); ++k, ++v) value = value * 10 + (s[v] - '0');
+    if (read) *read = k;
+    if (!k) no_digits = true;
+    return value;
+  };
+  while (v < s.size() && space(s[v])) ++v;
+  // Reads the text by `fmt`; false where it does not match.
+  const std::function<bool(std::string_view)> read = [&](std::string_view fmt) {
+    for (size_t p = 0; p < fmt.size() && v < s.size(); ++p) {
+      if (space(fmt[p])) {
+        while (v < s.size() && space(s[v])) ++v;
+        continue;
+      }
+      if (fmt[p] != '%' || p + 1 == fmt.size()) {
+        if (fmt[p] != s[v]) return false;
+        ++v;
+        continue;
+      }
+      size_t n = 0;
+      switch (fmt[++p]) {
+        case 'Y':
+        case 'y': {
+          const int64_t year = digits(fmt[p] == 'Y' ? 4 : 2, &n);
+          m.year = static_cast<uint32_t>(n <= 2 ? (year < 70 ? year + 2000 : year < 100 ? year + 1900 : year) : year);
+          break;
+        }
+        case 'm':
+        case 'c':
+          m.month = static_cast<uint32_t>(digits(2));
+          break;
+        case 'M':
+        case 'b': {
+          const int k = word_index(s, v, month_from_zero, 12, fmt[p] == 'b' ? 3 : 0);
+          if (!k) return false;
+          m.month = static_cast<uint32_t>(k);
+          break;
+        }
+        case 'd':
+        case 'e':
+          m.day = static_cast<uint32_t>(digits(2));
+          break;
+        case 'D':
+          m.day = static_cast<uint32_t>(digits(2));
+          v = std::min(s.size(), v + 2);
+          break;
+        case 'h':
+        case 'I':
+        case 'l':
+          usa_time = true;
+          m.hour = static_cast<uint32_t>(digits(2));
+          break;
+        case 'k':
+        case 'H':
+          m.hour = static_cast<uint32_t>(digits(2));
+          break;
+        case 'i':
+          m.minute = static_cast<uint32_t>(digits(2));
+          break;
+        case 's':
+        case 'S':
+          m.second = static_cast<uint32_t>(digits(2));
+          break;
+        case 'f': {
+          int64_t micro = digits(6, &n);
+          for (; n < 6; ++n) micro *= 10;
+          m.micro = static_cast<uint32_t>(micro);
+          break;
+        }
+        case 'p': {
+          if (s.size() - v < 2 || !usa_time) return false;
+          const auto two = std::string{static_cast<char>(std::toupper(static_cast<unsigned char>(s[v]))),
+                                       static_cast<char>(std::toupper(static_cast<unsigned char>(s[v + 1])))};
+          if (two == "PM")
+            daypart = 12;
+          else if (two != "AM")
+            return false;
+          v += 2;
+          break;
+        }
+        case 'W':
+        case 'a':
+          weekday = word_index(s, v, weekday_name, 7, fmt[p] == 'a' ? 3 : 0);
+          if (!weekday) return false;
+          break;
+        case 'w':
+          if (v >= s.size() || !digit(s[v])) return false;
+          weekday = s[v++] - '0';
+          if (weekday >= 7) return false;
+          if (!weekday) weekday = 7;
+          break;
+        case 'j':
+          yearday = digits(3);
+          break;
+        case 'V':
+        case 'U':
+        case 'v':
+        case 'u':
+          sunday_first = fmt[p] == 'U' || fmt[p] == 'V';
+          strict_week = fmt[p] == 'V' || fmt[p] == 'v';
+          week_number = digits(2);
+          break;
+        case 'X':
+        case 'x':
+          strict_year_sunday = fmt[p] == 'X';
+          strict_year = digits(4);
+          break;
+        case 'r':
+          if (!read("%I:%i:%S %p")) return false;
+          break;
+        case 'T':
+          if (!read("%H:%i:%S")) return false;
+          break;
+        case '.':
+          while (v < s.size() && std::ispunct(static_cast<unsigned char>(s[v]))) ++v;
+          break;
+        case '@':
+          while (v < s.size() && std::isalpha(static_cast<unsigned char>(s[v]))) ++v;
+          break;
+        case '#':
+          while (v < s.size() && digit(s[v])) ++v;
+          break;
+        default:
+          if (fmt[p] != s[v]) return false;
+          ++v;
+          break;
+      }
+      if (no_digits) return false;
+    }
+    return true;
+  };
+  if (!read(f)) return out;
+  if (usa_time) {
+    if (m.hour > 12 || m.hour < 1) return out;
+    m.hour = m.hour % 12 + daypart;
+  }
+  constexpr int64_t max_day_number = 3652424;
+  if (yearday > 0) {
+    const int64_t day = day_number(Moment{false, m.year, 1, 1, 0, 0, 0, 0}) + yearday - 1;
+    if (day <= 0 || day > max_day_number) return out;
+    const auto date = from_day_number(day);
+    m.year = date.year;
+    m.month = date.month;
+    m.day = date.day;
+  }
+  if (week_number >= 0 && weekday) {
+    // %V and %v need %X and %x; %U and %u go with %Y.
+    if ((strict_week && (strict_year < 0 || strict_year_sunday != sunday_first)) || (!strict_week && strict_year >= 0)) return out;
+    const auto year = static_cast<uint32_t>(strict_week ? strict_year : m.year);
+    int64_t day = day_number(Moment{false, year, 1, 1, 0, 0, 0, 0});
+    const int64_t first = weekday_of(day, sunday_first);
+    if (sunday_first)
+      day += (first == 0 ? 0 : 7) - first + (week_number - 1) * 7 + weekday % 7;
+    else
+      day += (first <= 3 ? 0 : 7) - first + (week_number - 1) * 7 + (weekday - 1);
+    if (day <= 0 || day > max_day_number) return out;
+    const auto date = from_day_number(day);
+    m.year = date.year;
+    m.month = date.month;
+    m.day = date.day;
+  }
+  if (m.month > 12 || m.day > 31 || m.hour > 23 || m.minute > 59 || m.second > 59) return out;
+  for (size_t k = v; k < s.size(); ++k) {
+    if (!space(s[k])) {
+      out.truncated = true;
+      break;
+    }
+  }
+  out.moment = m;
+  return out;
 }
 
 std::string shifted(std::string_view datetime, int fsp, int64_t seconds) {
