@@ -884,6 +884,9 @@ TEST(SqlParser, Intervals) {
   EXPECT_EQ(error_at("SELECT DATE_ADD(d, 1)"), 19u);
   EXPECT_EQ(error_at("SELECT TIMESTAMPADD(DAY_HOUR, 1, d)"), 20u);
   EXPECT_EQ(error_at("SELECT INTERVAL 1 DAY - d"), 22u);
+  // WEEK takes one or two arguments by the grammar.
+  EXPECT_EQ(expr("WEEK(d, 3)"), "(WEEK d 3)");
+  EXPECT_EQ(error_at("SELECT WEEK(d, 0, 1)"), 16u);
 }
 
 // The multiple-table forms (the manual's UPDATE and DELETE statements):

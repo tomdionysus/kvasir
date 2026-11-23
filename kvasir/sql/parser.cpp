@@ -1877,6 +1877,17 @@ class Parser {
       }
       return;
     }
+    // WEEK(d[, mode]): the grammar's own (observed: a third argument is a
+    // syntax error at its comma).
+    if (call.value == "WEEK") {
+      call.args.push_back(expression());
+      if (symbol(",")) {
+        take();
+        call.args.push_back(expression());
+      }
+      expect_symbol(")");
+      return;
+    }
     // EXTRACT(unit FROM d), `scope` the unit.
     if (call.value == "EXTRACT") {
       call.scope = interval_unit(false);

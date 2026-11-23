@@ -163,3 +163,31 @@ module is written to. Each goes into the differential gate as it is built.
 - NOW() and its kin take the statement's time from an injected wall clock:
   Dannan's dannan::contract::WallClock (milliseconds; microseconds asked of
   Dannan on 2026-11-23).
+
+## DATE_FORMAT, TIME_FORMAT and WEEK (T4c)
+
+- DATE_FORMAT and TIME_FORMAT: VAR_STRING, nullable, length the format's
+  characters by MySQL's sizes (%M %W 64, %a %b 32, %H %k 7, %r 11, %T 8, %f
+  6, %D %Y %X %x 4, %j 3, two-digit ones 2, others and literal characters
+  1) times the result's widest character; a format not a constant string
+  ten times its own length; a NULL format 0. An empty format is NULL; an
+  unknown specifier is its letter, a trailing % itself. DATE_FORMAT reads
+  a date (a TIME on the statement's date); TIME_FORMAT reads a time (a
+  date's time), gives NULL for %W %a %D %j %U %u %V %v %X %x %w %M %b,
+  zeros for %Y %y %m %c %d %e, hours past 23 in full, and a negative
+  TIME's sign once at the front.
+- WEEK (LONGLONG length 3; one or two arguments by the grammar, a NULL
+  mode is 0, the mode's low three bits), YEARWEEK (length 7, the week's
+  year), WEEKOFYEAR (mode 3): MySQL's calc_week.
+
+## STR_TO_DATE (T4c, probed)
+
+- Typed by a constant format's specifiers: date ones only DATE, time ones
+  only TIME, both DATETIME; %f gives 6 fraction digits. A NULL format, or
+  one not constant, gives DATETIME(6). Always nullable.
+- A result MySQL's strict mode refuses (a zero month or day, an invalid
+  date: '2024' by '%Y', '2024-02-30') is NULL with 1411 "Incorrect
+  datetime value: '2024' for function str_to_date". Text left after the
+  format is kept with 1292 "Truncated incorrect date value:
+  '2024-02-29xyz'". Leading spaces are skipped. %h %p, %r, %b, %W %D %M,
+  %X %V %w and %Y %j all read.

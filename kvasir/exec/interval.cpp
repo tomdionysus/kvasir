@@ -334,15 +334,9 @@ Value Evaluator::extracted(const Expr& e, std::string_view unit) {
     if (unit == "QUARTER") return static_cast<int64_t>((m->month + 2) / 3);
     if (unit == "MONTH") return static_cast<int64_t>(m->month);
     if (unit == "DAY") return static_cast<int64_t>(m->day);
-    // WEEK in mode 0: weeks begin on Sunday, and the days before the year's
-    // first Sunday are week 0.
-    const int64_t day = temporal::day_number(*m);
-    const int64_t first = temporal::day_number(Moment{false, m->year, 1, 1, 0, 0, 0, 0});
-    // The weekday from Sunday, as MySQL counts it from a day number.
-    const int64_t weekday = (first + 6) % 7;
-    const int64_t first_sunday = (7 - weekday) % 7;
-    const int64_t into = day - first;
-    return into < first_sunday ? int64_t{0} : (into - first_sunday) / 7 + 1;
+    // WEEK in mode 0.
+    uint32_t year = 0;
+    return static_cast<int64_t>(temporal::week(*m, temporal::week_mode(0), &year));
   }
   const auto m = time_argument(*e.args[0], true);
   if (!m) return {};

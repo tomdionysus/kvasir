@@ -259,6 +259,10 @@ class Evaluator {
   // them), TIMESTAMPDIFF and EXTRACT; nothing for a name that is not one.
   std::optional<ResultType> interval_function(const sql::Expr& e) const;
   Value interval_function_value(const sql::Expr& e);
+  // DATE_FORMAT, TIME_FORMAT, WEEK, YEARWEEK and WEEKOFYEAR (format.cpp);
+  // nothing for a name that is not one of them.
+  std::optional<ResultType> format_function(const sql::Expr& e) const;
+  Value format_function_value(const sql::Expr& e);
   Value timestamp_difference(const sql::Expr& e, std::string_view unit);
   Value extracted(const sql::Expr& e, std::string_view unit);
   // Two values one of which is temporal (cast.cpp): as moments when both

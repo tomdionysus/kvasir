@@ -103,6 +103,25 @@ Moment from_day_number(int64_t day);
 // The days in a month of a year.
 uint32_t days_in_month(uint32_t year, uint32_t month);
 
+// The week of a date as MySQL counts it: weeks begin on Monday or Sunday,
+// week 1 is the first with four days or the first with that day, and a
+// date before week 1 is week 0 of its year or the last of the year before
+// (`week_year`); `year` is told the week's year.
+inline constexpr uint32_t week_monday_first = 1, week_year = 2, week_first_weekday = 4;
+uint32_t week(const Moment& m, uint32_t behaviour, uint32_t* year);
+// WEEK()'s mode (its low three bits) as such behaviour.
+uint32_t week_mode(int64_t mode);
+
+// English names: a weekday from Monday (0), a month from January (1).
+std::string_view weekday_name(uint32_t from_monday);
+std::string_view month_name(uint32_t month);
+
+// DATE_FORMAT's and TIME_FORMAT's text of a moment (`time_only` for
+// TIME_FORMAT), or nothing where a specifier needs a date the moment does
+// not have; and the most characters a format's text can take.
+std::optional<std::string> format(const Moment& m, std::string_view format, bool time_only);
+uint32_t format_length(std::string_view format);
+
 // A DATETIME's text moved by `seconds` (a TIMESTAMP between UTC and a
 // session's zone).
 std::string shifted(std::string_view datetime, int fsp, int64_t seconds);

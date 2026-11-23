@@ -212,15 +212,8 @@ Value Evaluator::date_function_value(const Expr& e) {
     if (!other) return {};
     return days - days_of(*other);
   }
-  if (e.value == "DAYNAME") {
-    static constexpr std::array<std::string_view, 7> days_named = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"};
-    return std::string(days_named[static_cast<size_t>(((days + 3) % 7 + 7) % 7)]);
-  }
-  if (e.value == "MONTHNAME") {
-    static constexpr std::array<std::string_view, 12> months = {"January", "February", "March",     "April",   "May",      "June",
-                                                                "July",    "August",   "September", "October", "November", "December"};
-    return std::string(months[m->month - 1]);
-  }
+  if (e.value == "DAYNAME") return std::string(temporal::weekday_name(static_cast<uint32_t>(((days + 3) % 7 + 7) % 7)));
+  if (e.value == "MONTHNAME") return std::string(temporal::month_name(m->month));
   auto day = *m;
   if (e.value == "LAST_DAY") {
     // The day before the first of the next month.

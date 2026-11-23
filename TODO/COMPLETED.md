@@ -1327,3 +1327,9 @@ The record, newest first. Each entry says what landed, with its gate counts.
   to Manannan.
 - Gate (node-c): release, ASan and TSan each **437 tests, 1419 of 1419**
   statements, TSan with no reports; coverage 99.3% of lines.
+- Temporal types, T4c first part: DATE_FORMAT and TIME_FORMAT (every
+  specifier, MySQL's lengths), WEEK, YEARWEEK and WEEKOFYEAR over MySQL's
+  week reckoning, which EXTRACT(WEEK) now shares. STR_TO_DATE probed and
+  noted for the next part.
+- Gate (node-c): release, ASan and TSan each **437 tests, 1432 of 1432**
+  statements, TSan with no reports; coverage 99.3% of lines.

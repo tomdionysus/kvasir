@@ -520,6 +520,249 @@ Moment from_day_number(int64_t day) {
   return from_unix_us((day - days_to_epoch) * day_us);
 }
 
+namespace {
+
+// MySQL's days in a year: year 0 is no leap year.
+int64_t days_in_year(int64_t year) { return (year & 3) == 0 && (year % 100 || (year % 400 == 0 && year)) ? 366 : 365; }
+
+// The weekday of a day number, from Monday (0) or from Sunday.
+int64_t weekday_of(int64_t day, bool from_sunday) { return (day + 5 + (from_sunday ? 1 : 0)) % 7; }
+
+}  // namespace
+
+uint32_t week(const Moment& m, uint32_t behaviour, uint32_t* year) {
+  const int64_t day = day_number(m);
+  int64_t first = day_number(Moment{false, m.year, 1, 1, 0, 0, 0, 0});
+  const bool monday_first = behaviour & week_monday_first;
+  bool by_year = behaviour & week_year;
+  const bool first_weekday = behaviour & week_first_weekday;
+  int64_t weekday = weekday_of(first, !monday_first);
+  int64_t y = m.year;
+  const auto late_start = [&] { return first_weekday ? weekday != 0 : weekday >= 4; };
+  if (m.month == 1 && m.day <= 7 - weekday) {
+    if (!by_year && late_start()) {
+      *year = static_cast<uint32_t>(y);
+      return 0;
+    }
+    by_year = true;
+    --y;
+    const int64_t days = days_in_year(y);
+    first -= days;
+    weekday = (weekday + 53 * 7 - days) % 7;
+  }
+  const int64_t into = late_start() ? day - (first + (7 - weekday)) : day - (first - weekday);
+  if (by_year && into >= 52 * 7) {
+    weekday = (weekday + days_in_year(y)) % 7;
+    if ((!first_weekday && weekday < 4) || (first_weekday && weekday == 0)) {
+      *year = static_cast<uint32_t>(y + 1);
+      return 1;
+    }
+  }
+  *year = static_cast<uint32_t>(y);
+  return static_cast<uint32_t>(into / 7 + 1);
+}
+
+uint32_t week_mode(int64_t mode) {
+  uint32_t behaviour = static_cast<uint32_t>(static_cast<uint64_t>(mode) & 7);
+  if (!(behaviour & week_monday_first)) behaviour ^= week_first_weekday;
+  return behaviour;
+}
+
+std::string_view weekday_name(uint32_t from_monday) {
+  static constexpr std::string_view names[] = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"};
+  return names[from_monday % 7];
+}
+
+std::string_view month_name(uint32_t month) {
+  static constexpr std::string_view names[] = {"January", "February", "March",     "April",   "May",      "June",
+                                               "July",    "August",   "September", "October", "November", "December"};
+  return names[(month + 11) % 12];
+}
+
+std::optional<std::string> format(const Moment& m, std::string_view f, bool time_only) {
+  std::string out;
+  if (m.negative) out += '-';
+  char buffer[32];
+  const auto padded = [&](int64_t v, int width) {
+    std::snprintf(buffer, sizeof buffer, "%0*lld", width, static_cast<long long>(v));
+    out += buffer;
+  };
+  const uint32_t hour12 = (m.hour % 24 + 11) % 12 + 1;
+  const char* meridiem = m.hour % 24 < 12 ? "AM" : "PM";
+  for (size_t i = 0; i < f.size(); ++i) {
+    if (f[i] != '%' || i + 1 == f.size()) {
+      out += f[i];
+      continue;
+    }
+    const char spec = f[++i];
+    // Specifiers that need a date: NULL for TIME_FORMAT.
+    if (time_only && std::string_view("WaDjUuVvXxw").find(spec) != std::string_view::npos) return std::nullopt;
+    uint32_t week_year_out = 0;
+    switch (spec) {
+      case 'M':
+        if (!m.month) return std::nullopt;
+        out += month_name(m.month);
+        break;
+      case 'b':
+        if (!m.month) return std::nullopt;
+        out += month_name(m.month).substr(0, 3);
+        break;
+      case 'W':
+      case 'a': {
+        if (!m.month && !m.year) return std::nullopt;
+        const auto name = weekday_name(static_cast<uint32_t>(weekday_of(day_number(m), false)));
+        out += spec == 'W' ? name : name.substr(0, 3);
+        break;
+      }
+      case 'D':
+        out += std::to_string(m.day);
+        out += m.day >= 10 && m.day <= 19 ? "th" : m.day % 10 == 1 ? "st" : m.day % 10 == 2 ? "nd" : m.day % 10 == 3 ? "rd" : "th";
+        break;
+      case 'Y':
+        if (m.year > 9999) return std::nullopt;
+        padded(m.year, 4);
+        break;
+      case 'y':
+        padded(m.year % 100, 2);
+        break;
+      case 'm':
+        padded(m.month, 2);
+        break;
+      case 'c':
+        out += std::to_string(m.month);
+        break;
+      case 'd':
+        padded(m.day, 2);
+        break;
+      case 'e':
+        out += std::to_string(m.day);
+        break;
+      case 'f':
+        padded(m.micro, 6);
+        break;
+      case 'H':
+        padded(m.hour, 2);
+        break;
+      case 'h':
+      case 'I':
+        padded(hour12, 2);
+        break;
+      case 'i':
+        padded(m.minute, 2);
+        break;
+      case 'j':
+        padded(day_number(m) - day_number(Moment{false, m.year, 1, 1, 0, 0, 0, 0}) + 1, 3);
+        break;
+      case 'k':
+        out += std::to_string(m.hour);
+        break;
+      case 'l':
+        out += std::to_string(hour12);
+        break;
+      case 'p':
+        out += meridiem;
+        break;
+      case 'r':
+        std::snprintf(buffer, sizeof buffer, "%02u:%02u:%02u %s", hour12, m.minute, m.second, meridiem);
+        out += buffer;
+        break;
+      case 'S':
+      case 's':
+        padded(m.second, 2);
+        break;
+      case 'T':
+        std::snprintf(buffer, sizeof buffer, "%02u:%02u:%02u", m.hour, m.minute, m.second);
+        out += buffer;
+        break;
+      case 'U':
+      case 'u':
+        padded(week(m, spec == 'U' ? week_first_weekday : week_monday_first, &week_year_out), 2);
+        break;
+      case 'V':
+      case 'v':
+        padded(week(m, week_year | (spec == 'V' ? week_first_weekday : week_monday_first), &week_year_out), 2);
+        break;
+      case 'X':
+      case 'x':
+        week(m, week_year | (spec == 'X' ? week_first_weekday : week_monday_first), &week_year_out);
+        padded(week_year_out, 4);
+        break;
+      case 'w':
+        if (!m.month && !m.year) return std::nullopt;
+        out += std::to_string(weekday_of(day_number(m), true));
+        break;
+      default:
+        out += spec;
+        break;
+    }
+  }
+  return out;
+}
+
+uint32_t format_length(std::string_view f) {
+  uint32_t size = 0;
+  for (size_t i = 0; i < f.size(); ++i) {
+    if (f[i] != '%' || i + 1 == f.size()) {
+      ++size;
+      continue;
+    }
+    switch (f[++i]) {
+      case 'M':
+      case 'W':
+        size += 64;
+        break;
+      case 'D':
+      case 'Y':
+      case 'x':
+      case 'X':
+        size += 4;
+        break;
+      case 'a':
+      case 'b':
+        size += 32;
+        break;
+      case 'j':
+        size += 3;
+        break;
+      case 'k':
+      case 'H':
+        size += 7;
+        break;
+      case 'r':
+        size += 11;
+        break;
+      case 'T':
+        size += 8;
+        break;
+      case 'f':
+        size += 6;
+        break;
+      case 'U':
+      case 'u':
+      case 'V':
+      case 'v':
+      case 'y':
+      case 'm':
+      case 'd':
+      case 'h':
+      case 'I':
+      case 'i':
+      case 'l':
+      case 'p':
+      case 'S':
+      case 's':
+      case 'c':
+      case 'e':
+        size += 2;
+        break;
+      default:
+        ++size;
+        break;
+    }
+  }
+  return size;
+}
+
 std::string shifted(std::string_view datetime, int fsp, int64_t seconds) {
   const auto m = parse_text(datetime, Kind::datetime);
   return text(from_unix_us(to_unix_us(m) + seconds * 1000000), Kind::datetime, fsp);

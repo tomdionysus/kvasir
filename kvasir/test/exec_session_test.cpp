@@ -760,6 +760,12 @@ TEST(ExecSession, Intervals) {
   EXPECT_EQ(s.warnings()[0].message, "Datetime function: time field overflow");
   EXPECT_EQ(s.warnings()[1].message, "Datetime function: datetime field overflow");
   EXPECT_EQ(s.warnings()[2].message, "Datetime function: date_add_interval field overflow");
+  // DATE_FORMAT reads a TIME on the statement's date; TIME_FORMAT signs a
+  // negative TIME once and refuses a date's specifiers.
+  EXPECT_EQ(row(run(s,
+                    "SELECT DATE_FORMAT(TIME '100:00:00', '%H %d %T'), TIME_FORMAT(TIME '-01:02:03', '%H %T'), TIME_FORMAT('10:00', '%j'), "
+                    "WEEK(TIME '10:00:00', 3)")),
+            (std::vector<std::string>{"04 04 04:00:00", "-01 01:02:03", "NULL", "9"}));
   // Day number 365 and under is the zero date; a year moves to year 0.
   EXPECT_EQ(row(run(s, "SELECT DATE '0001-01-01' - INTERVAL 1 DAY, DATE '0001-01-01' + INTERVAL -1 YEAR")),
             (std::vector<std::string>{"0000-00-00", "0000-01-01"}));
