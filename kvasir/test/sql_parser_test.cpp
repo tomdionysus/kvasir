@@ -851,6 +851,11 @@ TEST(SqlParser, Casts) {
   EXPECT_EQ(expr("CAST(a AS DATETIME(3))"), "(CAST a AS DATETIME 3)");
   EXPECT_EQ(expr("CONVERT(a, SIGNED)"), "(CAST a AS SIGNED)");
   EXPECT_EQ(expr("CONVERT(a USING binary)"), "(CAST a AS CHAR CHARSET binary)");
+  // Temporal literals; DATE, TIME and TIMESTAMP stay names otherwise.
+  EXPECT_EQ(expr("DATE '2024-01-01'"), "(DATE '2024-01-01')");
+  EXPECT_EQ(expr("TIME '10:00'"), "(TIME '10:00')");
+  EXPECT_EQ(expr("TIMESTAMP '2024-01-01 10:00:00'"), "(DATETIME '2024-01-01 10:00:00')");
+  EXPECT_EQ(expr("date + 1"), "(+ date 1)");
   const auto s = one("SELECT CAST(x AS DECIMAL(3,1)) + 1");
   EXPECT_EQ(s.select.items[0].expr->args[0]->path, (std::vector<std::string>{"CAST(x AS DECIMAL(3,1))"}));
   EXPECT_EQ(error_at("SELECT CAST(1 AS INT)"), 17u);

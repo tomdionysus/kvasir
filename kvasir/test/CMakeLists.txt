@@ -15,6 +15,7 @@ add_executable(kvasir_tests
   exec_expression_test.cpp
   exec_rows_test.cpp
   exec_session_test.cpp
+  exec_temporal_test.cpp
   exec_variables_test.cpp
   fuzz_smoke_test.cpp
   protocol_caching_sha2_test.cpp

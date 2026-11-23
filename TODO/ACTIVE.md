@@ -385,6 +385,12 @@ Each to be closed, or kept by a decision.
   root, React 19, react-dom and react-router 7 as peers; AdminShell, NavBar,
   Messages, Confirm, ApiClient, useApi/useLoad/useAct, SignIn (password,
   Lugh with PKCE, or both), DataTable with useCursorPages.
+- **Dannan**: microseconds on dannan::contract::WallClock are queued for its
+  0.12.0 (answered 2026-11-23; a new virtual changes the vtable, so not a
+  patch): `unix_us()` beside `unix_ms()`, defaulting to unix_ms() * 1000;
+  SystemWallClock and the stepped test wall clock in microseconds. Until
+  then Kvasir uses unix_ms() for NOW(6) and the fsp defaults, the last three
+  digits 000 a recorded difference; Dannan says when 0.12.0 has it.
 - **Lugh**: 0.6.0 (2026-11-23, tagged on main) is on Dannan 0.11.0 (Boost.JSON's
   compiled part is Dannan's, none in lugh_client), handles Fault::cancelled
   (a switch over Fault needs it), and is the tag @lugh/admin-ui is depended

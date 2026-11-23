@@ -228,6 +228,13 @@ class Evaluator {
   // 1427 for a DECIMAL it cannot be), and its value converted.
   ResultType cast_type(const sql::Expr& e) const;
   Value cast_value(const sql::Expr& e);
+  // Two values one of which is temporal (cast.cpp): as moments when both
+  // are DATEs and DATETIMEs or both TIMEs; a DATE or DATETIME beside a
+  // string with the string read as one (1525 when it cannot be); a TIME
+  // beside a string as strings; nothing when they compare as numbers.
+  std::optional<int> compare_temporal(const Value& x, const ResultType& tx, const Value& y, const ResultType& ty);
+  // Two values as numbers, a temporal one as the number it is.
+  std::optional<int> compare_as_numbers(const Value& x, const ResultType& tx, const Value& y, const ResultType& ty, bool quiet_x, bool quiet_y);
   // A string operand's collation and coercibility.
   std::pair<uint16_t, int> derivation(const sql::Expr& e, const ResultType& t) const;
   // The character set an operand's value is in.
@@ -263,6 +270,13 @@ inline constexpr int explicit_coercibility = 0, implicit_coercibility = 2, sysco
 // counted in characters once more, and no key, ZEROFILL, BLOB or NOT NULL
 // flags.
 ResultType column_as_expression(const ResultType& column);
+
+// A DATE, TIME or DATETIME type (cast.cpp).
+bool is_temporal_type(const ResultType& t);
+// A temporal type's value as the number it is in a numeric context:
+// 20240229, 123456, 20240229123456 (a DECIMAL with its fraction); any
+// other value as it is.
+Value temporal_number(const Value& v, const ResultType& t);
 
 // The widest character of a collation's character set, in bytes.
 uint32_t widest_character(uint16_t collation);

@@ -71,6 +71,7 @@ add_library(kvasir ${kvasir_library_type}
   exec/session.cpp
   exec/rows.cpp
   exec/store.cpp
+  exec/temporal.cpp
   exec/variables.cpp
   protocol/caching_sha2.cpp
   protocol/codec.cpp

@@ -52,23 +52,28 @@ struct ResultType {
 // at the column's scale, a double as MySQL shows it. Nothing for NULL.
 std::optional<std::string> to_text(const Value& value, const ResultType& type);
 
-// A statement could not be carried out: its MySQL error.
-class SqlError : public std::runtime_error {
- public:
-  SqlError(uint16_t code, std::string sqlstate, const std::string& message) : std::runtime_error(message), _code(code), _sqlstate(std::move(sqlstate)) {}
-  uint16_t code() const noexcept { return _code; }
-  const std::string& sqlstate() const noexcept { return _sqlstate; }
-
- private:
-  uint16_t _code;
-  std::string _sqlstate;
-};
-
 // What SHOW WARNINGS lists.
 struct Warning {
   std::string level;  // "Note", "Warning" or "Error"
   uint16_t code = 0;
   std::string message;
+};
+
+// A statement could not be carried out: its MySQL error, and the warnings
+// raised before it, which SHOW WARNINGS lists ahead of it (observed: a DATE
+// compared with 'abc' warns 1292, then fails 1525).
+class SqlError : public std::runtime_error {
+ public:
+  SqlError(uint16_t code, std::string sqlstate, const std::string& message, std::vector<Warning> before = {})
+      : std::runtime_error(message), _code(code), _sqlstate(std::move(sqlstate)), _before(std::move(before)) {}
+  uint16_t code() const noexcept { return _code; }
+  const std::string& sqlstate() const noexcept { return _sqlstate; }
+  const std::vector<Warning>& before() const noexcept { return _before; }
+
+ private:
+  uint16_t _code;
+  std::string _sqlstate;
+  std::vector<Warning> _before;
 };
 
 inline constexpr uint16_t er_wrong_arguments = 1210;

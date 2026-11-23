@@ -1594,6 +1594,16 @@ class Parser {
       return strings(offset, std::move(charset));
     }
     if (word("CASE")) return case_when();
+    // DATE 'str', TIME 'str' and TIMESTAMP 'str' (the manual's "Date and Time
+    // Literals"): a TEMPORAL call, `scope` DATE, TIME or DATETIME.
+    if ((word("DATE") || word("TIME") || word("TIMESTAMP")) && peek(1).kind == TokenKind::string) {
+      auto e = node(ExprKind::call, offset, "TEMPORAL");
+      const auto kind = upper(take().value);
+      e->scope = kind == "TIMESTAMP" ? "DATETIME" : kind;
+      const auto at = peek().offset;
+      e->args.push_back(node(ExprKind::string, at, take().value));
+      return e;
+    }
     if (word("ROW") && symbol("(", 1)) {
       take();
       take();
@@ -1957,6 +1967,8 @@ std::string to_string(const Expr& e) {
     case ExprKind::call:
       // (CAST x AS DECIMAL 5 2 CHARSET binary)
       if (e.value == "CAST") return "(CAST " + to_string(*e.args[0]) + " AS " + e.scope + args(1) + (e.charset.empty() ? "" : " CHARSET " + e.charset) + ")";
+      // (DATETIME '2024-01-01 00:00:00')
+      if (e.value == "TEMPORAL") return "(" + e.scope + " " + to_string(*e.args[0]) + ")";
       return "(" + e.value + (e.scope.empty() ? "" : " " + e.scope) + (e.distinct ? " DISTINCT" : "") + (e.star ? " *" : "") + args(0) + ")";
     case ExprKind::case_when: {
       std::string out = "(CASE";

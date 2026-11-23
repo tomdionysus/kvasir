@@ -700,7 +700,11 @@ TEST(ExecSession, Casts) {
       row(run(s, "SELECT CAST('1e-2' AS DECIMAL(5,3)), CAST('12.5e-1' AS DECIMAL(5,2)), CAST(2.5e0 AS UNSIGNED), CAST(18446744073709551615 AS DECIMAL(20,0))")),
       (std::vector<std::string>{"0.010", "1.25", "3", "18446744073709551615"}));
   EXPECT_EQ(refusal(s, "SELECT CAST('a' AS CHAR CHARACTER SET latin1)").code, 1235);
-  EXPECT_EQ(refusal(s, "SELECT CAST('2024-01-01' AS DATE)").message, "This version of Kvasir doesn't yet support 'CAST AS DATE'");
+  // An unsigned number, a DOUBLE and a hex literal as dates and times.
+  EXPECT_EQ(row(run(s, "SELECT CAST(18446744073709551615 AS DATE), CAST(20240203e0 AS DATE), CAST(X'01' AS TIME), CAST(10203.5e0 AS TIME)")),
+            (std::vector<std::string>{"NULL", "2024-02-03", "00:00:01", "01:02:04"}));
+  EXPECT_EQ(refusal(s, "SELECT CAST('2024' AS YEAR)").message, "This version of Kvasir doesn't yet support 'CAST AS YEAR'");
+  EXPECT_EQ(refusal(s, "SELECT CAST(TIME '10:00:00' AS DATE)").message, "This version of Kvasir doesn't yet support 'CAST of a TIME AS DATE'");
 }
 
 TEST(ExecSession, Strcmp) {

@@ -17,6 +17,7 @@
 #include <string>
 
 #include "kvasir/exec/expression.h"
+#include "kvasir/exec/temporal.h"
 #include "kvasir/protocol/types.h"
 #include "kvasir/sql/keywords.h"
 
@@ -128,12 +129,150 @@ Leading leading(const std::string& s, bool fraction) {
   return out;
 }
 
+temporal::Kind kind_of(const ResultType& t) {
+  if (t.field_type == f::date) return temporal::Kind::date;
+  if (t.field_type == f::time) return temporal::Kind::time;
+  return temporal::Kind::datetime;
+}
+
+temporal::Kind kind_named(const std::string& name) {
+  if (name == "DATE") return temporal::Kind::date;
+  if (name == "TIME") return temporal::Kind::time;
+  return temporal::Kind::datetime;
+}
+
+// A DATE, TIME or DATETIME result as MySQL reports it: binary, BINARY (no
+// NUM), 10 or 19 long and a point and the fraction's digits more; the
+// digits it carries into arithmetic (observed: DATE + 0 is 10 long, TIME +
+// 0 9, DATETIME + 0 16).
+ResultType temporal_type(temporal::Kind kind, int fsp, bool not_null) {
+  ResultType t;
+  t.collation = binary_collation;
+  t.decimals = static_cast<uint8_t>(fsp);
+  const uint32_t fraction = fsp > 0 ? static_cast<uint32_t>(fsp) + 1 : 0;
+  switch (kind) {
+    case temporal::Kind::date:
+      t.field_type = f::date;
+      t.length = 10;
+      t.precision = 8;
+      break;
+    case temporal::Kind::time:
+      t.field_type = f::time;
+      t.length = 10 + fraction;
+      t.precision = 7 + fsp;
+      break;
+    case temporal::Kind::datetime:
+      t.field_type = f::datetime;
+      t.length = 19 + fraction;
+      t.precision = 14 + fsp;
+      break;
+  }
+  t.flags = static_cast<uint16_t>(c::binary | (not_null ? c::not_null : 0));
+  return t;
+}
+
+// The fraction digits a temporal literal writes, at most 6.
+int literal_fsp(const std::string& s) {
+  const auto point = s.rfind('.');
+  if (point == std::string::npos) return 0;
+  int n = 0;
+  for (size_t i = point + 1; i < s.size() && std::isdigit(static_cast<unsigned char>(s[i])); ++i) ++n;
+  return std::min(n, 6);
+}
+
+const char* type_word(temporal::Kind kind, bool upper) {
+  switch (kind) {
+    case temporal::Kind::date:
+      return upper ? "DATE" : "date";
+    case temporal::Kind::time:
+      return upper ? "TIME" : "time";
+    case temporal::Kind::datetime:
+      return upper ? "DATETIME" : "datetime";
+  }
+  return "";
+}
+
+// A type's view as a number: a temporal type as the integer or DECIMAL its
+// value becomes.
+ResultType as_number_type(ResultType t) {
+  if (!is_temporal_type(t)) return t;
+  t.field_type = t.decimals ? f::newdecimal : f::longlong;
+  t.flags = static_cast<uint16_t>(t.flags | c::num);
+  return t;
+}
+
 }  // namespace
 
+bool is_temporal_type(const ResultType& t) {
+  return t.field_type == f::date || t.field_type == f::time || t.field_type == f::datetime || t.field_type == f::timestamp;
+}
+
+Value temporal_number(const Value& v, const ResultType& t) {
+  const auto* s = std::get_if<std::string>(&v);
+  if (!s || !is_temporal_type(t)) return v;
+  const auto kind = kind_of(t);
+  const auto n = temporal::number_text(temporal::parse_text(*s, kind), kind, t.decimals);
+  if (t.decimals) return *Decimal::parse(n);
+  return static_cast<int64_t>(std::stoll(n));
+}
+
+std::optional<int> Evaluator::compare_temporal(const Value& x, const ResultType& tx, const Value& y, const ResultType& ty) {
+  const bool temporal_x = is_temporal_type(tx), temporal_y = is_temporal_type(ty);
+  const auto& sx = std::get<std::string>(temporal_x ? x : y);
+  const auto& kx = temporal_x ? tx : ty;
+  const auto& other = temporal_x ? y : x;
+  const auto& to = temporal_x ? ty : tx;
+  const int sign = temporal_x ? 1 : -1;
+  const auto order = [](int64_t a, int64_t b) { return a < b ? -1 : a > b ? 1 : 0; };
+  const auto kind = kind_of(kx);
+  const auto moment = temporal::parse_text(sx, kind);
+  if (temporal_x && temporal_y) {
+    const auto ky = kind_of(ty);
+    if ((kind == temporal::Kind::time) != (ky == temporal::Kind::time)) return std::nullopt;
+    const auto my = temporal::parse_text(std::get<std::string>(y), ky);
+    return order(temporal::ordinal(moment, kind), temporal::ordinal(my, ky));
+  }
+  const auto* so = std::get_if<std::string>(&other);
+  if (!so || to.number_string || !is_string_type(to)) return std::nullopt;
+  // A TIME beside a string compares as strings (observed: TIME '10:00:00' >
+  // '9:00:00' is 0).
+  if (kind == temporal::Kind::time) {
+    const int c = sx.compare(*so);
+    return sign * (c < 0 ? -1 : c > 0 ? 1 : 0);
+  }
+  // A DATE or DATETIME beside a string reads the string as one; one it
+  // cannot read is an error (observed: 1292, then 1525).
+  const auto read = temporal::read_datetime(*so, 6);
+  if (!read.moment) {
+    _warnings.push_back({"Warning", er_truncated_wrong_value, std::string("Truncated incorrect ") + type_word(kind, false) + " value: '" + *so + "'"});
+    throw SqlError(1525, "HY000", std::string("Incorrect ") + type_word(kind, true) + " value: '" + *so + "'", _warnings);
+  }
+  return sign * order(temporal::ordinal(moment, kind), temporal::ordinal(*read.moment, temporal::Kind::datetime));
+}
+
+std::optional<int> Evaluator::compare_as_numbers(const Value& x, const ResultType& tx, const Value& y, const ResultType& ty, bool quiet_x, bool quiet_y) {
+  return compare_values(temporal_number(x, tx), as_number_type(tx), temporal_number(y, ty), as_number_type(ty), std::nullopt, quiet_x, quiet_y);
+}
+
 ResultType Evaluator::cast_type(const Expr& e) const {
+  if (e.value == "TEMPORAL") {
+    // A literal must be a value of its type (1525).
+    const auto kind = kind_named(e.scope);
+    const auto& s = e.args[0]->value;
+    const int fsp = literal_fsp(s);
+    const auto read = kind == temporal::Kind::time ? temporal::read_time(s, fsp) : temporal::read_datetime(s, fsp);
+    if (!read.moment || read.truncated || read.clamped)
+      throw SqlError(1525, "HY000", std::string("Incorrect ") + type_word(kind, true) + " value: '" + s + "'");
+    return temporal_type(kind, fsp, true);
+  }
   const auto from = type(*e.args[0]);
   const bool nn = (from.flags & c::not_null) != 0;
   const auto& to = e.scope;
+  if (to == "DATE" || to == "TIME" || to == "DATETIME") {
+    const auto fsp = written(e, 1).value_or(0);
+    if (fsp > 6) throw SqlError(1426, "42000", "Too-big precision " + std::to_string(fsp) + " specified for 'CAST'. Maximum is 6.");
+    return temporal_type(kind_named(to), static_cast<int>(fsp), false);
+  }
   if (to == "SIGNED" || to == "UNSIGNED") {
     // 21 long either way; UNSIGNED carries 21 digits into arithmetic,
     // SIGNED 20 (observed: CAST(1 AS UNSIGNED) + 1 is 22 long, CAST('7' AS
@@ -200,12 +339,87 @@ ResultType Evaluator::cast_type(const Expr& e) const {
 
 Value Evaluator::cast_value(const Expr& e) {
   const auto t = cast_type(e);
+  if (e.value == "TEMPORAL") {
+    const auto kind = kind_named(e.scope);
+    const auto& s = e.args[0]->value;
+    auto m = *(kind == temporal::Kind::time ? temporal::read_time(s, t.decimals) : temporal::read_datetime(s, t.decimals)).moment;
+    if (kind == temporal::Kind::date) temporal::round(m, kind, 0);
+    return temporal::text(m, kind, t.decimals);
+  }
   const auto from = type(*e.args[0]);
   const auto v = value(*e.args[0]);
   if (is_null(v)) return v;
   const auto& to = e.scope;
   const auto* text = std::get_if<std::string>(&v);
   const bool string = text && !from.number_string;
+  if (to == "DATE" || to == "TIME" || to == "DATETIME") {
+    const auto kind = kind_named(to);
+    const int fsp = t.decimals;
+    const bool time = kind == temporal::Kind::time;
+    // What MySQL says of a value it cannot take (observed): NULL with 1292.
+    const auto incorrect = [&](const std::string& shown) -> Value {
+      _warnings.push_back(
+          {"Warning", er_truncated_wrong_value, time ? "Truncated incorrect time value: '" + shown + "'" : "Incorrect datetime value: '" + shown + "'"});
+      return {};
+    };
+    if (is_temporal_type(from)) {
+      const auto from_kind = kind_of(from);
+      auto m = temporal::parse_text(*text, from_kind);
+      // A TIME as a date takes today's date, which waits for the clock.
+      if (from_kind == temporal::Kind::time && !time) not_yet("CAST of a TIME AS " + to);
+      if (time) m.year = m.month = m.day = 0;
+      temporal::round(m, kind, fsp);
+      return temporal::text(m, kind, fsp);
+    }
+    if (string) {
+      const auto read = time ? temporal::read_time(*text, fsp) : temporal::read_datetime(*text, kind == temporal::Kind::date ? -1 : fsp);
+      if (!read.moment) return incorrect(*text);
+      // Truncation first, then each superfluous delimiter (observed).
+      if (read.truncated || read.clamped)
+        _warnings.push_back(
+            {"Warning", er_truncated_wrong_value, std::string("Truncated incorrect ") + (time ? "time" : "datetime") + " value: '" + *text + "'"});
+      for (const auto at : read.superfluous)
+        _warnings.push_back({"Warning", 4096,
+                             "Delimiter '" + std::string(1, (*text)[at]) + "' in position " + std::to_string(at) + " in datetime value '" + *text +
+                                 "' at row 1 is superfluous and is deprecated. Please remove."});
+      auto m = *read.moment;
+      if (kind == temporal::Kind::date) temporal::round(m, kind, 0);
+      return temporal::text(m, kind, fsp);
+    }
+    // A number: its integer part and its fraction's microseconds.
+    std::string digits;
+    if (const auto* i = std::get_if<int64_t>(&v)) {
+      digits = std::to_string(*i);
+    } else if (const auto* u = std::get_if<uint64_t>(&v)) {
+      digits = std::to_string(*u);
+    } else if (const auto* d = std::get_if<Decimal>(&v)) {
+      digits = d->to_string();
+    } else if (const auto* r = std::get_if<double>(&v)) {
+      char buffer[400];
+      std::snprintf(buffer, sizeof buffer, "%.6f", *r);
+      digits = buffer;
+    } else {
+      uint64_t out = 0;
+      for (const char ch : *text) out = (out << 8) | static_cast<uint8_t>(ch);
+      digits = std::to_string(out);
+    }
+    const auto shown = *to_text(v, from);
+    const bool negative = !digits.empty() && digits[0] == '-';
+    if (negative) digits.erase(0, 1);
+    const auto point = digits.find('.');
+    const auto whole = digits.substr(0, point);
+    std::string micro = point == std::string::npos ? "" : digits.substr(point + 1);
+    micro.resize(6, '0');
+    if (whole.size() > 19) return incorrect(shown);
+    const uint64_t integer = std::stoull(whole);
+    bool clamped = false;
+    const auto m = time ? temporal::time_from_number(integer, static_cast<uint32_t>(std::stoul(micro)), negative, fsp, &clamped)
+                        : temporal::datetime_from_number(integer, static_cast<uint32_t>(std::stoul(micro)), negative, fsp);
+    if (!m) return incorrect(shown);
+    auto out = *m;
+    if (kind == temporal::Kind::date) temporal::round(out, kind, 0);
+    return temporal::text(out, kind, fsp);
+  }
   if (to == "SIGNED" || to == "UNSIGNED") {
     const bool to_unsigned = to == "UNSIGNED";
     // A number rounds half away from zero; a string is read up to what is

@@ -89,6 +89,9 @@ bool not_null(const ResultType& t) { return (t.flags & c::not_null) != 0; }
 enum class Domain { integer, decimal, real };
 
 Domain domain_of(const ResultType& t) {
+  // A DATE, TIME or DATETIME is the number its digits make, a DECIMAL with
+  // a fraction.
+  if (is_temporal_type(t)) return t.decimals ? Domain::decimal : Domain::integer;
   // A table's column may be any of the integer types.
   if (t.field_type == f::longlong || t.field_type == f::long_ || t.field_type == f::int24 || t.field_type == f::short_ || t.field_type == f::tiny)
     return Domain::integer;
@@ -304,6 +307,13 @@ ResultType Evaluator::type(const Expr& e) const {
         return t;
       }
       if (e.value != "-") not_yet(e.value);
+      // A DATE, TIME or DATETIME negated is a DOUBLE at its fraction's digits
+      // (observed: -DATE is 17 long, -TIME '10:00:00.25' 19 with 2).
+      if (is_temporal_type(a)) {
+        auto t = double_type(17 + a.decimals, not_null(a));
+        t.decimals = a.decimals;
+        return t;
+      }
       const auto domain = domain_of(a);
       if (a.field_type == f::null || is_text(a) || domain == Domain::real) return double_type(double_length, not_null(a));
       if (domain == Domain::decimal) return decimal_type(a.precision, a.decimals, not_null(a));
@@ -405,7 +415,7 @@ ResultType Evaluator::type(const Expr& e) const {
       throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + name + "' in 'field list'");
     }
     case ExprKind::call:
-      if (e.value == "CAST") return cast_type(e);
+      if (e.value == "CAST" || e.value == "TEMPORAL") return cast_type(e);
       if (is_aggregate(e)) {
         if (_settings.aggregates)
           if (const auto t = _settings.aggregates->aggregate_type(e)) return *t;
@@ -655,6 +665,11 @@ double Evaluator::real(const Value& v, const ResultType& t) {
   if (const auto* i = std::get_if<int64_t>(&v)) return static_cast<double>(*i);
   if (const auto* u = std::get_if<uint64_t>(&v)) return static_cast<double>(*u);
   if (is_null(v)) return 0;
+  if (is_temporal_type(t)) {
+    const auto n = temporal_number(v, t);
+    if (const auto* d = std::get_if<Decimal>(&n)) return d->to_double();
+    return static_cast<double>(std::get<int64_t>(n));
+  }
   const auto& s = std::get<std::string>(v);
   if (t.number_string) return static_cast<double>(static_cast<uint64_t>(as_int(v)));
   size_t i = 0;
@@ -694,6 +709,10 @@ std::optional<bool> Evaluator::truth(const Value& v, const ResultType& t) {
 std::optional<int> Evaluator::compare_values(const Value& x, const ResultType& tx, const Value& y, const ResultType& ty, std::optional<uint16_t> collation,
                                              bool quiet_x, bool quiet_y) {
   if (is_null(x) || is_null(y)) return std::nullopt;
+  if (is_temporal_type(tx) || is_temporal_type(ty)) {
+    if (const auto c = compare_temporal(x, tx, y, ty)) return c;
+    return compare_as_numbers(x, tx, y, ty, quiet_x, quiet_y);
+  }
   if (collation) {
     const auto* sx = std::get_if<std::string>(&x);
     const auto* sy = std::get_if<std::string>(&y);
@@ -754,7 +773,7 @@ Value Evaluator::value(const Expr& e) {
     case ExprKind::unary: {
       const auto t = type(e);
       const auto at = type(*e.args[0]);
-      const auto a = value(*e.args[0]);
+      const auto a = temporal_number(value(*e.args[0]), at);
       if (e.value == "NOT") {
         const auto b = truth(a, at);
         return boolean(b ? std::optional<bool>(!*b) : std::nullopt);
@@ -792,8 +811,8 @@ Value Evaluator::value(const Expr& e) {
         if (!x || !y) return {};
         return int64_t{*x != *y ? 1 : 0};
       }
-      const auto a = value(*e.args[0]);
-      const auto b = value(*e.args[1]);
+      auto a = value(*e.args[0]);
+      auto b = value(*e.args[1]);
       if (comparison(op)) {
         if (op == "<=>") {
           if (is_null(a) || is_null(b)) return int64_t{is_null(a) && is_null(b) ? 1 : 0};
@@ -815,6 +834,9 @@ Value Evaluator::value(const Expr& e) {
         return int64_t{result ? 1 : 0};
       }
       if (is_null(a) || is_null(b)) return {};
+      // A DATE, TIME or DATETIME is reckoned with as its number.
+      a = temporal_number(a, ta);
+      b = temporal_number(b, tb);
       if (bitwise(op)) {
         const uint64_t x = bit_operand(a, ta), y = bit_operand(b, tb);
         if (op == "&") return x & y;
@@ -985,7 +1007,7 @@ Value Evaluator::value(const Expr& e) {
     case ExprKind::case_when:
       return flow_value(e);
     case ExprKind::call: {
-      if (e.value == "CAST") return cast_value(e);
+      if (e.value == "CAST" || e.value == "TEMPORAL") return cast_value(e);
       if (is_flow_control(e)) return flow_value(e);
       if (string_function(e)) return string_function_value(e);
       if (number_function(e)) return number_function_value(e);

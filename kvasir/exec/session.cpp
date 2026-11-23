@@ -679,6 +679,7 @@ Outcome Session::execute(const sql::Statement& statement) {
     }
     return outcome;
   } catch (const SqlError& e) {
+    _warnings.insert(_warnings.end(), e.before().begin(), e.before().end());
     _warnings.push_back({"Error", e.code(), e.what()});
     throw;
   } catch (const LockWaitNeeded&) {

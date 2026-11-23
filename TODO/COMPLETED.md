@@ -1270,3 +1270,11 @@ The record, newest first. Each entry says what landed, with its gate counts.
   and the temporal targets refused until built. Coverage 99.2% of lines.
 - Gate (node-c): release, ASan and TSan each **429 tests, 1289 of 1289**
   statements, TSan with no reports.
+- Temporal types, T1b part one: DATE, TIME and TIMESTAMP literals, and CAST
+  and CONVERT to DATE, TIME and DATETIME, on a new module that reads,
+  checks, rounds and writes dates and times as MySQL does
+  (TODO/2026-11-23-temporal-notes.md); comparison as moments, a TIME beside
+  a string as strings, arithmetic on their numbers; a failed statement
+  lists its earlier warnings before its error. CI green on CAST (2f05fd8).
+- Gate (node-c): release, ASan and TSan each **433 tests, 1321 of 1321**
+  statements, TSan with no reports; coverage 99.1% of lines.
