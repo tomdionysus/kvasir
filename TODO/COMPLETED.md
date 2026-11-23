@@ -1223,3 +1223,11 @@ The record, newest first. Each entry says what landed, with its gate counts.
   MySQL's optimizer picks its own first table).
 - Gate (node-c): release, ASan and TSan each **422 tests, 1188 of 1188**
   statements, TSan with no reports.
+- Joins, J3: LEFT and RIGHT [OUTER] JOIN, USING and NATURAL carried out
+  (NULL-extended rows, the inner side's NOT NULL dropped, USING's columns
+  once and first, 1054 'from clause'). The temporary-table rule refined to
+  the observed one: sort keys of the plan's first table and each later
+  table found through an index keep key flags; else a temporary table.
+  CI green on J1 (057413f) and J2 (5c471a5).
+- Gate (node-c): release, ASan and TSan each **423 tests, 1207 of 1207**
+  statements, TSan with no reports.

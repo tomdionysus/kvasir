@@ -824,6 +824,25 @@ SELECT x FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id ORDER BY id
 SELECT 1 FROM kv_join.a, kv_join.b JOIN kv_join.a AS c ON a.id = c.id
 SELECT 1 FROM kv_join.a JOIN kv_join.a
 SELECT zz.* FROM kv_join.a JOIN kv_join.b ON 1
+CREATE TABLE kv_join.c (k INT, m INT)
+INSERT INTO kv_join.c VALUES (1, 2)
+SELECT a.id, b.id, a.id + 1, b.id + 1 FROM kv_join.a LEFT JOIN kv_join.b ON a.id = b.a_id ORDER BY a.id, b.id
+SELECT a.id, b.id FROM kv_join.a LEFT JOIN kv_join.b ON a.id = b.a_id ORDER BY a.x, b.id
+SELECT a.id, b.id FROM kv_join.b RIGHT JOIN kv_join.a ON a.id = b.a_id ORDER BY a.id, b.id
+SELECT a.id, b.id FROM kv_join.a RIGHT JOIN kv_join.b ON a.id = b.a_id ORDER BY b.id
+SELECT a.x, b.y FROM kv_join.a LEFT JOIN kv_join.b ON a.id = b.a_id AND b.y = 'q' ORDER BY a.id
+SELECT * FROM kv_join.a LEFT JOIN kv_join.b ON a.id = b.a_id WHERE b.id IS NULL ORDER BY a.id
+SELECT a.x, COALESCE(b.y, '-') FROM kv_join.a LEFT JOIN kv_join.b ON a.id = b.a_id AND b.y = 'q' ORDER BY a.id
+SELECT * FROM kv_join.a LEFT JOIN kv_join.b ON a.id = b.a_id LEFT JOIN kv_join.c ON c.k = b.a_id ORDER BY a.id, b.id
+SELECT * FROM kv_join.a LEFT JOIN kv_join.b USING (id) ORDER BY id
+SELECT * FROM kv_join.b RIGHT JOIN kv_join.a USING (id) ORDER BY id
+SELECT id, a.id, b.id FROM kv_join.a LEFT JOIN kv_join.b USING (id) ORDER BY 1
+SELECT * FROM kv_join.a NATURAL JOIN kv_join.a AS d ORDER BY id
+SELECT * FROM kv_join.a NATURAL JOIN kv_join.c ORDER BY id
+SELECT * FROM kv_join.a NATURAL LEFT JOIN kv_join.b ORDER BY id
+SELECT * FROM kv_join.a JOIN kv_join.b USING (zz)
+SELECT * FROM kv_join.a JOIN kv_join.b USING (a_id)
+SELECT * FROM kv_join.a, kv_join.b JOIN kv_join.c USING (id)
 DROP DATABASE kv_join
 SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 SELECT REPEAT('ab',3), REPEAT('ab',0), REPEAT('ab',-1), REPEAT(NULL,2), REPEAT(1,2), REVERSE('abc'), REVERSE('héllo'), REVERSE(NULL), REVERSE(123), REVERSE(_binary'ab')

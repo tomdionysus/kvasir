@@ -2248,9 +2248,6 @@ TEST(ExecSessionGroups, Refusals) {
   b.expect_refused("SELECT GROUP_CONCAT(c) FROM v", 1235, "42000", "This version of Kvasir doesn't yet support 'GROUP_CONCAT'");
   // What joins do not yet carry out.
   b.expect_refused("SELECT COUNT(*) FROM v, v AS w", 1235, "42000", "This version of Kvasir doesn't yet support 'grouping over joins'");
-  b.expect_refused("SELECT * FROM v LEFT JOIN v AS w ON 1", 1235, "42000", "This version of Kvasir doesn't yet support 'outer joins'");
-  b.expect_refused("SELECT * FROM v JOIN v AS w USING (id)", 1235, "42000", "This version of Kvasir doesn't yet support 'USING'");
-  b.expect_refused("SELECT * FROM v NATURAL JOIN v AS w", 1235, "42000", "This version of Kvasir doesn't yet support 'NATURAL JOIN'");
   b.expect_refused("SELECT * FROM v JOIN v AS w ON 1 FOR UPDATE", 1235, "42000", "This version of Kvasir doesn't yet support 'locking reads over joins'");
   b.expect_refused("SELECT * FROM v JOIN information_schema.tables ON 1", 1235, "42000",
                    "This version of Kvasir doesn't yet support 'joins over information_schema'");
@@ -2333,6 +2330,76 @@ TEST(ExecSessionJoins, InnerJoins) {
   b.expect_refused("SELECT a.id FROM a JOIN b ON a.id = b.a_id", 1235, "42000", "This version of Kvasir doesn't yet support 'locking reads over joins'");
   run(b.s, "ROLLBACK");
   run(b.s, "SET transaction_isolation = 'REPEATABLE-READ'");
+}
+
+// Outer joins, USING and NATURAL, as observed on MySQL 8.4.13 (2026-11-23):
+// a LEFT JOIN keeps each left row nothing on the right matched, the right
+// side NULL; RIGHT JOIN the reverse; the inner side's columns lose NOT NULL
+// and keep their key flags. USING's columns come once, first, from the left
+// table (a RIGHT JOIN's right), then each side's others; a bare USING name
+// is that column, a qualified one the table's own. NATURAL is USING every
+// shared column; with none it is a cross join. A sorted join keeps key
+// flags only when each later table is found through an index.
+TEST(ExecSessionJoins, OuterJoinsAndUsing) {
+  TableBed b;
+  run(b.s, "CREATE TABLE a (id INT PRIMARY KEY, x VARCHAR(10) NOT NULL, n INT)");
+  run(b.s, "CREATE TABLE b (id INT PRIMARY KEY, a_id INT NOT NULL, y VARCHAR(5))");
+  run(b.s, "CREATE TABLE c (k INT, m INT)");
+  run(b.s, "INSERT INTO a VALUES (1,'one',10),(2,'two',NULL),(3,'three',30)");
+  run(b.s, "INSERT INTO b VALUES (10,1,'p'),(11,1,'q'),(12,3,NULL),(13,9,'z')");
+  run(b.s, "INSERT INTO c VALUES (1, 2)");
+
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a.id, b.id FROM a LEFT JOIN b ON a.id = b.a_id ORDER BY a.id, b.id")),
+            (Rows{{"1", "10"}, {"1", "11"}, {"2", "NULL"}, {"3", "12"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a.id, b.id FROM a RIGHT JOIN b ON a.id = b.a_id ORDER BY b.id")),
+            (Rows{{"1", "10"}, {"1", "11"}, {"3", "12"}, {"NULL", "13"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a.x, b.y FROM a LEFT JOIN b ON a.id = b.a_id AND b.y = 'q' ORDER BY a.id")),
+            (Rows{{"one", "q"}, {"two", "NULL"}, {"three", "NULL"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a.x FROM a LEFT JOIN b ON a.id = b.a_id WHERE b.id IS NULL")), (Rows{{"two"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a.id, b.id, c.m FROM a LEFT JOIN b ON a.id = b.a_id LEFT JOIN c ON c.k = b.a_id ORDER BY a.id, b.id")),
+            (Rows{{"1", "10", "2"}, {"1", "11", "2"}, {"2", "NULL", "NULL"}, {"3", "12", "NULL"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a.x, COALESCE(b.y, '-') FROM a LEFT JOIN b ON a.id = b.a_id AND b.y = 'q' ORDER BY a.id")),
+            (Rows{{"one", "q"}, {"two", "-"}, {"three", "-"}}));
+  // Unsorted: the inner side's columns and expressions lose NOT NULL only.
+  EXPECT_EQ(shapes(run(b.s, "SELECT a.id, b.id, a.id + 1, b.id + 1 FROM a LEFT JOIN b ON a.id = b.a_id")),
+            (std::vector<Shape>{{f::long_, bin, 11, 0, nn | pri | nodef | num | part},
+                                {f::long_, bin, 11, 0, pri | nodef | num | part},
+                                {f::longlong, bin, 12, 0, nn | c::binary | num},
+                                {f::longlong, bin, 12, 0, c::binary | num}}));
+  // Sorted with b read whole (b.a_id is no key's): a temporary table.
+  EXPECT_EQ(shapes(run(b.s, "SELECT a.id, b.id FROM a LEFT JOIN b ON a.id = b.a_id ORDER BY a.x")),
+            (std::vector<Shape>{{f::long_, bin, 11, 0, nn | nodef | num}, {f::long_, bin, 11, 0, nodef | num}}));
+
+  // USING: the merged column first, then the left's, then the right's.
+  const auto star = [&](const std::string& sql) {
+    std::vector<std::string> names;
+    const auto outcome = run(b.s, sql);
+    for (const auto& col : outcome.result.value().columns) names.push_back(col.name);
+    return names;
+  };
+  EXPECT_EQ(star("SELECT * FROM a LEFT JOIN b USING (id)"), (std::vector<std::string>{"id", "x", "n", "a_id", "y"}));
+  EXPECT_EQ(star("SELECT * FROM a RIGHT JOIN b USING (id)"), (std::vector<std::string>{"id", "a_id", "y", "x", "n"}));
+  EXPECT_EQ(star("SELECT * FROM a JOIN b USING (id) JOIN a AS d USING (id)"), (std::vector<std::string>{"id", "x", "n", "a_id", "y", "x", "n"}));
+  EXPECT_EQ(star("SELECT * FROM a NATURAL JOIN c"), (std::vector<std::string>{"id", "x", "n", "k", "m"}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM a LEFT JOIN b USING (id) ORDER BY id")),
+            (Rows{{"1", "one", "10", "NULL", "NULL"}, {"2", "two", "NULL", "NULL", "NULL"}, {"3", "three", "30", "NULL", "NULL"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT id, a.id, b.id FROM a LEFT JOIN b USING (id) ORDER BY 1")),
+            (Rows{{"1", "1", "NULL"}, {"2", "2", "NULL"}, {"3", "3", "NULL"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT id, a.id, b.id FROM a RIGHT JOIN b USING (id) ORDER BY 1")),
+            (Rows{{"10", "NULL", "10"}, {"11", "NULL", "11"}, {"12", "NULL", "12"}, {"13", "NULL", "13"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT * FROM a NATURAL JOIN a AS d ORDER BY id")), (Rows{{"1", "one", "10"}, {"3", "three", "30"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a.id, c.k FROM a NATURAL JOIN c ORDER BY a.id")), (Rows{{"1", "1"}, {"2", "1"}, {"3", "1"}}));
+  // Found through b's primary key: no temporary table, key flags kept; the
+  // merged column is the left table's, b's the inner side's.
+  EXPECT_EQ(shapes(run(b.s, "SELECT * FROM a LEFT JOIN b USING (id) ORDER BY id")), (std::vector<Shape>{{f::long_, bin, 11, 0, nn | pri | nodef | num | part},
+                                                                                                        {f::var_string, ai, 40, 0, nn | nodef},
+                                                                                                        {f::long_, bin, 11, 0, num},
+                                                                                                        {f::long_, bin, 11, 0, nodef | num},
+                                                                                                        {f::var_string, ai, 20, 0, 0}}));
+
+  b.expect_refused("SELECT * FROM a JOIN b USING (zz)", 1054, "42S22", "Unknown column 'zz' in 'from clause'");
+  b.expect_refused("SELECT * FROM a JOIN b USING (a_id)", 1054, "42S22", "Unknown column 'a_id' in 'from clause'");
+  b.expect_refused("SELECT * FROM a, b JOIN c USING (id)", 1054, "42S22", "Unknown column 'id' in 'from clause'");
 }
 
 TEST(ExecSessionFunctions, FlowControlOverColumns) {

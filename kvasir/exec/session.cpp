@@ -859,38 +859,74 @@ struct JoinLeaf {
   std::string database;
   std::unique_ptr<TableColumns> columns;
   std::vector<txn::Row> rows;
+  // On the inner side of an outer join: its columns may be NULL whatever
+  // their definition says.
+  bool nullable = false;
 };
 using JoinLeaves = std::vector<std::unique_ptr<JoinLeaf>>;
 
+struct JoinPlace {
+  size_t leaf;
+  size_t column;
+  friend bool operator==(const JoinPlace&, const JoinPlace&) = default;
+  friend auto operator<=>(const JoinPlace&, const JoinPlace&) = default;
+};
+
+// A column USING or NATURAL merged into another: in any scope holding the
+// whole join [first, end), its bare name is `to`.
+struct JoinLink {
+  JoinPlace to;
+  size_t first;
+  size_t end;
+};
+using JoinLinks = std::map<JoinPlace, JoinLink>;
+
 // The columns of the tables a join, or one side of it, holds: a name only
-// one of them has is that table's; a bare name two hold is ambiguous (1052).
+// one of them has is that table's, as is a name USING merged; a bare name
+// two hold otherwise is ambiguous (1052). A qualified name is always its own
+// table's column.
 class JoinedColumns : public ColumnSource {
  public:
-  struct Place {
-    size_t leaf;
-    size_t column;
-  };
-  JoinedColumns(const JoinLeaves& leaves, size_t first, size_t end) : _leaves(leaves), _first(first), _end(end) {}
+  using Place = JoinPlace;
+  JoinedColumns(const JoinLeaves& leaves, const JoinLinks& links, size_t first, size_t end) : _leaves(leaves), _links(links), _first(first), _end(end) {}
+
+  // Where a column's bare name leads in this scope.
+  Place merged(Place p) const {
+    for (;;) {
+      const auto link = _links.find(p);
+      if (link == _links.end() || link->second.first < _first || link->second.end > _end) return p;
+      p = link->second.to;
+    }
+  }
 
   std::optional<Place> place(const std::vector<std::string>& path) const {
     std::optional<Place> found;
     for (size_t l = _first; l < _end; ++l) {
       const auto i = _leaves[l]->columns->index(path);
       if (!i) continue;
-      if (found) {
+      const Place p = path.size() == 1 ? merged({l, *i}) : Place{l, *i};
+      if (found && *found != p) {
         std::string name;
         for (size_t k = 0; k < path.size(); ++k) name += (k ? "." : "") + path[k];
         throw SqlError(er_ambiguous_field, "23000", "Column '" + name + "' in field list is ambiguous");
       }
-      found = Place{l, *i};
+      found = p;
     }
     return found;
+  }
+
+  // A column's type as an expression reads it: NOT NULL no more on an outer
+  // join's inner side.
+  ResultType type_at(Place p) const {
+    auto type = _leaves[p.leaf]->columns->type_at(p.column, false);
+    if (_leaves[p.leaf]->nullable) type.flags = static_cast<uint16_t>(type.flags & ~c::not_null);
+    return type;
   }
 
   std::optional<Found> find_column(const std::vector<std::string>& path) const override {
     const auto p = place(path);
     if (!p) return std::nullopt;
-    return _leaves[p->leaf]->columns->find_column(path);
+    return Found{type_at(*p), _leaves[p->leaf]->columns->collation_at(p->column)};
   }
   Value column_value(const std::vector<std::string>& path) const override {
     const auto p = place(path);
@@ -905,6 +941,7 @@ class JoinedColumns : public ColumnSource {
 
  private:
   const JoinLeaves& _leaves;
+  const JoinLinks& _links;
   size_t _first;
   size_t _end;
 };
@@ -1772,6 +1809,7 @@ namespace {
 // with no `ref`.
 struct JoinNode {
   const sql::TableRef* ref = nullptr;
+  sql::TableRef::Join join = sql::TableRef::Join::comma;
   size_t first = 0;
   size_t end = 0;
   std::unique_ptr<JoinNode> left;
@@ -1779,6 +1817,15 @@ struct JoinNode {
   std::unique_ptr<JoinedColumns> scope;
   std::unique_ptr<Evaluator> on;
   ResultType on_type;
+  // USING's (or NATURAL's) columns: the left side's and the right side's,
+  // each to equal the other.
+  std::vector<std::pair<JoinPlace, JoinPlace>> using_pairs;
+  // What `*` gives over this join, in order: USING's merged columns first,
+  // then each side's others (the right side's first for RIGHT JOIN).
+  std::vector<JoinPlace> star;
+  // The tables in the order the plan reads them: a RIGHT JOIN's right side
+  // first.
+  std::vector<size_t> plan;
 };
 
 // A joined row: one row of each table, by leaf.
@@ -1790,16 +1837,156 @@ ResultType without_keys(ResultType t) {
   return t;
 }
 
+// The terms of a condition joined by AND.
+void conjuncts(const sql::Expr& e, std::vector<const sql::Expr*>& out) {
+  if (e.kind == sql::ExprKind::binary && e.value == "AND") {
+    conjuncts(*e.args[0], out);
+    conjuncts(*e.args[1], out);
+    return;
+  }
+  out.push_back(&e);
+}
+
+// Whether the fixed plan sorts a join through a temporary table (observed
+// on MySQL 8.4.13): it does unless every sort key is the first table's and
+// each later table is found through an index, by an equality between the
+// leading column of one of its keys and what the tables before it hold;
+// a table read whole goes through a join buffer, and the joined rows are
+// sorted apart.
+bool sorts_through_temporary(const sql::Select& select, const JoinNode& root, const JoinLeaves& leaves, const JoinedColumns& columns,
+                             const std::vector<std::vector<JoinPlace>>& stars) {
+  const auto& plan = root.plan;
+  std::vector<size_t> position(leaves.size());
+  for (size_t k = 0; k < plan.size(); ++k) position[plan[k]] = k;
+  // The tables an expression reads, or nothing when a name in it cannot be
+  // placed (it is reported where it is typed).
+  const auto tables_of = [&](const sql::Expr& e) -> std::optional<std::set<size_t>> {
+    std::set<size_t> out;
+    bool placed = true;
+    std::function<void(const sql::Expr&)> walk = [&](const sql::Expr& x) {
+      if (x.kind == sql::ExprKind::column) {
+        try {
+          if (const auto p = columns.place(x.path))
+            out.insert(p->leaf);
+          else
+            placed = false;
+        } catch (const SqlError&) {
+          placed = false;
+        }
+        return;
+      }
+      for (const auto& a : x.args)
+        if (a) walk(*a);
+      if (x.operand) walk(*x.operand);
+      if (x.otherwise) walk(*x.otherwise);
+    };
+    walk(e);
+    if (!placed) return std::nullopt;
+    return out;
+  };
+  for (const auto& order : select.order) {
+    const sql::Expr* e = order.expr.get();
+    std::optional<JoinPlace> star_column;
+    if (e->kind == sql::ExprKind::integer) {
+      uint64_t n = 0;
+      try {
+        n = std::stoull(e->value);
+      } catch (const std::exception&) {
+        return true;
+      }
+      size_t at = 0;
+      e = nullptr;
+      for (size_t k = 0; k < select.items.size() && !e && !star_column; ++k) {
+        if (!select.items[k].star) {
+          if (++at == n) e = select.items[k].expr.get();
+          continue;
+        }
+        if (n > at && n <= at + stars[k].size()) star_column = stars[k][n - at - 1];
+        at += stars[k].size();
+      }
+      if (!e && !star_column) return true;
+    } else if (e->kind == sql::ExprKind::column && e->path.size() == 1) {
+      for (const auto& item : select.items)
+        if (item.has_alias && sql::same_word(item.alias, e->path[0])) {
+          e = item.expr.get();
+          break;
+        }
+    }
+    if (star_column) {
+      if (star_column->leaf != plan.front()) return true;
+      continue;
+    }
+    const auto tables = tables_of(*e);
+    if (!tables) return true;
+    for (const auto t : *tables)
+      if (t != plan.front()) return true;
+  }
+  // The equalities a table may be found by: every ON's and USING's, and
+  // WHERE's for a table that cannot come back NULL.
+  std::vector<std::pair<const sql::Expr*, bool>> terms;  // a term, from WHERE
+  std::vector<std::pair<JoinPlace, JoinPlace>> pairs;
+  std::function<void(const JoinNode&)> collect = [&](const JoinNode& node) {
+    if (!node.left) return;
+    collect(*node.left);
+    collect(*node.right);
+    if (node.ref && node.ref->on) {
+      std::vector<const sql::Expr*> on;
+      conjuncts(*node.ref->on, on);
+      for (const auto* term : on) terms.emplace_back(term, false);
+    }
+    pairs.insert(pairs.end(), node.using_pairs.begin(), node.using_pairs.end());
+  };
+  collect(root);
+  if (select.where) {
+    std::vector<const sql::Expr*> where;
+    conjuncts(*select.where, where);
+    for (const auto* term : where) terms.emplace_back(term, true);
+  }
+  const auto leads = [&](JoinPlace p) {
+    for (const auto& key : leaves[p.leaf]->table.keys)
+      if (!key.parts.empty() && key.parts[0].column == p.column && !key.parts[0].prefix) return true;
+    return false;
+  };
+  for (size_t k = 1; k < plan.size(); ++k) {
+    const size_t table = plan[k];
+    const auto before = [&](const std::set<size_t>& tables) { return std::all_of(tables.begin(), tables.end(), [&](size_t t) { return position[t] < k; }); };
+    bool found = false;
+    for (const auto& [l, r] : pairs)
+      found = found || (l.leaf == table && leads(l) && position[r.leaf] < k) || (r.leaf == table && leads(r) && position[l.leaf] < k);
+    for (const auto& [term, from_where] : terms) {
+      if (found) break;
+      if (from_where && leaves[table]->nullable) continue;
+      if (term->kind != sql::ExprKind::binary || term->value != "=" || term->args.size() != 2) continue;
+      for (size_t side = 0; side < 2 && !found; ++side) {
+        const auto& column = *term->args[side];
+        if (column.kind != sql::ExprKind::column) continue;
+        std::optional<JoinPlace> p;
+        try {
+          p = columns.place(column.path);
+        } catch (const SqlError&) {
+        }
+        if (!p || p->leaf != table || !leads(*p)) continue;
+        const auto other = tables_of(*term->args[1 - side]);
+        found = other && before(*other);
+      }
+    }
+    if (!found) return true;
+  }
+  return false;
+}
+
 }  // namespace
 
 // Joins on the fixed plan (the maintainer's ruling of 2026-11-23): each
-// join's tables in written order, nested loops, a row of the left side with
-// each of the right's that its ON keeps. Names resolve across the tables in
-// scope (an ON's are its own join's). A join sorted by a table other than
-// the first, or made DISTINCT, goes through a temporary table, which drops
-// its columns' key flags and reads its expressions as fields (observed on
-// MySQL 8.4.13, where the optimizer's order decides; recorded where it
-// differs).
+// join's tables in written order (a RIGHT JOIN's right side first), nested
+// loops, a row of the preserved side with each of the other's that its ON
+// or USING keeps, and with the other side NULL for an outer join when none
+// does. Names resolve across the tables in scope (an ON's are its own
+// join's; USING's merged columns answer to their bare names). A join made
+// DISTINCT, or sorted other than as sorts_through_temporary allows, goes
+// through a temporary table, which drops its columns' key flags and reads
+// its expressions as fields (observed on MySQL 8.4.13, where the
+// optimizer's order decides; recorded where it differs).
 Outcome Session::select_joined(const sql::Select& select) {
   using Join = sql::TableRef::Join;
   const auto refuse = [](const std::string& what) {
@@ -1809,6 +1996,8 @@ Outcome Session::select_joined(const sql::Select& select) {
   if (!select.locking.empty()) refuse("locking reads over joins");
   auto settings = eval_settings();
   JoinLeaves leaves;
+  JoinLinks links;
+  std::function<void(JoinNode&)> join_sides;
   std::function<std::unique_ptr<JoinNode>(const sql::TableRef&)> build = [&](const sql::TableRef& ref) {
     auto node = std::make_unique<JoinNode>();
     node->ref = &ref;
@@ -1831,17 +2020,61 @@ Outcome Session::select_joined(const sql::Select& select) {
         if (other->columns->qualifier() == leaf->columns->qualifier() && !both_bare)
           throw SqlError(1066, "42000", "Not unique table/alias: '" + leaf->columns->qualifier() + "'");
       }
+      for (size_t i = 0; i < leaf->table.columns.size(); ++i) node->star.push_back({leaves.size(), i});
+      node->plan = {leaves.size()};
       leaves.push_back(std::move(leaf));
       node->end = leaves.size();
       return node;
     }
-    if (ref.join == Join::left || ref.join == Join::right) refuse("outer joins");
-    if (ref.natural) refuse("NATURAL JOIN");
-    if (ref.has_using) refuse("USING");
+    node->join = ref.join;
     node->left = build(*ref.left);
     node->right = build(*ref.right);
     node->end = leaves.size();
+    join_sides(*node);
     return node;
+  };
+  // A join's sides joined: USING's or NATURAL's columns paired and merged,
+  // its `*`, and its plan.
+  join_sides = [&](JoinNode& node) {
+    const bool right_join = node.join == Join::right;
+    const auto& first = right_join ? *node.right : *node.left;
+    const auto& second = right_join ? *node.left : *node.right;
+    node.plan = first.plan;
+    node.plan.insert(node.plan.end(), second.plan.begin(), second.plan.end());
+    std::vector<std::string> names;
+    if (node.ref && node.ref->natural) {
+      // Every column the two sides' `*` share, in the left side's order.
+      for (const auto& l : node.left->star) {
+        const auto& name = leaves[l.leaf]->table.columns[l.column].name;
+        const bool shared = std::any_of(node.right->star.begin(), node.right->star.end(),
+                                        [&](const JoinPlace& r) { return sql::same_word(leaves[r.leaf]->table.columns[r.column].name, name); });
+        if (shared && std::none_of(names.begin(), names.end(), [&](const std::string& n) { return sql::same_word(n, name); })) names.push_back(name);
+      }
+    } else if (node.ref && node.ref->has_using) {
+      names = node.ref->using_columns;
+    }
+    std::vector<JoinPlace> merged;
+    for (const auto& name : names) {
+      const auto side = [&](const JoinNode& n) {
+        const JoinedColumns scope(leaves, links, n.first, n.end);
+        std::optional<JoinPlace> p;
+        in_clause("from clause", [&] { p = scope.place({name}); });
+        if (!p) throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + name + "' in 'from clause'");
+        return *p;
+      };
+      const auto l = side(*node.left), r = side(*node.right);
+      node.using_pairs.emplace_back(l, r);
+      // The preserved side's column stands for both: the left's, but a
+      // RIGHT JOIN's right's.
+      const auto kept = right_join ? r : l;
+      links[right_join ? l : r] = JoinLink{kept, node.first, node.end};
+      merged.push_back(kept);
+    }
+    const JoinedColumns scope(leaves, links, node.first, node.end);
+    node.star = merged;
+    for (const auto* side : {&first, &second})
+      for (const auto& p : side->star)
+        if (std::find(merged.begin(), merged.end(), scope.merged(p)) == merged.end()) node.star.push_back(p);
   };
   std::unique_ptr<JoinNode> root;
   for (const auto& ref : select.from) {
@@ -1855,15 +2088,27 @@ Outcome Session::select_joined(const sql::Select& select) {
     comma->end = next->end;
     comma->left = std::move(root);
     comma->right = std::move(next);
+    join_sides(*comma);
     root = std::move(comma);
   }
+  // An outer join's inner side may come back NULL: a LEFT JOIN's right, a
+  // RIGHT JOIN's left, and everything inside them.
+  std::function<void(const JoinNode&, bool)> mark = [&](const JoinNode& node, bool nullable) {
+    if (!node.left) {
+      leaves[node.first]->nullable = nullable;
+      return;
+    }
+    mark(*node.left, nullable || node.join == Join::right);
+    mark(*node.right, nullable || node.join == Join::left);
+  };
+  mark(*root, false);
   // Each ON, typed over its own join's tables.
   std::function<void(JoinNode&)> type_on = [&](JoinNode& node) {
     if (!node.left) return;
     type_on(*node.left);
     type_on(*node.right);
     if (!node.ref || !node.ref->on) return;
-    node.scope = std::make_unique<JoinedColumns>(leaves, node.first, node.end);
+    node.scope = std::make_unique<JoinedColumns>(leaves, links, node.first, node.end);
     auto scoped = settings;
     scoped.columns = node.scope.get();
     node.on = std::make_unique<Evaluator>(scoped);
@@ -1871,69 +2116,33 @@ Outcome Session::select_joined(const sql::Select& select) {
   };
   type_on(*root);
 
-  JoinedColumns columns(leaves, 0, leaves.size());
+  JoinedColumns columns(leaves, links, 0, leaves.size());
   settings.columns = &columns;
   Evaluator evaluator(settings);
   const auto set_joined = [&](const Joined* joined) {
     for (size_t l = 0; l < leaves.size(); ++l) leaves[l]->columns->set_row(joined ? (*joined)[l] : nullptr);
   };
   using Place = JoinedColumns::Place;
-  // The plan reads the first table written first: sorting by its columns
-  // alone needs no temporary table; sorting by any other's, or DISTINCT,
-  // does. A name that cannot be placed here is reported where it is typed.
-  const auto first_table_only = [&](const sql::Expr& e) {
-    std::function<bool(const sql::Expr&)> only = [&](const sql::Expr& x) {
-      if (x.kind == sql::ExprKind::column) {
-        const auto p = columns.place(x.path);
-        return p && p->leaf == 0;
-      }
-      for (const auto& a : x.args)
-        if (a && !only(*a)) return false;
-      return (!x.operand || only(*x.operand)) && (!x.otherwise || only(*x.otherwise));
-    };
-    return only(e);
-  };
-  bool temporary = select.distinct;
-  for (const auto& order : select.order) {
-    if (temporary) break;
-    try {
-      const sql::Expr* e = order.expr.get();
-      if (e->kind == sql::ExprKind::integer) {
-        const uint64_t position = limit_of(*e);
-        // Positions count a star's columns; a star of the first table only
-        // is its columns.
-        size_t at = 0;
-        for (const auto& item : select.items) {
-          if (!item.star) {
-            if (++at == position) e = item.expr.get();
-            continue;
-          }
-          for (size_t l = 0; l < leaves.size(); ++l) {
-            const auto& leaf = *leaves[l];
-            const auto& p = item.star_path;
-            const bool ours = p.empty() || (p.size() == 1 && p[0] == leaf.columns->qualifier()) ||
-                              (p.size() == 2 && leaf.columns->qualifier() == leaf.table.name && p[0] == leaf.database && p[1] == leaf.table.name);
-            if (!ours) continue;
-            if (position > at && position <= at + leaf.table.columns.size()) {
-              e = nullptr;
-              temporary = l != 0;
-            }
-            at += leaf.table.columns.size();
-          }
-        }
-        if (e && e->kind == sql::ExprKind::integer) temporary = true;
-      } else if (e->kind == sql::ExprKind::column && e->path.size() == 1) {
-        for (const auto& item : select.items)
-          if (item.has_alias && sql::same_word(item.alias, e->path[0])) {
-            e = item.expr.get();
-            break;
-          }
-      }
-      if (e && !first_table_only(*e)) temporary = true;
-    } catch (const SqlError&) {
-      temporary = true;
+  // Each star item's columns: `*` the join's, `t.*` the table's own.
+  std::vector<std::vector<Place>> stars(select.items.size());
+  for (size_t k = 0; k < select.items.size(); ++k) {
+    const auto& item = select.items[k];
+    if (!item.star) continue;
+    const auto& p = item.star_path;
+    if (p.empty()) {
+      stars[k] = root->star;
+      continue;
     }
+    for (size_t l = 0; l < leaves.size(); ++l) {
+      const auto& leaf = *leaves[l];
+      const bool ours = (p.size() == 1 && p[0] == leaf.columns->qualifier()) ||
+                        (p.size() == 2 && leaf.columns->qualifier() == leaf.table.name && p[0] == leaf.database && p[1] == leaf.table.name);
+      if (ours)
+        for (size_t i = 0; i < leaf.table.columns.size(); ++i) stars[k].push_back({l, i});
+    }
+    if (stars[k].empty()) throw SqlError(1051, "42S02", "Unknown table '" + p.back() + "'");
   }
+  const bool temporary = select.distinct || (!select.order.empty() && sorts_through_temporary(select, *root, leaves, columns, stars));
   ResultSet result;
   struct Output {
     std::optional<Place> column;
@@ -1943,24 +2152,16 @@ Outcome Session::select_joined(const sql::Select& select) {
   std::vector<Output> outputs;
   const auto add_column = [&](Place p, std::string name, const sql::Expr* expr) {
     auto column = leaves[p.leaf]->columns->column(p.column, std::move(name));
+    if (leaves[p.leaf]->nullable) column.type.flags = static_cast<uint16_t>(column.type.flags & ~c::not_null);
     if (temporary) column.type = without_keys(column.type);
     if (select.distinct && column.type.nullable()) column.type.flags = static_cast<uint16_t>(column.type.flags | group_flag);
     outputs.push_back({p, expr, column.type});
     result.columns.push_back(std::move(column));
   };
-  for (const auto& item : select.items) {
+  for (size_t k = 0; k < select.items.size(); ++k) {
+    const auto& item = select.items[k];
     if (item.star) {
-      const auto& p = item.star_path;
-      bool any = false;
-      for (size_t l = 0; l < leaves.size(); ++l) {
-        const auto& leaf = *leaves[l];
-        const bool ours = p.empty() || (p.size() == 1 && p[0] == leaf.columns->qualifier()) ||
-                          (p.size() == 2 && leaf.columns->qualifier() == leaf.table.name && p[0] == leaf.database && p[1] == leaf.table.name);
-        if (!ours) continue;
-        any = true;
-        for (size_t i = 0; i < leaf.table.columns.size(); ++i) add_column({l, i}, leaf.table.columns[i].name, nullptr);
-      }
-      if (!any) throw SqlError(1051, "42S02", "Unknown table '" + p.back() + "'");
+      for (const auto& p : stars[k]) add_column(p, leaves[p.leaf]->table.columns[p.column].name, nullptr);
       continue;
     }
     auto type = evaluator.type(*item.expr);
@@ -2063,17 +2264,48 @@ Outcome Session::select_joined(const sql::Select& select) {
       }
       const auto lefts = join(*node.left);
       const auto rights = join(*node.right);
-      for (const auto& l : lefts)
+      const auto keeps = [&](const Joined& j) {
+        if (!node.on && node.using_pairs.empty()) return true;
+        set_joined(&j);
+        // USING's columns equal, as `=` finds them: NULL equals nothing.
+        for (const auto& [l, r] : node.using_pairs) {
+          const auto a = leaves[l.leaf]->columns->value_at(l.column), b = leaves[r.leaf]->columns->value_at(r.column);
+          if (is_null(a) || is_null(b) || compare_for_order(a, b, leaves[l.leaf]->columns->collation_at(l.column)) != 0) return false;
+        }
+        if (!node.on) return true;
+        const auto b = node.on->truth(node.on->value(*node.ref->on), node.on_type);
+        return b && *b;
+      };
+      const auto joined = [&](const Joined& l, const Joined& r) {
+        Joined j = l;
+        for (size_t k = node.right->first; k < node.right->end; ++k) j[k] = r[k];
+        return j;
+      };
+      // An outer join walks its preserved side, and keeps a row of it that
+      // nothing matched with the other side NULL.
+      if (node.join == Join::right) {
         for (const auto& r : rights) {
-          Joined j = l;
-          for (size_t k = node.right->first; k < node.right->end; ++k) j[k] = r[k];
-          if (node.on) {
-            set_joined(&j);
-            const auto b = node.on->truth(node.on->value(*node.ref->on), node.on_type);
-            if (!b || !*b) continue;
+          bool matched = false;
+          for (const auto& l : lefts) {
+            auto j = joined(l, r);
+            if (!keeps(j)) continue;
+            matched = true;
+            out.push_back(std::move(j));
           }
+          if (!matched) out.push_back(r);
+        }
+        return out;
+      }
+      for (const auto& l : lefts) {
+        bool matched = false;
+        for (const auto& r : rights) {
+          auto j = joined(l, r);
+          if (!keeps(j)) continue;
+          matched = true;
           out.push_back(std::move(j));
         }
+        if (!matched && node.join == Join::left) out.push_back(l);
+      }
       return out;
     };
     const auto where_type = select.where ? evaluator.type(*select.where) : ResultType{};
