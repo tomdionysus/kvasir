@@ -265,7 +265,9 @@ Each to be closed, or kept by a decision.
 - Temporal values (2026-11-23, to close in T1b's rest and T2): NOW(6) and
   the fsp clock functions show 000 in their last three digits until
   Dannan 0.12.0's microsecond wall clock; time_zone SYSTEM is UTC (the
-  reference server's system_time_zone is UTC too); a TIME cast to DATE or
+  reference server's system_time_zone is UTC too); named zones
+  ('Europe/London') are 1298, where the reference server has zone data
+  loaded and takes them; a TIME cast to DATE or
   DATETIME (today's date) is refused; COALESCE, IF, CASE and GREATEST over
   mixed temporal types are not yet typed as MySQL types them (DATETIME in
   utf8mb4_0900_ai_ci, length 76).

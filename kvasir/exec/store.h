@@ -46,8 +46,9 @@ struct Stored {
 };
 
 // `from` is the type of the expression `value` came from (a hex literal is a
-// number in a numeric column, bytes in a string one).
-Stored store(const catalog::ColumnType& type, const Value& value, const ResultType& from);
+// number in a numeric column, bytes in a string one). A TIMESTAMP is given
+// in a zone `zone_seconds` east of UTC and stored in UTC.
+Stored store(const catalog::ColumnType& type, const Value& value, const ResultType& from, int32_t zone_seconds = 0);
 
 // What a NOT NULL column without a default takes when a statement that
 // ignores errors gives it NULL or nothing: 0 in the type's form, '' for

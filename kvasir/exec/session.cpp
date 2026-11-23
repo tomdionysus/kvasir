@@ -299,11 +299,7 @@ EvalSettings Session::eval_settings() const {
   // The statement's time, and the session's zone: SYSTEM is the node's,
   // UTC (as system_time_zone says), else a +hh:mm offset.
   e.statement_us = _statement_us;
-  const auto zone = _variables.text("time_zone");
-  if (zone.size() == 6 && (zone[0] == '+' || zone[0] == '-')) {
-    const int32_t seconds = ((zone[1] - '0') * 10 + (zone[2] - '0')) * 3600 + ((zone[4] - '0') * 10 + (zone[5] - '0')) * 60;
-    e.zone_seconds = zone[0] == '-' ? -seconds : seconds;
-  }
+  e.zone_seconds = zone_seconds();
   const auto* clock = &wall_clock();
   e.clock_us = [clock] { return static_cast<int64_t>(clock->unix_ms()) * 1000; };
   return e;
@@ -311,8 +307,19 @@ EvalSettings Session::eval_settings() const {
 
 const dannan::contract::WallClock& Session::wall_clock() const { return _info.clock ? *_info.clock : dannan::contract::system_wall_clock(); }
 
+int32_t Session::zone_seconds() const {
+  // SYSTEM is the node's zone, UTC (as system_time_zone says); else the
+  // variable holds a +hh:mm offset.
+  const auto zone = _variables.text("time_zone");
+  if (zone.size() != 6 || (zone[0] != '+' && zone[0] != '-')) return 0;
+  const int32_t seconds = ((zone[1] - '0') * 10 + (zone[2] - '0')) * 3600 + ((zone[4] - '0') * 10 + (zone[5] - '0')) * 60;
+  return zone[0] == '-' ? -seconds : seconds;
+}
+
 std::string Session::clock_text(const catalog::Column& column) const {
-  auto m = temporal::from_unix_us(_statement_us + static_cast<int64_t>(eval_settings().zone_seconds) * 1000000);
+  // A TIMESTAMP holds UTC; a DATETIME the session's own time.
+  const int64_t zone = column.type.kind == catalog::TypeKind::timestamp ? 0 : zone_seconds();
+  auto m = temporal::from_unix_us(_statement_us + zone * 1000000);
   uint32_t step = 1;
   for (int i = column.type.scale; i < 6; ++i) step *= 10;
   m.micro -= m.micro % step;
@@ -866,7 +873,7 @@ class TableColumns : public IndexedColumns {
   Value column_value(const std::vector<std::string>& path) const override {
     const auto i = index(path);
     if (!i || !_row || !(*_row)[*i]) return {};
-    return value_of(_table.columns[*i].type, *(*_row)[*i]);
+    return value_of(_table.columns[*i].type, held(*i));
   }
 
   std::string written(const std::vector<std::string>& path) const override {
@@ -879,7 +886,7 @@ class TableColumns : public IndexedColumns {
 
   Value value_at(size_t i) const override {
     if (!_row || !(*_row)[i]) return {};
-    return value_of(_table.columns[i].type, *(*_row)[i]);
+    return value_of(_table.columns[i].type, held(i));
   }
   // What the column's values compare under: its collation, or 0 for a
   // number.
@@ -922,7 +929,16 @@ class TableColumns : public IndexedColumns {
   std::optional<std::string> text(size_t i) const override {
     if (!_row || !(*_row)[i]) return std::nullopt;
     if (_view) return (*_row)[i];
-    return display_text(_table.columns[i].type, *(*_row)[i], column_result_type(_table, i, _eval).length);
+    return display_text(_table.columns[i].type, held(i), column_result_type(_table, i, _eval).length);
+  }
+
+  // A column's stored text as the session reads it: a TIMESTAMP, held in
+  // UTC, in the session's zone (observed).
+  std::string held(size_t i) const {
+    const auto& stored = *(*_row)[i];
+    const auto& type = _table.columns[i].type;
+    if (type.kind != catalog::TypeKind::timestamp || !_eval.zone_seconds || stored.starts_with("0000-00-00")) return stored;
+    return temporal::shifted(stored, type.scale, _eval.zone_seconds);
   }
 
   // The name the table goes by in the statement.
@@ -1174,9 +1190,9 @@ std::string escaped_bytes(const std::string& s) {
 // each as a warning instead, and the value MySQL stores in its place
 // (observed on MySQL 8.4.13).
 std::string stored_text(const catalog::Column& column, const Value& value, const ResultType& from, size_t row_number, std::vector<Warning>& warnings,
-                        bool ignore = false, bool field = false) {
+                        bool ignore = false, bool field = false, int32_t zone_seconds = 0) {
   const std::string at_row = " at row " + std::to_string(row_number);
-  const auto stored = store(column.type, value, from);
+  const auto stored = store(column.type, value, from, zone_seconds);
   const auto value_text = [&]() { return to_text(value, from).value_or("NULL"); };
   const auto failed = [&](const char* level, uint16_t code, const char* sqlstate, const std::string& message) -> std::string {
     if (!ignore) throw SqlError(code, sqlstate, message);
@@ -3300,7 +3316,7 @@ Outcome Session::insert(const sql::Statement& statement) {
           }
           continue;
         }
-        row[i] = stored_text(column, value, from, r + 1, _warnings, in.ignore, field);
+        row[i] = stored_text(column, value, from, r + 1, _warnings, in.ignore, field, zone_seconds());
         // 0 in an AUTO_INCREMENT column asks for the next value.
         if (column.auto_increment) {
           if (*row[i] == "0") {
@@ -3401,7 +3417,7 @@ Outcome Session::insert(const sql::Statement& statement) {
                 }
                 continue;
               }
-              updated[i] = stored_text(column, value, from, r + 1, _warnings, in.ignore);
+              updated[i] = stored_text(column, value, from, r + 1, _warnings, in.ignore, false, zone_seconds());
               if (column.auto_increment && (*updated[i])[0] != '-') _rows.saw_auto(table->id, table->auto_increment, std::stoull(*updated[i]));
             }
           } catch (...) {
@@ -3506,7 +3522,7 @@ void Session::assign(const catalog::Table& table, size_t index, const sql::Expr&
     row[index].reset();
     return;
   }
-  row[index] = stored_text(column, v, from, number, _warnings);
+  row[index] = stored_text(column, v, from, number, _warnings, false, false, zone_seconds());
   if (column.auto_increment && (*row[index])[0] != '-') _rows.saw_auto(table.id, table.auto_increment, std::stoull(*row[index]));
 }
 

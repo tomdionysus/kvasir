@@ -898,6 +898,24 @@ CREATE TABLE kv_temporal.bad3 (a DATETIME(3) DEFAULT CURRENT_TIMESTAMP)
 CREATE TABLE kv_temporal.bad4 (a DATE DEFAULT CURRENT_TIMESTAMP)
 CREATE TABLE kv_temporal.bad5 (a INT ON UPDATE CURRENT_TIMESTAMP)
 CREATE TABLE kv_temporal.bad6 (a DATETIME ON UPDATE CURRENT_TIMESTAMP(2))
+CREATE TABLE kv_temporal.z (id INT PRIMARY KEY, ts TIMESTAMP NULL, dt DATETIME)
+SET time_zone = '+10:00'
+INSERT INTO kv_temporal.z VALUES (1, '2024-01-01 10:00:00', '2024-01-01 10:00:00')
+INSERT INTO kv_temporal.z VALUES (2, '1970-01-01 10:00:01', NULL)
+INSERT INTO kv_temporal.z VALUES (3, '1970-01-01 10:00:00', NULL)
+SELECT id, ts, dt FROM kv_temporal.z ORDER BY id
+SET time_zone = '+00:00'
+SELECT id, ts, dt, ts = '2024-01-01 00:00:00', ts + 0 FROM kv_temporal.z ORDER BY id
+SET time_zone = '-05:30'
+SELECT id, ts FROM kv_temporal.z WHERE ts > '2023-12-31 18:00:00' ORDER BY id
+SET time_zone = '+14:00'
+SELECT ts FROM kv_temporal.z WHERE id = 1
+SET time_zone = '+14:01'
+SET time_zone = '-13:59'
+SET time_zone = '-14:00'
+SET time_zone = '+5:30'
+SELECT @@time_zone
+SET time_zone = 'SYSTEM'
 CREATE TABLE kv_temporal.bad1 (a TIME(7))
 CREATE TABLE kv_temporal.bad2 (a YEAR(2))
 CREATE TABLE kv_temporal.k (t TIME PRIMARY KEY)

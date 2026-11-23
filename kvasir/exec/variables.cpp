@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdio>
 
 #include "kvasir/protocol/types.h"
 #include "kvasir/sql/keywords.h"
@@ -372,12 +373,27 @@ void SessionVariables::set(std::string_view scope, std::string_view name, const 
     case VariableType::string:
       if (!str) wrong_type(s.name);
       if (s.name == "time_zone") {
+        // SYSTEM, or [+-]h:mm or [+-]hh:mm from -13:59 to +14:00, kept as
+        // +hh:mm (observed: '+5:30' is +05:30, '+14:01' and '-14:00' 1298).
+        // Named zones need zone data Kvasir does not hold yet.
         const auto& z = *str;
-        const bool offset = z.size() == 6 && (z[0] == '+' || z[0] == '-') && std::isdigit(static_cast<unsigned char>(z[1])) &&
-                            std::isdigit(static_cast<unsigned char>(z[2])) && z[3] == ':' && std::isdigit(static_cast<unsigned char>(z[4])) &&
-                            std::isdigit(static_cast<unsigned char>(z[5]));
-        if (!offset && !sql::same_word(z, "SYSTEM")) throw SqlError(1298, "HY000", "Unknown or incorrect time zone: '" + z + "'");
-        result = sql::same_word(z, "SYSTEM") ? std::string("SYSTEM") : z;
+        const auto digit = [&](size_t i) { return i < z.size() && std::isdigit(static_cast<unsigned char>(z[i])); };
+        const size_t colon = z.find(':');
+        const bool shaped = (z.size() == 5 || z.size() == 6) && (z[0] == '+' || z[0] == '-') && colon == z.size() - 3 && digit(1) && (colon == 2 || digit(2)) &&
+                            digit(colon + 1) && digit(colon + 2);
+        if (sql::same_word(z, "SYSTEM")) {
+          result = std::string("SYSTEM");
+        } else {
+          if (!shaped) throw SqlError(1298, "HY000", "Unknown or incorrect time zone: '" + z + "'");
+          const int hours = std::stoi(z.substr(1, colon - 1));
+          const int minutes = std::stoi(z.substr(colon + 1));
+          const int total = hours * 60 + minutes;
+          if (minutes > 59 || (z[0] == '+' ? total > 14 * 60 : total > 13 * 60 + 59))
+            throw SqlError(1298, "HY000", "Unknown or incorrect time zone: '" + z + "'");
+          char normal[32];
+          std::snprintf(normal, sizeof normal, "%c%02d:%02d", z[0], hours, minutes);
+          result = std::string(normal);
+        }
       } else {
         result = *str;
       }

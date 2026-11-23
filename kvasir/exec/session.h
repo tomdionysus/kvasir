@@ -234,6 +234,8 @@ class Session : private VariableSource {
   // The statement's time as a DATETIME or TIMESTAMP column holds it: in the
   // session's zone, cut to the column's fraction digits.
   std::string clock_text(const catalog::Column& column) const;
+  // The session's time_zone as seconds east of UTC.
+  int32_t zone_seconds() const;
   // A row an UPDATE changed: its ON UPDATE columns it did not `set` take the
   // statement's time.
   void stamp(const catalog::Table& table, const txn::Row& before, txn::Row& after, const std::vector<bool>& set) const;

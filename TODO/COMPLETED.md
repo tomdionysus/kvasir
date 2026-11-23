@@ -1300,3 +1300,10 @@ The record, newest first. Each entry says what landed, with its gate counts.
   1294. CI green on T2a (1be412c).
 - Gate (node-c): release, ASan and TSan each **435 tests, 1372 of 1372**
   statements, TSan with no reports; coverage 99.3% of lines.
+- Temporal types, T3: TIMESTAMP stored in UTC and read in the session's
+  zone (its range UTC's, clock defaults in UTC, a zero one kept); time_zone
+  takes h:mm offsets, normalised, -13:59 to +14:00 (1298 past). Named
+  zones are a recorded difference. Red first: 9 gate statements on the
+  old code. CI green on T2b (7479898).
+- Gate (node-c): release, ASan and TSan each **435 tests, 1390 of 1390**
+  statements, TSan with no reports; coverage 99.3% of lines.

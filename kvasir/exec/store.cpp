@@ -438,7 +438,7 @@ std::string zero_temporal(const catalog::ColumnType& type) {
 // DATETIME's time dropped into a DATE is truncated (Note 1292); a
 // TIMESTAMP outside 1970-01-01 00:00:01 to 2038-01-19 03:14:07 UTC is
 // invalid.
-Stored store_temporal(const catalog::ColumnType& type, const Value& value, const ResultType& from) {
+Stored store_temporal(const catalog::ColumnType& type, const Value& value, const ResultType& from, int32_t zone_seconds = 0) {
   const auto kind = temporal_kind(type.kind);
   const int fsp = type.scale;
   const auto invalid = [&] { return Stored{Result::invalid, {}, zero_temporal(type)}; };
@@ -466,6 +466,7 @@ Stored store_temporal(const catalog::ColumnType& type, const Value& value, const
   const bool lost = kind == temporal::Kind::date && (m->hour || m->minute || m->second || m->micro);
   temporal::round(*m, kind, fsp);
   if (type.kind == TypeKind::timestamp) {
+    if (zone_seconds) *m = temporal::from_unix_us(temporal::to_unix_us(*m) - static_cast<int64_t>(zone_seconds) * 1000000);
     const auto at = temporal::ordinal(*m, temporal::Kind::datetime);
     const temporal::Moment first{false, 1970, 1, 1, 0, 0, 1, 0};
     const temporal::Moment last{false, 2038, 1, 19, 3, 14, 7, 999999};
@@ -510,11 +511,13 @@ size_t character_end(const std::string& s, uint64_t count) {
   return i;
 }
 
-Stored store(const catalog::ColumnType& type, const Value& value, const ResultType& from) {
+Stored store(const catalog::ColumnType& type, const Value& value, const ResultType& from, int32_t zone_seconds) {
   if (catalog::is_integer(type.kind)) return store_integer(type, value, from);
   if (type.kind == TypeKind::decimal) return store_decimal(type, value, from);
   if (type.kind == TypeKind::float_ || type.kind == TypeKind::double_) return store_real(type, value, from);
-  if (catalog::is_temporal(type.kind)) return store_temporal(type, value, from);
+  // A TIMESTAMP is given in the session's zone, stored in UTC, and its range
+  // is UTC's (observed).
+  if (catalog::is_temporal(type.kind)) return store_temporal(type, value, from, zone_seconds);
   if (type.kind == TypeKind::year) return store_year(value, from);
   return store_string(type, value);
 }

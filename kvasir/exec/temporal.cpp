@@ -492,6 +492,24 @@ Moment from_unix_us(int64_t us) {
   return m;
 }
 
+int64_t to_unix_us(const Moment& m) {
+  // A civil date as days since 1970-01-01 (Howard Hinnant's algorithm).
+  const int64_t y = static_cast<int64_t>(m.year) - (m.month <= 2 ? 1 : 0);
+  const int64_t era = (y >= 0 ? y : y - 399) / 400;
+  const int64_t yoe = y - era * 400;
+  const int64_t mp = m.month > 2 ? m.month - 3 : m.month + 9;
+  const int64_t doy = (153 * mp + 2) / 5 + m.day - 1;
+  const int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  const int64_t days = era * 146097 + doe - 719468;
+  const int64_t seconds = days * 86400 + static_cast<int64_t>(m.hour) * 3600 + m.minute * 60 + m.second;
+  return seconds * 1000000 + m.micro;
+}
+
+std::string shifted(std::string_view datetime, int fsp, int64_t seconds) {
+  const auto m = parse_text(datetime, Kind::datetime);
+  return text(from_unix_us(to_unix_us(m) + seconds * 1000000), Kind::datetime, fsp);
+}
+
 int64_t ordinal(const Moment& m, Kind kind) {
   const int64_t seconds = static_cast<int64_t>(m.hour) * 3600 + m.minute * 60 + m.second;
   if (kind == Kind::time) {

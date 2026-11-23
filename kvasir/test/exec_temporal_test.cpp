@@ -111,6 +111,10 @@ TEST(Temporal, TextNumbersAndOrder) {
   // The Unix epoch's microseconds, either side of it.
   EXPECT_EQ(text(from_unix_us(1709210096789000), Kind::datetime, 6), "2024-02-29 12:34:56.789000");
   EXPECT_EQ(text(from_unix_us(-1), Kind::datetime, 6), "1969-12-31 23:59:59.999999");
+  for (const int64_t us : {int64_t{0}, int64_t{-1}, int64_t{1709210096789000}, int64_t{-62135596800000000}, int64_t{253402300799999999}})
+    EXPECT_EQ(to_unix_us(from_unix_us(us)), us) << us;
+  EXPECT_EQ(shifted("2024-01-01 00:00:00", 0, 36000), "2024-01-01 10:00:00");
+  EXPECT_EQ(shifted("2024-03-01 00:30:00.5", 1, -3600), "2024-02-29 23:30:00.5");
   EXPECT_TRUE(valid_date(2024, 2, 29));
   EXPECT_FALSE(valid_date(2023, 2, 29));
   EXPECT_FALSE(valid_date(1900, 2, 29));
