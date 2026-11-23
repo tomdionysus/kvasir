@@ -1215,3 +1215,11 @@ The record, newest first. Each entry says what landed, with its gate counts.
   joins (1235).
 - Gate (node-c): release, ASan and TSan each **421 tests, 1165 of 1165**
   statements, TSan with no reports.
+- Joins, J2: inner joins carried out on the fixed plan (nested loops in
+  written order, each ON over its own tables); 1052, 1054, 1066 and 1051
+  as MySQL answers them; `*`, `t.*`, WHERE, ORDER BY, DISTINCT and LIMIT
+  over joined rows. Key flags: sorted by the first table alone, kept; by
+  another, or DISTINCT, through a temporary table (recorded difference:
+  MySQL's optimizer picks its own first table).
+- Gate (node-c): release, ASan and TSan each **422 tests, 1188 of 1188**
+  statements, TSan with no reports.

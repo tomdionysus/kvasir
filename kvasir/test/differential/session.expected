@@ -3441,6 +3441,114 @@ statement SET SESSION transaction_isolation = @kept_isolation
 end
 statement DROP DATABASE kv_serial
 end
+statement CREATE DATABASE kv_join
+end
+statement CREATE TABLE kv_join.a (id INT PRIMARY KEY, x VARCHAR(10) NOT NULL, n INT)
+end
+statement CREATE TABLE kv_join.b (id INT PRIMARY KEY, a_id INT NOT NULL, y VARCHAR(5))
+end
+statement INSERT INTO kv_join.a VALUES (1, 'one', 10), (2, 'two', NULL), (3, 'three', 30)
+end
+statement INSERT INTO kv_join.b VALUES (10, 1, 'p'), (11, 1, 'q'), (12, 3, NULL), (13, 9, 'z')
+end
+statement SELECT * FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY b.id
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column a_id|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+column y|VAR_STRING|255|20|0|
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column x|VAR_STRING|255|40|0|NOT_NULL NO_DEFAULT_VALUE
+column n|LONG|63|11|0|NUM
+row 10	1	p	1	one	10
+row 11	1	q	1	one	10
+row 12	3	\N	3	three	30
+end
+statement SELECT * FROM kv_join.b, kv_join.a WHERE a.id = b.a_id ORDER BY b.id DESC
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column a_id|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+column y|VAR_STRING|255|20|0|
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column x|VAR_STRING|255|40|0|NOT_NULL NO_DEFAULT_VALUE
+column n|LONG|63|11|0|NUM
+row 12	3	\N	3	three	30
+row 11	1	q	1	one	10
+row 10	1	p	1	one	10
+end
+statement SELECT a.x, b.y FROM kv_join.b INNER JOIN kv_join.a ON a.id = b.a_id AND b.y IS NOT NULL ORDER BY b.y
+column x|VAR_STRING|255|40|0|NOT_NULL NO_DEFAULT_VALUE
+column y|VAR_STRING|255|20|0|
+row one	p
+row one	q
+end
+statement SELECT a.id, b.id FROM kv_join.a CROSS JOIN kv_join.b WHERE b.id = 13 ORDER BY a.id
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+row 1	13
+row 2	13
+row 3	13
+end
+statement SELECT p.x, q.x FROM kv_join.a p JOIN kv_join.a q ON q.id = p.id + 1 ORDER BY p.id
+column x|VAR_STRING|255|40|0|NOT_NULL NO_DEFAULT_VALUE
+column x|VAR_STRING|255|40|0|NOT_NULL NO_DEFAULT_VALUE
+row one	two
+row two	three
+end
+statement SELECT a.id + 1, b.a_id * 2, CONCAT(x, y) FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY b.id
+column a.id + 1|LONGLONG|63|12|0|NOT_NULL BINARY NUM
+column b.a_id * 2|LONGLONG|63|12|0|NOT_NULL BINARY NUM
+column CONCAT(x, y)|VAR_STRING|255|60|31|
+row 2	2	onep
+row 2	2	oneq
+row 4	6	\N
+end
+statement SELECT kv_join.a.id, a.x FROM kv_join.a, kv_join.b ORDER BY 1, b.id LIMIT 3
+column id|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+column x|VAR_STRING|255|40|0|NOT_NULL NO_DEFAULT_VALUE
+row 1	one
+row 1	one
+row 1	one
+end
+statement SELECT a.id, b.id, c.n FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id JOIN kv_join.a AS c ON c.n = a.n ORDER BY b.id
+column id|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+column id|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+column n|LONG|63|11|0|NUM
+row 1	10	10
+row 1	11	10
+row 3	12	30
+end
+statement SELECT a.id FROM kv_join.a JOIN (kv_join.b JOIN kv_join.a AS c ON c.id = b.a_id) ON a.id = b.a_id ORDER BY b.id
+column id|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+row 1
+row 1
+row 3
+end
+statement SELECT DISTINCT a.x FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id ORDER BY a.x
+column x|VAR_STRING|255|40|0|NOT_NULL NO_DEFAULT_VALUE
+row one
+row three
+end
+statement SELECT id FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id
+error 1052|23000|Column 'id' in field list is ambiguous
+end
+statement SELECT 1 FROM kv_join.a JOIN kv_join.b ON 1 WHERE id = 1
+error 1052|23000|Column 'id' in where clause is ambiguous
+end
+statement SELECT 1 FROM kv_join.a JOIN kv_join.b ON id = 1
+error 1052|23000|Column 'id' in on clause is ambiguous
+end
+statement SELECT x FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id ORDER BY id
+error 1052|23000|Column 'id' in order clause is ambiguous
+end
+statement SELECT 1 FROM kv_join.a, kv_join.b JOIN kv_join.a AS c ON a.id = c.id
+error 1054|42S22|Unknown column 'a.id' in 'on clause'
+end
+statement SELECT 1 FROM kv_join.a JOIN kv_join.a
+error 1066|42000|Not unique table/alias: 'a'
+end
+statement SELECT zz.* FROM kv_join.a JOIN kv_join.b ON 1
+error 1051|42S02|Unknown table 'zz'
+end
+statement DROP DATABASE kv_join
+end
 statement SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 column LPAD('ab',5,'xy')|VAR_STRING|255|20|31|
 column RPAD('ab',5,'xy')|VAR_STRING|255|20|31|

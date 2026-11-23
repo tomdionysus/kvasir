@@ -802,6 +802,29 @@ SELECT * FROM kv_serial.t ORDER BY id
 COMMIT
 SET SESSION transaction_isolation = @kept_isolation
 DROP DATABASE kv_serial
+CREATE DATABASE kv_join
+CREATE TABLE kv_join.a (id INT PRIMARY KEY, x VARCHAR(10) NOT NULL, n INT)
+CREATE TABLE kv_join.b (id INT PRIMARY KEY, a_id INT NOT NULL, y VARCHAR(5))
+INSERT INTO kv_join.a VALUES (1, 'one', 10), (2, 'two', NULL), (3, 'three', 30)
+INSERT INTO kv_join.b VALUES (10, 1, 'p'), (11, 1, 'q'), (12, 3, NULL), (13, 9, 'z')
+SELECT * FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY b.id
+SELECT * FROM kv_join.b, kv_join.a WHERE a.id = b.a_id ORDER BY b.id DESC
+SELECT a.x, b.y FROM kv_join.b INNER JOIN kv_join.a ON a.id = b.a_id AND b.y IS NOT NULL ORDER BY b.y
+SELECT a.id, b.id FROM kv_join.a CROSS JOIN kv_join.b WHERE b.id = 13 ORDER BY a.id
+SELECT p.x, q.x FROM kv_join.a p JOIN kv_join.a q ON q.id = p.id + 1 ORDER BY p.id
+SELECT a.id + 1, b.a_id * 2, CONCAT(x, y) FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY b.id
+SELECT kv_join.a.id, a.x FROM kv_join.a, kv_join.b ORDER BY 1, b.id LIMIT 3
+SELECT a.id, b.id, c.n FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id JOIN kv_join.a AS c ON c.n = a.n ORDER BY b.id
+SELECT a.id FROM kv_join.a JOIN (kv_join.b JOIN kv_join.a AS c ON c.id = b.a_id) ON a.id = b.a_id ORDER BY b.id
+SELECT DISTINCT a.x FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id ORDER BY a.x
+SELECT id FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id
+SELECT 1 FROM kv_join.a JOIN kv_join.b ON 1 WHERE id = 1
+SELECT 1 FROM kv_join.a JOIN kv_join.b ON id = 1
+SELECT x FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id ORDER BY id
+SELECT 1 FROM kv_join.a, kv_join.b JOIN kv_join.a AS c ON a.id = c.id
+SELECT 1 FROM kv_join.a JOIN kv_join.a
+SELECT zz.* FROM kv_join.a JOIN kv_join.b ON 1
+DROP DATABASE kv_join
 SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 SELECT REPEAT('ab',3), REPEAT('ab',0), REPEAT('ab',-1), REPEAT(NULL,2), REPEAT(1,2), REVERSE('abc'), REVERSE('héllo'), REVERSE(NULL), REVERSE(123), REVERSE(_binary'ab')
 SELECT REPEAT('ab', 40000000)

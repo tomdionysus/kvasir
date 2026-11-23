@@ -2246,9 +2246,14 @@ TEST(ExecSessionGroups, Refusals) {
   b.expect_refused("SELECT k FROM v GROUP BY nope", 1054, "42S22", "Unknown column 'nope' in 'group statement'");
   b.expect_refused("SELECT k FROM v GROUP BY k WITH ROLLUP", 1235, "42000", "This version of Kvasir doesn't yet support 'WITH ROLLUP'");
   b.expect_refused("SELECT GROUP_CONCAT(c) FROM v", 1235, "42000", "This version of Kvasir doesn't yet support 'GROUP_CONCAT'");
-  // Joins are read (sql_parser_test) and not yet carried out.
-  for (const auto* join : {"SELECT * FROM v, v AS w", "SELECT * FROM v JOIN v AS w ON 1", "SELECT * FROM (v, v AS w)"})
-    b.expect_refused(join, 1235, "42000", "This version of Kvasir doesn't yet support 'joins'");
+  // What joins do not yet carry out.
+  b.expect_refused("SELECT COUNT(*) FROM v, v AS w", 1235, "42000", "This version of Kvasir doesn't yet support 'grouping over joins'");
+  b.expect_refused("SELECT * FROM v LEFT JOIN v AS w ON 1", 1235, "42000", "This version of Kvasir doesn't yet support 'outer joins'");
+  b.expect_refused("SELECT * FROM v JOIN v AS w USING (id)", 1235, "42000", "This version of Kvasir doesn't yet support 'USING'");
+  b.expect_refused("SELECT * FROM v NATURAL JOIN v AS w", 1235, "42000", "This version of Kvasir doesn't yet support 'NATURAL JOIN'");
+  b.expect_refused("SELECT * FROM v JOIN v AS w ON 1 FOR UPDATE", 1235, "42000", "This version of Kvasir doesn't yet support 'locking reads over joins'");
+  b.expect_refused("SELECT * FROM v JOIN information_schema.tables ON 1", 1235, "42000",
+                   "This version of Kvasir doesn't yet support 'joins over information_schema'");
   run(b.s, "SET SESSION sql_mode = ''");
   EXPECT_EQ(b.rows("SELECT k, n FROM v GROUP BY k ORDER BY k"), (Rows{{"1", "1"}, {"2", "3"}}));
   auto o = run(b.s, "SELECT id, COUNT(*) FROM v");
@@ -2263,6 +2268,73 @@ TEST(ExecSessionGroups, Refusals) {
 // TEXT's length once more in characters); integers keep the widest column
 // type, one wider where signed meets unsigned; a string result is a CHAR
 // only when every string is, a BLOB when any is.
+// Inner joins as observed on MySQL 8.4.13 (2026-11-23): JOIN with ON, a
+// comma list with WHERE, CROSS JOIN and STRAIGHT_JOIN all give the same rows;
+// `*` is each table's columns in written order, `t.*` one table's; a name
+// two tables hold is ambiguous (1052, the clause unquoted); an ON sees only
+// its own join's tables (1054 'on clause'); a table or alias twice is 1066.
+// Each column keeps its own table's metadata. On the fixed plan (the
+// maintainer's ruling of 2026-11-23) the first table written is read first:
+// a join sorted by another table's columns, or DISTINCT, goes through a
+// temporary table, dropping key flags.
+TEST(ExecSessionJoins, InnerJoins) {
+  TableBed b;
+  run(b.s, "CREATE TABLE a (id INT PRIMARY KEY, x VARCHAR(10) NOT NULL, n INT)");
+  run(b.s, "CREATE TABLE b (id INT PRIMARY KEY, a_id INT NOT NULL, y VARCHAR(5))");
+  run(b.s, "INSERT INTO a VALUES (1,'one',10),(2,'two',NULL),(3,'three',30)");
+  run(b.s, "INSERT INTO b VALUES (10,1,'p'),(11,1,'q'),(12,3,NULL),(13,9,'z')");
+  const Rows joined{{"1", "one", "10", "10", "1", "p"}, {"1", "one", "10", "11", "1", "q"}, {"3", "three", "30", "12", "3", "NULL"}};
+  for (const auto* sql : {"SELECT * FROM a JOIN b ON a.id = b.a_id ORDER BY b.id", "SELECT * FROM a, b WHERE a.id = b.a_id ORDER BY b.id",
+                          "SELECT * FROM a INNER JOIN b ON a.id = b.a_id ORDER BY b.id", "SELECT * FROM a CROSS JOIN b WHERE a.id = b.a_id ORDER BY b.id",
+                          "SELECT * FROM a STRAIGHT_JOIN b ON a.id = b.a_id ORDER BY b.id", "SELECT * FROM (a, b) WHERE a.id = b.a_id ORDER BY b.id",
+                          "SELECT * FROM a JOIN b ON a.id = b.a_id AND b.id > 0 ORDER BY 4"}) {
+    SCOPED_TRACE(sql);
+    EXPECT_EQ(rows_of(run(b.s, sql)), joined);
+  }
+  // Unsorted, each column as its table reports it.
+  EXPECT_EQ(shapes(run(b.s, "SELECT * FROM a JOIN b ON a.id = b.a_id")), (std::vector<Shape>{{f::long_, bin, 11, 0, nn | pri | nodef | num | part},
+                                                                                             {f::var_string, ai, 40, 0, nn | nodef},
+                                                                                             {f::long_, bin, 11, 0, num},
+                                                                                             {f::long_, bin, 11, 0, nn | pri | nodef | num | part},
+                                                                                             {f::long_, bin, 11, 0, nn | nodef | num},
+                                                                                             {f::var_string, ai, 20, 0, 0}}));
+  // Sorted by the first table's columns, read in order; by another's, or
+  // DISTINCT, through a temporary table: key flags gone, expressions fields.
+  EXPECT_EQ(shapes(run(b.s, "SELECT b.id, a.n + 1 FROM b JOIN a ON a.id = b.a_id ORDER BY b.id")),
+            (std::vector<Shape>{{f::long_, bin, 11, 0, nn | pri | nodef | num | part}, {f::longlong, bin, 12, 0, c::binary | num}}));
+  EXPECT_EQ(shapes(run(b.s, "SELECT a.id, x, a.n + 1 FROM a, b ORDER BY 1, b.id")),
+            (std::vector<Shape>{{f::long_, bin, 11, 0, nn | nodef | num}, {f::var_string, ai, 40, 0, nn | nodef}, {f::longlong, bin, 12, 0, num}}));
+  EXPECT_EQ(shapes(run(b.s, "SELECT DISTINCT b.id FROM b JOIN a ON a.id = b.a_id")), (std::vector<Shape>{{f::long_, bin, 11, 0, nn | nodef | num}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT p.x, q.x FROM a p JOIN a q ON q.id = p.id + 1 ORDER BY p.id")), (Rows{{"one", "two"}, {"two", "three"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT b.*, a.x FROM a JOIN b ON a.id = b.a_id WHERE b.y = 'q'")), (Rows{{"11", "1", "q", "one"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT pt.a.id, a.x FROM pt.a JOIN b ON pt.a.id = b.a_id WHERE b.id = 12")), (Rows{{"3", "three"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a.id, b.id, c.n FROM a JOIN b ON a.id = b.a_id JOIN a AS c ON c.n = a.n ORDER BY b.id")),
+            (Rows{{"1", "10", "10"}, {"1", "11", "10"}, {"3", "12", "30"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a.id FROM a JOIN (b JOIN a AS c ON c.id = b.a_id) ON a.id = b.a_id ORDER BY b.id")), (Rows{{"1"}, {"1"}, {"3"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT DISTINCT a.x FROM a JOIN b ON a.id = b.a_id ORDER BY a.x")), (Rows{{"one"}, {"three"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a.id, b.id FROM a JOIN b ON a.id = b.a_id ORDER BY b.id DESC LIMIT 1, 1")), (Rows{{"1", "11"}}));
+
+  b.expect_refused("SELECT id FROM a JOIN b ON a.id = b.a_id", 1052, "23000", "Column 'id' in field list is ambiguous");
+  b.expect_refused("SELECT 1 FROM a JOIN b ON 1 WHERE id = 1", 1052, "23000", "Column 'id' in where clause is ambiguous");
+  b.expect_refused("SELECT 1 FROM a JOIN b ON id = 1", 1052, "23000", "Column 'id' in on clause is ambiguous");
+  b.expect_refused("SELECT x FROM a JOIN b ON a.id = b.a_id ORDER BY id", 1052, "23000", "Column 'id' in order clause is ambiguous");
+  b.expect_refused("SELECT x FROM a JOIN b ON a.id = b.a_id WHERE zz = 1", 1054, "42S22", "Unknown column 'zz' in 'where clause'");
+  b.expect_refused("SELECT 1 FROM a, b JOIN a AS c ON a.id = c.id", 1054, "42S22", "Unknown column 'a.id' in 'on clause'");
+  b.expect_refused("SELECT 1 FROM a JOIN b ON b.a_id = c.id JOIN a c ON 1", 1054, "42S22", "Unknown column 'c.id' in 'on clause'");
+  b.expect_refused("SELECT a.id FROM a AS t", 1054, "42S22", "Unknown column 'a.id' in 'field list'");
+  b.expect_refused("SELECT 1 FROM a JOIN a", 1066, "42000", "Not unique table/alias: 'a'");
+  b.expect_refused("SELECT 1 FROM a AS a JOIN b AS a ON 1", 1066, "42000", "Not unique table/alias: 'a'");
+  b.expect_refused("SELECT zz.* FROM a JOIN b ON 1", 1051, "42S02", "Unknown table 'zz'");
+  b.expect_refused("SELECT 1 FROM a JOIN nope ON 1", 1146, "42S02", "Table 'pt.nope' doesn't exist");
+  // SERIALIZABLE's shared locks over a join wait for locking reads over joins.
+  run(b.s, "SET transaction_isolation = 'SERIALIZABLE'");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a.id FROM a JOIN b ON a.id = b.a_id WHERE b.id = 12")), (Rows{{"3"}}));
+  run(b.s, "BEGIN");
+  b.expect_refused("SELECT a.id FROM a JOIN b ON a.id = b.a_id", 1235, "42000", "This version of Kvasir doesn't yet support 'locking reads over joins'");
+  run(b.s, "ROLLBACK");
+  run(b.s, "SET transaction_isolation = 'REPEATABLE-READ'");
+}
+
 TEST(ExecSessionFunctions, FlowControlOverColumns) {
   TableBed b;
   run(b.s,

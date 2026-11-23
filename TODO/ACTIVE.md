@@ -232,6 +232,16 @@ Waiting on nothing, to take when the above is blocked:
 
 Each to be closed, or kept by a decision.
 
+- Joins (kept by the fixed-plan ruling, 2026-11-23): Kvasir reads the
+  first table written first; MySQL's optimizer picks its own order (a
+  table found by its primary key from another's column is read after it;
+  a one-row table is a constant). So a sorted join's key flags and
+  expression flags (a temporary table's fields) differ where MySQL reads
+  another table first: observed, `a JOIN b ON a.id = b.a_id ORDER BY b.id`
+  keeps b's key flags in MySQL, Kvasir drops them; `ORDER BY a.id` the
+  reverse. With no ORDER BY the row order is the plan's. The gate writes
+  the table sorted by first.
+
 - Not yet checked on the reference server: FLOAT operands of the flow
   control functions (Kvasir merges them as DOUBLE); LPAD or RPAD with a
   NULL length (Kvasir: a LONG BLOB); STRCMP's result column (Kvasir: a
