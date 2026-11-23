@@ -410,7 +410,13 @@ Each to be closed, or kept by a decision.
   resolver (or a resolver in Dannan, should that ever be simpler). Dannan's
   DNS responder (stack item 25) is dropped, and a founding seed stays
   HOST:PORT. What Kvasir had sent Manannan as needs was withdrawn the same
-  day; how clients find a node is the operator's own DNS.
+  day; how clients find a node is the operator's own DNS. Dannan 0.13.0
+  (about 2026-12-05, the maintainer's ruling) brings an asynchronous DNS
+  client (A, AAAA, SRV, TXT, TTL cache, resolv.conf servers by default);
+  until then the system resolver. Asked of its shape (2026-11-23): PTR
+  with forward confirmation of a client's address, for host-named accounts
+  ('app'@'%.example.com') unless skip_name_resolve, a failure told apart
+  from no such name.
 - **Dannan**: the node-program helper (its item 14, 0.12.0; drawn at its
   TODO/2026-11-23-node-program.md, 61c292d), confirmed by Kvasir
   2026-11-23. kvasir-node moves onto it when Kvasir joins the cluster, not
