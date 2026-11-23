@@ -683,8 +683,13 @@ class Parser {
         return unsupported(s, "REFERENCES");
       } else if (word("AS") || word("GENERATED")) {
         return unsupported(s, "generated columns");
-      } else if (word("ON")) {
-        return unsupported(s, "ON UPDATE");
+      } else if (word("ON") && word("UPDATE", 1)) {
+        // ON UPDATE CURRENT_TIMESTAMP[(n)], or NOW, LOCALTIME and
+        // LOCALTIMESTAMP: the call, read as a DEFAULT's is.
+        take();
+        take();
+        if (peek().kind != TokenKind::word || !(one_of(peek().value, niladic_functions) || word("NOW"))) fail(peek());
+        c.on_update = default_value();
       } else if (word("VISIBLE") || word("INVISIBLE") || word("COLUMN_FORMAT") || word("STORAGE") || word("ENGINE_ATTRIBUTE") ||
                  word("SECONDARY_ENGINE_ATTRIBUTE") || word("SRID")) {
         return unsupported(s, "column attribute " + upper(peek().value));

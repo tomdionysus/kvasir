@@ -180,8 +180,11 @@ struct ColumnSpec {
   DataType type;
   // NULL or NOT NULL, the last written; nothing when neither is.
   std::optional<bool> nullable;
-  // DEFAULT: a literal, possibly signed, or NULL.
+  // DEFAULT: a literal, possibly signed, or NULL, or CURRENT_TIMESTAMP and
+  // its kin.
   ExprPtr default_value;
+  // ON UPDATE CURRENT_TIMESTAMP and its kin.
+  ExprPtr on_update;
   bool auto_increment = false;
   bool primary = false;  // PRIMARY KEY, or KEY
   bool unique = false;   // UNIQUE [KEY]

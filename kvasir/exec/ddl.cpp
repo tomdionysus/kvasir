@@ -285,12 +285,31 @@ void check_name(const std::string& name, uint16_t code, const char* what) {
 
 [[noreturn]] void invalid_default(const std::string& column) { refuse(1067, "42000", "Invalid default value for '" + column + "'"); }
 
+// Whether a DEFAULT's or ON UPDATE's call is CURRENT_TIMESTAMP (or NOW,
+// LOCALTIME, LOCALTIMESTAMP) as a DATETIME or TIMESTAMP column of `type`
+// takes it: with the column's own fraction digits.
+bool current_timestamp(const sql::Expr& e, const catalog::ColumnType& type) {
+  if (e.kind != sql::ExprKind::call) return false;
+  if (e.value != "CURRENT_TIMESTAMP" && e.value != "NOW" && e.value != "LOCALTIME" && e.value != "LOCALTIMESTAMP") return false;
+  if (type.kind != TypeKind::datetime && type.kind != TypeKind::timestamp) return false;
+  uint64_t fsp = 0;
+  if (!e.args.empty()) {
+    if (e.args[0]->kind != sql::ExprKind::integer || e.args[0]->value.size() > 2) return false;
+    fsp = std::stoull(e.args[0]->value);
+  }
+  return fsp == type.scale;
+}
+
 // A column's DEFAULT, stored as the column would store it.
 void set_default(catalog::Column& column, const sql::Expr& e, const TableContext& context, std::vector<Warning>& warnings) {
   if (catalog::is_blob(column.type.kind) && e.kind != sql::ExprKind::null)
     refuse(1101, "42000", "BLOB, TEXT, GEOMETRY or JSON column '" + column.name + "' can't have a default value");
-  // DEFAULT CURRENT_TIMESTAMP waits for its stage.
-  if (e.kind == sql::ExprKind::call && catalog::is_temporal(column.type.kind) && !column.auto_increment) not_yet("DEFAULT " + e.value);
+  // DEFAULT CURRENT_TIMESTAMP (or NOW, LOCALTIME, LOCALTIMESTAMP): a
+  // DATETIME's or TIMESTAMP's, at its own fraction digits (1067 else).
+  if (e.kind == sql::ExprKind::call && !column.auto_increment && current_timestamp(e, column.type)) {
+    column.default_kind = catalog::Column::Default::current_timestamp;
+    return;
+  }
   if (column.auto_increment || e.kind == sql::ExprKind::call) invalid_default(column.name);
   if (e.kind == sql::ExprKind::null) {
     if (!column.nullable) invalid_default(column.name);
@@ -467,6 +486,12 @@ catalog::Table define_table(const sql::CreateTable& spec, const TableContext& co
     // PRIMARY KEY and AUTO_INCREMENT make a column NOT NULL.
     column.nullable = written.nullable.value_or(true) && !written.primary && !written.auto_increment;
     if (written.default_value) set_default(column, *written.default_value, context, warnings);
+    // ON UPDATE CURRENT_TIMESTAMP: a DATETIME's or TIMESTAMP's, at its own
+    // fraction digits (1294 else, observed).
+    if (written.on_update) {
+      if (!current_timestamp(*written.on_update, column.type)) refuse(1294, "HY000", "Invalid ON UPDATE clause for '" + column.name + "' column");
+      column.on_update = true;
+    }
     table.columns.push_back(std::move(column));
   }
 
@@ -627,6 +652,10 @@ ResultType column_result_type(const catalog::Table& table, size_t index, const E
         r.precision = 14 + t.scale;
       }
       flags |= c::binary;
+      // A TIMESTAMP set by the clock is flagged so (observed: TIMESTAMP and
+      // ON_UPDATE_NOW for one with both; a DATETIME has neither).
+      if (t.kind == TypeKind::timestamp && (column.on_update || column.default_kind == catalog::Column::Default::current_timestamp)) flags |= c::timestamp;
+      if (t.kind == TypeKind::timestamp && column.on_update) flags |= c::on_update_now;
       break;
     }
     // YEAR: 4 long, UNSIGNED ZEROFILL NUM (observed).

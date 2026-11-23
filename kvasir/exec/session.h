@@ -231,6 +231,12 @@ class Session : private VariableSource {
   // session's wall clock.
   int64_t _statement_us = 0;
   const dannan::contract::WallClock& wall_clock() const;
+  // The statement's time as a DATETIME or TIMESTAMP column holds it: in the
+  // session's zone, cut to the column's fraction digits.
+  std::string clock_text(const catalog::Column& column) const;
+  // A row an UPDATE changed: its ON UPDATE columns it did not `set` take the
+  // statement's time.
+  void stamp(const catalog::Table& table, const txn::Row& before, txn::Row& after, const std::vector<bool>& set) const;
   // The SELECT's locking clause for the table it reads, by the name the
   // statement gives it: nothing for none; 3568 for an OF naming another
   // table, 3569 for two clauses over it (observed on MySQL 8.4.13).

@@ -21,6 +21,7 @@
 #include "kvasir/exec/ddl.h"
 #include "kvasir/exec/rows.h"
 #include "kvasir/exec/store.h"
+#include "kvasir/exec/temporal.h"
 #include "kvasir/protocol/messages.h"
 #include "kvasir/protocol/types.h"
 #include "kvasir/sql/keywords.h"
@@ -309,6 +310,20 @@ EvalSettings Session::eval_settings() const {
 }
 
 const dannan::contract::WallClock& Session::wall_clock() const { return _info.clock ? *_info.clock : dannan::contract::system_wall_clock(); }
+
+std::string Session::clock_text(const catalog::Column& column) const {
+  auto m = temporal::from_unix_us(_statement_us + static_cast<int64_t>(eval_settings().zone_seconds) * 1000000);
+  uint32_t step = 1;
+  for (int i = column.type.scale; i < 6; ++i) step *= 10;
+  m.micro -= m.micro % step;
+  return temporal::text(m, temporal::Kind::datetime, column.type.scale);
+}
+
+void Session::stamp(const catalog::Table& table, const txn::Row& before, txn::Row& after, const std::vector<bool>& set) const {
+  if (after == before) return;
+  for (size_t i = 0; i < table.columns.size(); ++i)
+    if (table.columns[i].on_update && !set[i]) after[i] = clock_text(table.columns[i]);
+}
 
 // @@warning_count and @@error_count count the diagnostics of the statement
 // before; every other variable is the registry's.
@@ -3248,6 +3263,8 @@ Outcome Session::insert(const sql::Statement& statement) {
           generate = i;
         } else if (column.default_kind == catalog::Column::Default::value) {
           row[i] = column.default_value;
+        } else if (column.default_kind == catalog::Column::Default::current_timestamp) {
+          row[i] = clock_text(column);
         } else if (column.default_kind == catalog::Column::Default::none && !column.nullable) {
           ignorable(SqlError(1364, "HY000", "Field '" + column.name + "' doesn't have a default value"), row, i);
         }
@@ -3365,6 +3382,8 @@ Outcome Session::insert(const sql::Statement& statement) {
               if (assignment.value->kind == sql::ExprKind::default_value) {
                 if (column.default_kind == catalog::Column::Default::value) {
                   updated[i] = column.default_value;
+                } else if (column.default_kind == catalog::Column::Default::current_timestamp) {
+                  updated[i] = clock_text(column);
                 } else if (column.default_kind == catalog::Column::Default::none && !column.nullable) {
                   ignorable(SqlError(1364, "HY000", "Field '" + column.name + "' doesn't have a default value"), updated, i);
                 } else {
@@ -3393,6 +3412,11 @@ Outcome Session::insert(const sql::Statement& statement) {
           held.set_row(nullptr);
           upsert.set_inserted(nullptr);
           if (updated == found->row) break;
+          {
+            std::vector<bool> set_columns(table->columns.size(), false);
+            for (const auto& assignment : upsert_sets) set_columns[assignment.column] = true;
+            stamp(*table, found->row, updated, set_columns);
+          }
           const std::string new_key = primary ? encode_key(*table, table->keys[*primary], updated) : found->key;
           std::string clash;
           switch (_rows.update(t, table->id, found->key, new_key, unique_names(*table, primary, updated), updated, &clash, &holder)) {
@@ -3464,7 +3488,9 @@ Outcome Session::insert(const sql::Statement& statement) {
 void Session::assign(const catalog::Table& table, size_t index, const sql::Expr& value, txn::Row& row, Evaluator& evaluator, uint64_t number) {
   const auto& column = table.columns[index];
   if (value.kind == sql::ExprKind::default_value) {
-    if (column.default_kind == catalog::Column::Default::value) {
+    if (column.default_kind == catalog::Column::Default::current_timestamp) {
+      row[index] = clock_text(column);
+    } else if (column.default_kind == catalog::Column::Default::value) {
       row[index] = column.default_value;
     } else if (column.default_kind == catalog::Column::Default::none && !column.nullable) {
       throw SqlError(1364, "HY000", "Field '" + column.name + "' doesn't have a default value");
@@ -3591,8 +3617,13 @@ Outcome Session::change_joined(const sql::Statement& statement) {
         from->set(j);
         txn::Row row = *old_row;
         leaf.columns->set_row(&row);
+        std::vector<bool> set_columns(leaf.table.columns.size(), false);
         for (const auto& set : sets)
-          if (set.column.leaf == l) assign(leaf.table, set.column.column, *set.value, row, evaluator, matched);
+          if (set.column.leaf == l) {
+            assign(leaf.table, set.column.column, *set.value, row, evaluator, matched);
+            set_columns[set.column.column] = true;
+          }
+        stamp(leaf.table, *old_row, row, set_columns);
         leaf.columns->set_row(old_row);
         if (row != *old_row) ++outcome.affected_rows;
         const auto primary = leaf.table.primary_key();
@@ -3725,6 +3756,9 @@ Outcome Session::change_rows(const sql::Statement& statement) {
       txn::Row row = old_row;
       columns.set_row(&row);
       for (const auto& set : sets) assign(*table, set.column, *set.value, row, evaluator, matched);
+      std::vector<bool> set_columns(table->columns.size(), false);
+      for (const auto& set : sets) set_columns[set.column] = true;
+      stamp(*table, old_row, row, set_columns);
       columns.set_row(nullptr);
       if (row != old_row) ++outcome.affected_rows;
       const std::string new_key = primary ? encode_key(*table, table->keys[*primary], row) : key;

@@ -274,7 +274,13 @@ View columns(const catalog::Catalog& catalog) {
           max_length = octets = std::to_string(type.length);
         }
         txn::Row row{"def", database, name, col.name, std::to_string(i + 1)};
-        row.push_back(col.default_kind == catalog::Column::Default::value ? std::optional<std::string>(col.default_value) : std::nullopt);
+        // CURRENT_TIMESTAMP with the column's fraction digits (observed:
+        // CURRENT_TIMESTAMP(3)).
+        const std::string now = "CURRENT_TIMESTAMP" + (type.scale ? "(" + std::to_string(type.scale) + ")" : std::string());
+        if (col.default_kind == catalog::Column::Default::current_timestamp)
+          row.push_back(now);
+        else
+          row.push_back(col.default_kind == catalog::Column::Default::value ? std::optional<std::string>(col.default_value) : std::nullopt);
         row.push_back(text(col.nullable ? "YES" : "NO"));
         row.push_back(kind_name(type.kind));
         row.push_back(max_length);
@@ -289,7 +295,12 @@ View columns(const catalog::Catalog& catalog) {
         row.push_back(is_text ? std::optional<std::string>(type.collation) : std::nullopt);
         row.push_back(column_type(type));
         row.push_back(column_key(*t, i));
-        row.push_back(text(col.auto_increment ? "auto_increment" : ""));
+        // EXTRA: auto_increment; DEFAULT_GENERATED for a clock default, and
+        // "on update CURRENT_TIMESTAMP(n)" (observed).
+        std::string extra = col.auto_increment ? "auto_increment" : "";
+        if (col.default_kind == catalog::Column::Default::current_timestamp) extra = "DEFAULT_GENERATED";
+        if (col.on_update) extra += (extra.empty() ? "" : " ") + std::string("on update ") + now;
+        row.push_back(extra);
         row.push_back(text("select,insert,update,references"));
         row.push_back(col.comment);
         row.push_back(text(""));

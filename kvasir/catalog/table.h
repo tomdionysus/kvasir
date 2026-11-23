@@ -91,11 +91,15 @@ struct Column {
   ColumnType type;
   bool nullable = true;
   bool auto_increment = false;
-  // DEFAULT: none written, NULL, or a value, held as the text a client is
-  // sent for it.
-  enum class Default : uint8_t { none, null, value };
+  // DEFAULT: none written, NULL, a value, held as the text a client is sent
+  // for it, or CURRENT_TIMESTAMP (a DATETIME's or TIMESTAMP's, at its own
+  // fraction digits).
+  enum class Default : uint8_t { none, null, value, current_timestamp };
   Default default_kind = Default::none;
   std::string default_value;
+  // ON UPDATE CURRENT_TIMESTAMP: an UPDATE that changes the row and does not
+  // set the column sets it to the statement's time.
+  bool on_update = false;
   std::string comment;
 };
 

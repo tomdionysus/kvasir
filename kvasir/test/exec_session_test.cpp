@@ -732,6 +732,59 @@ TEST(ExecSession, TheClock) {
   EXPECT_EQ(refusal(s, "SELECT CURDATE(1)").code, 1582);
 }
 
+// DEFAULT CURRENT_TIMESTAMP and ON UPDATE CURRENT_TIMESTAMP (observed on
+// MySQL 8.4.13, TODO/2026-11-23-temporal-notes.md): an omitted column, or
+// DEFAULT, takes the statement's time at the column's fraction digits; an
+// UPDATE (plain, multiple-table, or ON DUPLICATE KEY UPDATE) that changes a
+// row stamps its ON UPDATE columns it does not set; one that changes
+// nothing leaves them.
+TEST(ExecSession, ClockDefaults) {
+  struct SteppedClock : dannan::contract::WallClock {
+    uint64_t ms = 0;
+    uint64_t unix_ms() const noexcept override { return ms; }
+  } clock;
+  clock.ms = 1709210096789;  // 2024-02-29 12:34:56.789 UTC
+  catalog::Catalog node;
+  txn::Store rows;
+  Session s(registry(), node, rows, SessionInfo{"root", "localhost", 1, 0, &clock});
+  run(s, "CREATE DATABASE c; USE c");
+  run(s,
+      "CREATE TABLE t (id INT PRIMARY KEY, a DATETIME DEFAULT CURRENT_TIMESTAMP, b TIMESTAMP(3) NOT NULL DEFAULT NOW(3) ON UPDATE "
+      "LOCALTIMESTAMP(3), c DATETIME ON UPDATE CURRENT_TIMESTAMP, n INT)");
+  run(s, "INSERT INTO t (id, n) VALUES (1, 1)");
+  EXPECT_EQ(row(run(s, "SELECT a, b, c FROM t")), (std::vector<std::string>{"2024-02-29 12:34:56", "2024-02-29 12:34:56.789", "NULL"}));
+  clock.ms += 60000;
+  run(s, "UPDATE t SET n = 2");
+  EXPECT_EQ(row(run(s, "SELECT a, b, c FROM t")), (std::vector<std::string>{"2024-02-29 12:34:56", "2024-02-29 12:35:56.789", "2024-02-29 12:35:56"}));
+  clock.ms += 60000;
+  EXPECT_EQ(run(s, "UPDATE t SET n = 2").affected_rows, 0u);
+  EXPECT_EQ(row(run(s, "SELECT b FROM t"))[0], "2024-02-29 12:35:56.789");
+  // What an UPDATE sets is its own.
+  run(s, "UPDATE t SET n = 3, c = '2000-01-01 00:00:00'");
+  EXPECT_EQ(row(run(s, "SELECT b, c FROM t")), (std::vector<std::string>{"2024-02-29 12:36:56.789", "2000-01-01 00:00:00"}));
+  run(s, "UPDATE t SET a = DEFAULT");
+  EXPECT_EQ(row(run(s, "SELECT a FROM t"))[0], "2024-02-29 12:36:56");
+  clock.ms += 60000;
+  run(s, "INSERT INTO t (id, n) VALUES (1, 4) ON DUPLICATE KEY UPDATE n = VALUES(n)");
+  EXPECT_EQ(row(run(s, "SELECT b, n FROM t"))[0], "2024-02-29 12:37:56.789");
+  clock.ms += 60000;
+  run(s, "CREATE TABLE u (id INT PRIMARY KEY, t_id INT)");
+  run(s, "INSERT INTO u VALUES (1, 1)");
+  run(s, "UPDATE t JOIN u ON t.id = u.t_id SET t.n = 5");
+  EXPECT_EQ(row(run(s, "SELECT b FROM t"))[0], "2024-02-29 12:38:56.789");
+  // The session's zone.
+  run(s, "SET time_zone = '+01:00'");
+  run(s, "INSERT INTO t (id, n) VALUES (2, 1)");
+  EXPECT_EQ(row(run(s, "SELECT a FROM t WHERE id = 2"))[0], "2024-02-29 13:38:56");
+
+  EXPECT_EQ(refusal(s, "CREATE TABLE bad (a DATETIME(3) DEFAULT CURRENT_TIMESTAMP)").message, "Invalid default value for 'a'");
+  EXPECT_EQ(refusal(s, "CREATE TABLE bad (a DATE DEFAULT NOW())").message, "Invalid default value for 'a'");
+  EXPECT_EQ(refusal(s, "CREATE TABLE bad (a INT ON UPDATE CURRENT_TIMESTAMP)").message, "Invalid ON UPDATE clause for 'a' column");
+  EXPECT_EQ(refusal(s, "CREATE TABLE bad (a DATETIME ON UPDATE CURRENT_TIMESTAMP(2))").message, "Invalid ON UPDATE clause for 'a' column");
+  EXPECT_EQ(refusal(s, "CREATE TABLE bad (a DATETIME ON UPDATE NOW(999))").code, 1294);
+  EXPECT_THROW(run(s, "CREATE TABLE bad (a DATETIME ON UPDATE 1)"), sql::SyntaxError);
+}
+
 TEST(ExecSession, Strcmp) {
   auto s = make();
   EXPECT_EQ(row(run(s, "SELECT STRCMP('text', 'text2'), STRCMP('text2', 'text'), STRCMP('text', 'text'), STRCMP(NULL, 'a'), STRCMP('a', NULL)")),
@@ -2818,8 +2871,7 @@ TEST(ExecSessionInformationSchema, ViewsNotBuiltAreRefused) {
 TEST(ExecSessionDdl, TypesNotBuiltAreRefused) {
   TableBed b;
   b.expect_refused("CREATE TABLE d (a JSON)", 1235, "42000", "This version of Kvasir doesn't yet support 'the JSON type'");
-  b.expect_refused("CREATE TABLE d (a DATETIME DEFAULT CURRENT_TIMESTAMP)", 1235, "42000",
-                   "This version of Kvasir doesn't yet support 'DEFAULT CURRENT_TIMESTAMP'");
+  b.expect_refused("CREATE TABLE d (a DATE DEFAULT (CURRENT_DATE))", 1235, "42000", "This version of Kvasir doesn't yet support 'DEFAULT (expression)'");
 }
 
 // Index and column options Kvasir does not build yet are refused as not yet
@@ -2827,7 +2879,7 @@ TEST(ExecSessionDdl, TypesNotBuiltAreRefused) {
 TEST(ExecSessionDdl, OptionsNotBuiltAreRefused) {
   TableBed b;
   b.expect_refused("CREATE TABLE o1 (a INT, KEY (a) INVISIBLE)", 1235, "42000", "This version of Kvasir doesn't yet support 'index option INVISIBLE'");
-  b.expect_refused("CREATE TABLE o2 (a INT ON UPDATE 1)", 1235, "42000", "This version of Kvasir doesn't yet support 'ON UPDATE'");
+  b.expect_refused("CREATE TABLE o2 (a INT STORAGE DISK)", 1235, "42000", "This version of Kvasir doesn't yet support 'column attribute STORAGE'");
   b.expect_refused("CREATE TABLE o3 (a INT VISIBLE)", 1235, "42000", "This version of Kvasir doesn't yet support 'column attribute VISIBLE'");
 }
 

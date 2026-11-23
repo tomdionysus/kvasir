@@ -1294,3 +1294,9 @@ The record, newest first. Each entry says what landed, with its gate counts.
 - Gate (node-c): release, ASan and TSan each **434 tests, 1355 of 1355**
   statements, TSan with no reports; 1359 with the coverage statements;
   coverage 99.2% of lines.
+- Temporal types, T2b: DEFAULT CURRENT_TIMESTAMP and ON UPDATE
+  CURRENT_TIMESTAMP on DATETIME and TIMESTAMP, stamping every UPDATE path
+  that changes a row; MySQL's flags, information_schema text and 1067,
+  1294. CI green on T2a (1be412c).
+- Gate (node-c): release, ASan and TSan each **435 tests, 1372 of 1372**
+  statements, TSan with no reports; coverage 99.3% of lines.
