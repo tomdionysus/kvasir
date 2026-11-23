@@ -766,6 +766,13 @@ TEST(ExecSession, Intervals) {
                     "SELECT DATE_FORMAT(TIME '100:00:00', '%H %d %T'), TIME_FORMAT(TIME '-01:02:03', '%H %T'), TIME_FORMAT('10:00', '%j'), "
                     "WEEK(TIME '10:00:00', 3)")),
             (std::vector<std::string>{"04 04 04:00:00", "-01 01:02:03", "NULL", "9"}));
+  // UNIX_TIMESTAMP and FROM_UNIXTIME in the session's zone; a TIME on the
+  // statement's date.
+  EXPECT_EQ(row(run(s, "SELECT UNIX_TIMESTAMP(), UNIX_TIMESTAMP('2024-02-29 12:34:56'), FROM_UNIXTIME(1709210096), UNIX_TIMESTAMP(TIME '00:00:01')")),
+            (std::vector<std::string>{"1709210096", "1709210096", "2024-02-29 12:34:56", "1709164801"}));
+  run(s, "SET time_zone = '+01:00'");
+  EXPECT_EQ(row(run(s, "SELECT UNIX_TIMESTAMP('2024-02-29 13:34:56'), FROM_UNIXTIME(1709210096, '%H:%i')")), (std::vector<std::string>{"1709210096", "13:34"}));
+  run(s, "SET time_zone = '+00:00'");
   // STR_TO_DATE's type follows a format folded from constants; a column's
   // varying format gives DATETIME(6).
   EXPECT_EQ(row(run(s, "SELECT STR_TO_DATE('2024-02-29', CONCAT('%Y-', '%m-%d')), STR_TO_DATE('10:00', LOWER('%H:%I'))")),

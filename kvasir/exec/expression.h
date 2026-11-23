@@ -268,6 +268,14 @@ class Evaluator {
   std::optional<ResultType> format_function(const sql::Expr& e) const;
   Value format_function_value(const sql::Expr& e);
   Value str_to_date(const sql::Expr& e);
+  // ADDTIME, SUBTIME, TIMEDIFF, MAKEDATE, MAKETIME, SEC_TO_TIME,
+  // TIME_TO_SEC, FROM_DAYS, TO_SECONDS, UNIX_TIMESTAMP and FROM_UNIXTIME
+  // (time_arithmetic.cpp); nothing for a name that is not one of them.
+  std::optional<ResultType> time_arithmetic(const sql::Expr& e) const;
+  Value time_arithmetic_value(const sql::Expr& e);
+  // An argument as a date, a date and time or a time, with which, by its
+  // type or a string's form; nothing for NULL or what is neither (1292).
+  std::optional<std::pair<temporal::Moment, temporal::Kind>> temporal_operand(const sql::Expr& arg);
   Value timestamp_difference(const sql::Expr& e, std::string_view unit);
   Value extracted(const sql::Expr& e, std::string_view unit);
   // Two values one of which is temporal (cast.cpp): as moments when both
@@ -318,6 +326,10 @@ bool is_temporal_type(const ResultType& t);
 // Which a temporal type is; and such a result as MySQL reports it.
 temporal::Kind temporal_kind_of(const ResultType& t);
 ResultType temporal_result_type(temporal::Kind kind, int fsp, bool not_null);
+// The fraction digits an argument brings to a temporal result: a temporal
+// type's own, a string constant's written ones (observed: TIME('...56.5')
+// has 1), a number's decimals, at most 6; none for NULL.
+int fraction_digits(const sql::Expr& arg, const ResultType& t);
 // A number's text as a date or time reads it: [-]digits[.digits], a DOUBLE
 // to 6 places, a hex or bit literal as its bytes' integer.
 std::string number_text(const Value& v);

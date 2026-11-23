@@ -65,6 +65,7 @@ add_library(kvasir ${kvasir_library_type}
   exec/date_functions.cpp
   exec/interval.cpp
   exec/format.cpp
+  exec/time_arithmetic.cpp
   exec/ddl.cpp
   exec/like.cpp
   exec/decimal.cpp

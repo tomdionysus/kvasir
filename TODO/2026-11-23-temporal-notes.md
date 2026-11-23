@@ -199,9 +199,28 @@ module is written to. Each goes into the differential gate as it is built.
   length 14; DATETIME(3) gives 3, length 16); a constant string that is no
   datetime ('x') NEWDECIMAL(19, 6) and 0.000000 with 1292. NOT_NULL for a
   non-NULL constant string or number (a CAST is nullable). Before 1970 or
-  past 3001-01-19 03:14:07 UTC: 0. A DATE is its midnight; a TIME takes
+  past 3001-01-18 23:59:59 UTC: 0 (3001-01-19 03:14:07 is 0 too). A DATE is its midnight; a TIME takes
   the statement's date. In the session's zone.
 - FROM_UNIXTIME(n): DATETIME, n's fraction digits (a string 6, a DOUBLE 6,
   rounded: .123456789 gives .123457), nullable; negative or past
   32536771199 (3001-01-18 23:59:59 UTC) NULL, no warning. With a format:
   VAR_STRING by DATE_FORMAT's lengths.
+
+## ADDTIME, TIMEDIFF and the small time functions (T4c, probed)
+
+- ADDTIME(a, b), SUBTIME: a DATE, DATETIME or TIMESTAMP gives DATETIME, a
+  TIME gives TIME, anything else STRING (length 29 characters) holding a
+  date and time or a time as a's string reads; b is read as a time (a
+  date's or datetime's time alone; '1 01:00:00' is 25 hours); fraction
+  digits the wider of the two (a constant string's written ones). A TIME
+  past 838:59:59 is clamped with 1292 "Truncated incorrect time value:
+  '839:00:00'"; 'x' is NULL with 1292 "Truncated incorrect time value".
+- TIMEDIFF(a, b): TIME; two dates and times, or two times, else NULL (a
+  TIMESTAMP and a TIME is NULL); clamped as above ('2160:00:00').
+- MAKEDATE(y, d): DATE, NULL for d under 1, years 0-69 2000s and 70-99
+  1900s. MAKETIME(h, m, s): TIME with s's digits, NULL for m or s out of
+  range, hours past 838 clamped with 1292 naming '900:00:00'.
+  SEC_TO_TIME(n): TIME with n's digits, clamped with 1292 naming n as
+  written. TIME_TO_SEC: LONGLONG length 10, the fraction dropped.
+  FROM_DAYS: DATE, NOT_NULL for a constant, 365 and under 0000-00-00.
+  TO_SECONDS: LONGLONG length 21.

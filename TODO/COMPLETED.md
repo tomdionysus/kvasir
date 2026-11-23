@@ -1338,3 +1338,10 @@ The record, newest first. Each entry says what landed, with its gate counts.
   FROM_UNIXTIME probed and noted for the next part.
 - Gate (node-c): release, ASan and TSan each **437 tests, 1441 of 1441**
   statements, TSan with no reports; coverage 99.2% of lines.
+- Temporal types, T4c last part, and with it T4: ADDTIME, SUBTIME,
+  TIMEDIFF, MAKEDATE, MAKETIME, SEC_TO_TIME, TIME_TO_SEC, FROM_DAYS,
+  TO_SECONDS, UNIX_TIMESTAMP and FROM_UNIXTIME. Recorded besides: Dannan
+  0.12.0 is tagged and the repin (0.10.0 to 0.12.0, with NOW(6)'s
+  microseconds and Dannan's stored password) is next.
+- Gate (node-c): release, ASan and TSan each **437 tests, 1454 of 1454**
+  statements, TSan with no reports; coverage 99.1% of lines.

@@ -68,9 +68,10 @@ const DateFunction* named(const std::string& name) {
 // Days since 1970-01-01 of a date.
 int64_t days_of(const Moment& m) { return temporal::day_number(m) - days_to_epoch; }
 
-// The fraction digits a TIME() result keeps: its argument's own, a string
-// constant's written digits (observed: TIME('...56.5') has 1).
-int time_digits(const Expr& arg, const ResultType& t) {
+}  // namespace
+
+int fraction_digits(const Expr& arg, const ResultType& t) {
+  if (t.field_type == protocol::field_type::null) return 0;
   if (is_temporal_type(t)) return temporal_kind_of(t) == Kind::date ? 0 : t.decimals;
   if (arg.kind == ExprKind::string) {
     const auto point = arg.value.rfind('.');
@@ -81,8 +82,6 @@ int time_digits(const Expr& arg, const ResultType& t) {
   }
   return t.decimals == any_decimals ? 6 : std::min<int>(t.decimals, 6);
 }
-
-}  // namespace
 
 std::optional<ResultType> Evaluator::date_function(const Expr& e) const {
   const auto* fn = named(e.value);
@@ -114,7 +113,7 @@ std::optional<ResultType> Evaluator::date_function(const Expr& e) const {
     case Gives::date:
       return temporal_result_type(Kind::date, 0, false);
     case Gives::time:
-      return temporal_result_type(Kind::time, time_digits(*e.args[0], type(*e.args[0])), false);
+      return temporal_result_type(Kind::time, fraction_digits(*e.args[0], type(*e.args[0])), false);
   }
   return std::nullopt;
 }

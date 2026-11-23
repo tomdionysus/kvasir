@@ -204,13 +204,12 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    - T3, TIMESTAMP's time zone: stored in UTC, shown in the session's
      time_zone (SYSTEM and offsets; named zones refused until zone data
      exists).
-   - T4, the date and time functions. Done: T4a, the part functions (YEAR,
-     MONTH, DAY and the rest, DATEDIFF, LAST_DAY, DAYNAME); T4b, INTERVAL
-     arithmetic (DATE_ADD, DATE_SUB, ADDDATE, SUBDATE, TIMESTAMPADD, +
-     INTERVAL), TIMESTAMPDIFF and EXTRACT. Left, T4c: DATE_FORMAT,
-     STR_TO_DATE, UNIX_TIMESTAMP, FROM_UNIXTIME, WEEK() and its kin
-     (YEARWEEK, WEEKOFYEAR, with modes), ADDTIME, SUBTIME, TIMEDIFF,
-     MAKEDATE, MAKETIME, SEC_TO_TIME, TIME_TO_SEC.
+   - T4, the date and time functions: done (2026-11-23), T4a the part
+     functions, T4b INTERVAL arithmetic, TIMESTAMPDIFF and EXTRACT, T4c
+     DATE_FORMAT, TIME_FORMAT, the week functions, STR_TO_DATE, and ADDTIME,
+     TIMEDIFF, UNIX_TIMESTAMP, FROM_UNIXTIME and their kin. Not yet:
+     CONVERT_TZ (needs named zones), PERIOD_ADD and PERIOD_DIFF,
+     GET_FORMAT, TIMESTAMP(expr, time), lc_time_names other than en_US.
    - T5, the binary protocol: temporal parameters of COM_STMT_EXECUTE and
      temporal columns of binary result rows (what Connector/J and
      Connector/C++ prepared statements send and read).
@@ -241,8 +240,15 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    query on other nodes; the Lugh plugin; a change feed.
 
 Waiting on nothing, to take when the above is blocked:
-- Dannan's pin to 0.11.1 (the pin target, relayed 2026-11-23; Dagda 0.4.0
-  is built on it), at the next release gate.
+- Dannan's pin, 0.10.0 to 0.12.0 in one step (tagged 2026-11-23, main
+  b9a5609; libdannan0.12; its CHANGELOG's "Adopting 0.11.0" and "Adopting
+  0.12.0"), next after the date and time functions: GIT_TAG and the deb
+  names; NOW(6) and the fsp defaults from WallClock::unix_us (closing the
+  000 difference, and SteppedWall in the tests); the TSan run's
+  suppressions from DANNAN_TSAN_SUPPRESSIONS; kvasir-node's credentials
+  from identity::make_password and verify_password (PHC strings, rule 3:
+  Kvasir's own make_credential goes). Readiness, the node-program helper
+  and keyed limits wait for the cluster step.
 - SQL: subqueries, unions;
   utf8mb4_unicode_ci and other character sets; temporal types.
 - Differences recorded, to probe and build: a character past U+FFFF in a
@@ -389,10 +395,11 @@ Each to be closed, or kept by a decision.
   0.11.0 and 0.11.1 are tagged (relayed by the coordinating session,
   2026-11-23); 0.11.0 also adds Fault::cancelled after failed (Kvasir
   switches over no Fault yet).
-- **Dannan**: Kvasir is on 0.10.0; its pin target is 0.11.1. Its atomic
-  commit across replica sets (item 26) is planned for the minor after
-  0.12.0, design first (relayed 2026-11-23). Its HTTP core (item 24) and the
-  credential and node helpers come in later minors. Kvasir's commitments
+- **Dannan**: Kvasir is on 0.10.0; its pin target is 0.12.0 (tagged
+  2026-11-23: unix_us, readiness and health, keyed limits, the stored
+  password, the node-program helper). Its HTTP core and register layer
+  come in 0.13.0 (about 2026-12-05), its atomic commit across replica sets
+  (item 26) in 0.14.0, design first. Kvasir's commitments
   to its agreement: one name per change; changes repeatable by commit id;
   a range's value kept under `max_value` (256 MiB) by splitting; a crashed
   acceptor that answers from memory restarts not ready and catches up
@@ -436,12 +443,11 @@ Each to be closed, or kept by a decision.
   root, React 19, react-dom and react-router 7 as peers; AdminShell, NavBar,
   Messages, Confirm, ApiClient, useApi/useLoad/useAct, SignIn (password,
   Lugh with PKCE, or both), DataTable with useCursorPages.
-- **Dannan**: microseconds on dannan::contract::WallClock are queued for its
-  0.12.0 (answered 2026-11-23; a new virtual changes the vtable, so not a
-  patch): `unix_us()` beside `unix_ms()`, defaulting to unix_ms() * 1000;
-  SystemWallClock and the stepped test wall clock in microseconds. Until
-  then Kvasir uses unix_ms() for NOW(6) and the fsp defaults, the last three
-  digits 000 a recorded difference; Dannan says when 0.12.0 has it.
+- **Dannan**: microseconds on dannan::contract::WallClock are in 0.12.0:
+  `unix_us()` beside `unix_ms()`, defaulting to unix_ms() * 1000;
+  SystemWallClock and test::SteppedWall in microseconds. Until Kvasir's
+  repin it uses unix_ms() for NOW(6) and the fsp defaults, the last three
+  digits 000 a recorded difference.
 - **Lugh**: 0.6.0 (2026-11-23, tagged on main) is on Dannan 0.11.0 (Boost.JSON's
   compiled part is Dannan's, none in lugh_client), handles Fault::cancelled
   (a switch over Fault needs it), and is the tag @lugh/admin-ui is depended
