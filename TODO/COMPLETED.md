@@ -95,6 +95,13 @@ The record, newest first. Each entry says what landed, with its gate counts.
   row, a failed source, the key range's other forms) bring it to **99.2%**
   of lines (8,981 of 9,055); the node already answered each as MySQL does.
   Release: 419 tests, 1128 of 1128 statements.
+- FLOAT shown as MySQL shows it (a known difference closed): six
+  significant digits for a column and a FLOAT result, a FLOAT(M,D)
+  result's D decimals, the value kept and computed at full precision.
+  Found with it and recorded: GROUP BY a primary key reports expression
+  columns NUM (MySQL BINARY NUM); CONCAT of a FLOAT.
+- Gate (node-c): release, ASan and TSan each **419 tests, 1139 of 1139**
+  statements, TSan with no reports.
 
 ## 2026-11-22: A real MySQL client library drives a node in the tests (step 1, most of it)
 

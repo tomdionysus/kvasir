@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
 #include <system_error>
 #include <utility>
@@ -341,6 +343,12 @@ std::optional<int64_t> Decimal::to_int() const {
   }
   if (magnitude > static_cast<uint64_t>(INT64_MAX)) return std::nullopt;
   return static_cast<int64_t>(magnitude);
+}
+
+std::string format_float_display(double value) {
+  char buffer[32];
+  std::snprintf(buffer, sizeof buffer, "%.6g", value);
+  return format_double(std::strtod(buffer, nullptr));
 }
 
 std::string format_double(double value) {

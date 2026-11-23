@@ -86,4 +86,9 @@ class Decimal {
 // otherwise (1e15, 1.2345678901234568e16, 1e-16); -0 for negative zero.
 std::string format_double(double value);
 
+// A FLOAT as MySQL shows a FLOAT column or result: six significant digits,
+// then as format_double writes them (observed: 1.2345678 as 1.23457,
+// 123456789 as 123457000, FLT_MAX as 3.40282e38).
+std::string format_float_display(double value);
+
 }  // namespace kvasir::exec

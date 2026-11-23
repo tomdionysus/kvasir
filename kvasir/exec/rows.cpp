@@ -71,8 +71,12 @@ Value value_of(const catalog::ColumnType& type, const std::string& text) {
 }
 
 std::string display_text(const catalog::ColumnType& type, const std::string& text, uint32_t display_length) {
-  if (!type.zerofill || text.size() >= display_length) return text;
-  return std::string(display_length - text.size(), '0') + text;
+  // A FLOAT without (M,D) is shown to six significant digits; it is held, and
+  // computed with, to the float's full precision (observed).
+  const std::string shown =
+      type.kind == TypeKind::float_ && type.length == 0 ? format_float_display(static_cast<double>(std::strtof(text.c_str(), nullptr))) : text;
+  if (!type.zerofill || shown.size() >= display_length) return shown;
+  return std::string(display_length - shown.size(), '0') + shown;
 }
 
 bool key_has_null(const catalog::Key& key, const txn::Row& row) {

@@ -765,6 +765,17 @@ INSERT IGNORE INTO kv_upsert2.u (id, k, m) VALUES (3, 3, '1e2x'), (4, 4, '999999
 SHOW WARNINGS
 SELECT * FROM kv_upsert2.u ORDER BY id
 DROP DATABASE kv_upsert2
+CREATE DATABASE kv_float
+CREATE TABLE kv_float.t (k INT PRIMARY KEY, f FLOAT, g FLOAT(7,3))
+INSERT INTO kv_float.t (k, f) VALUES (1, 1e7), (2, 1e10), (3, 1e14), (4, 1e15), (5, 0.0001), (6, 1e-5), (7, 1.5e-10), (8, 123456789), (9, -0.000123456789), (10, 999999.5), (11, 1e-15), (12, 1e-16), (13, 0), (14, -1.5), (15, 1.2345678), (16, 3.4028234e38)
+INSERT INTO kv_float.t (k, g) VALUES (17, 1.2345678), (18, -1234.5678)
+SELECT k, f, g, f + 0, f = 1.2345678 FROM kv_float.t ORDER BY k
+SELECT MIN(f), MAX(f), MIN(g) FROM kv_float.t
+SELECT * FROM kv_float.t WHERE k = 15
+INSERT IGNORE INTO kv_float.t (k, f) VALUES (19, 1e39), (20, -1e39)
+SHOW WARNINGS
+SELECT f FROM kv_float.t WHERE k >= 19 ORDER BY k
+DROP DATABASE kv_float
 SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 SELECT REPEAT('ab',3), REPEAT('ab',0), REPEAT('ab',-1), REPEAT(NULL,2), REPEAT(1,2), REVERSE('abc'), REVERSE('héllo'), REVERSE(NULL), REVERSE(123), REVERSE(_binary'ab')
 SELECT REPEAT('ab', 40000000)

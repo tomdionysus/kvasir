@@ -3255,6 +3255,67 @@ row 4	4	5	2147483647
 end
 statement DROP DATABASE kv_upsert2
 end
+statement CREATE DATABASE kv_float
+end
+statement CREATE TABLE kv_float.t (k INT PRIMARY KEY, f FLOAT, g FLOAT(7,3))
+end
+statement INSERT INTO kv_float.t (k, f) VALUES (1, 1e7), (2, 1e10), (3, 1e14), (4, 1e15), (5, 0.0001), (6, 1e-5), (7, 1.5e-10), (8, 123456789), (9, -0.000123456789), (10, 999999.5), (11, 1e-15), (12, 1e-16), (13, 0), (14, -1.5), (15, 1.2345678), (16, 3.4028234e38)
+end
+statement INSERT INTO kv_float.t (k, g) VALUES (17, 1.2345678), (18, -1234.5678)
+end
+statement SELECT k, f, g, f + 0, f = 1.2345678 FROM kv_float.t ORDER BY k
+column k|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column f|FLOAT|63|12|31|NUM
+column g|FLOAT|63|7|3|NUM
+column f + 0|DOUBLE|63|23|31|BINARY NUM
+column f = 1.2345678|LONGLONG|63|1|0|BINARY NUM
+row 1	10000000	\N	10000000	0
+row 2	10000000000	\N	10000000000	0
+row 3	100000000000000	\N	100000000376832	0
+row 4	1e15	\N	999999986991104	0
+row 5	0.0001	\N	0.00009999999747378752	0
+row 6	0.00001	\N	0.000009999999747378752	0
+row 7	0.00000000015	\N	0.00000000014999999853326784	0
+row 8	123457000	\N	123456792	0
+row 9	-0.000123457	\N	-0.00012345678987912834	0
+row 10	1000000	\N	999999.5	0
+row 11	0.000000000000001	\N	0.0000000000000010000000036274937	0
+row 12	1e-16	\N	1.0000000168623835e-16	0
+row 13	0	\N	0	0
+row 14	-1.5	\N	-1.5	0
+row 15	1.23457	\N	1.2345677614212036	0
+row 16	3.40282e38	\N	3.4028234663852886e38	0
+row 17	\N	1.235	\N	\N
+row 18	\N	-1234.568	\N	\N
+end
+statement SELECT MIN(f), MAX(f), MIN(g) FROM kv_float.t
+column MIN(f)|FLOAT|63|12|31|BINARY NUM
+column MAX(f)|FLOAT|63|12|31|BINARY NUM
+column MIN(g)|FLOAT|63|7|3|BINARY NUM
+row -1.5	3.40282e38	-1234.568
+end
+statement SELECT * FROM kv_float.t WHERE k = 15
+column k|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column f|FLOAT|63|12|31|NUM
+column g|FLOAT|63|7|3|NUM
+row 15	1.23457	\N
+end
+statement INSERT IGNORE INTO kv_float.t (k, f) VALUES (19, 1e39), (20, -1e39)
+end
+statement SHOW WARNINGS
+column Level|VAR_STRING|255|28|31|NOT_NULL
+column Code|LONG|63|5|0|NOT_NULL UNSIGNED BINARY NUM
+column Message|VAR_STRING|255|2048|31|NOT_NULL
+row Warning	1264	Out of range value for column 'f' at row 1
+row Warning	1264	Out of range value for column 'f' at row 2
+end
+statement SELECT f FROM kv_float.t WHERE k >= 19 ORDER BY k
+column f|FLOAT|63|12|31|NUM
+row 3.40282e38
+row -3.40282e38
+end
+statement DROP DATABASE kv_float
+end
 statement SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 column LPAD('ab',5,'xy')|VAR_STRING|255|20|31|
 column RPAD('ab',5,'xy')|VAR_STRING|255|20|31|

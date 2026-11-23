@@ -228,7 +228,15 @@ std::optional<std::string> to_text(const Value& value, const ResultType& type) {
     std::optional<std::string> operator()(const Decimal& v) const {
       return type.own_scale || type.decimals == any_decimals ? v.to_string() : v.rounded(type.decimals).to_string();
     }
-    std::optional<std::string> operator()(double v) const { return format_double(v); }
+    // A FLOAT result (MIN of a FLOAT column) is shown as a FLOAT column is:
+    // six digits, or a FLOAT(M,D)'s D decimals (observed).
+    std::optional<std::string> operator()(double v) const {
+      if (type.field_type != f::float_) return format_double(v);
+      if (type.decimals == protocol::not_fixed_decimals) return format_float_display(v);
+      char buffer[64];
+      std::snprintf(buffer, sizeof buffer, "%.*f", static_cast<int>(type.decimals), v);
+      return std::string(buffer);
+    }
     std::optional<std::string> operator()(const std::string& v) const { return v; }
   };
   return std::visit(Visitor{type}, value);
