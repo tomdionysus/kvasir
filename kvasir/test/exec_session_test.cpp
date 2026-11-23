@@ -707,6 +707,31 @@ TEST(ExecSession, Casts) {
   EXPECT_EQ(refusal(s, "SELECT CAST(TIME '10:00:00' AS DATE)").message, "This version of Kvasir doesn't yet support 'CAST of a TIME AS DATE'");
 }
 
+// NOW() and its kin read the session's wall clock at the statement's start,
+// in its time zone (SYSTEM is UTC), the UTC ones in UTC; a fraction is cut,
+// not rounded; past 6 digits is 1426 naming the function as MySQL does.
+TEST(ExecSession, TheClock) {
+  struct SteppedClock : dannan::contract::WallClock {
+    uint64_t ms = 0;
+    uint64_t unix_ms() const noexcept override { return ms; }
+  } clock;
+  clock.ms = 1709210096789;  // 2024-02-29 12:34:56.789 UTC
+  Session s(registry(), node_catalog(), node_store(), SessionInfo{"root", "localhost", 1, 0, &clock});
+  EXPECT_EQ(row(run(s, "SELECT NOW(), NOW(3), CURDATE(), CURTIME(), UTC_TIMESTAMP(6), CURRENT_TIMESTAMP, SYSDATE(1), CURTIME(2)")),
+            (std::vector<std::string>{"2024-02-29 12:34:56", "2024-02-29 12:34:56.789", "2024-02-29", "12:34:56", "2024-02-29 12:34:56.789000",
+                                      "2024-02-29 12:34:56", "2024-02-29 12:34:56.7", "12:34:56.78"}));
+  run(s, "SET time_zone = '+10:00'");
+  EXPECT_EQ(row(run(s, "SELECT NOW(), UTC_TIMESTAMP(), CURRENT_DATE, UTC_DATE(), UTC_TIME()")),
+            (std::vector<std::string>{"2024-02-29 22:34:56", "2024-02-29 12:34:56", "2024-02-29", "2024-02-29", "12:34:56"}));
+  run(s, "SET time_zone = '-13:00'");
+  EXPECT_EQ(row(run(s, "SELECT LOCALTIMESTAMP, LOCALTIME(), CURRENT_TIME"))[0], "2024-02-28 23:34:56");
+  clock.ms += 1000;
+  EXPECT_EQ(row(run(s, "SELECT NOW() + 0"))[0], "20240228233457");
+  EXPECT_EQ(refusal(s, "SELECT NOW(7)").message, "Too-big precision 7 specified for 'now'. Maximum is 6.");
+  EXPECT_EQ(refusal(s, "SELECT CURTIME(9)").message, "Too-big precision 9 specified for 'curtime'. Maximum is 6.");
+  EXPECT_EQ(refusal(s, "SELECT CURDATE(1)").code, 1582);
+}
+
 TEST(ExecSession, Strcmp) {
   auto s = make();
   EXPECT_EQ(row(run(s, "SELECT STRCMP('text', 'text2'), STRCMP('text2', 'text'), STRCMP('text', 'text'), STRCMP(NULL, 'a'), STRCMP('a', NULL)")),

@@ -108,6 +108,9 @@ TEST(Temporal, TextNumbersAndOrder) {
   Moment t{false, 0, 0, 0, 838, 59, 59, 999999};
   round(t, Kind::time, 0);
   EXPECT_EQ(text(t, Kind::time, 0), "838:59:59");
+  // The Unix epoch's microseconds, either side of it.
+  EXPECT_EQ(text(from_unix_us(1709210096789000), Kind::datetime, 6), "2024-02-29 12:34:56.789000");
+  EXPECT_EQ(text(from_unix_us(-1), Kind::datetime, 6), "1969-12-31 23:59:59.999999");
   EXPECT_TRUE(valid_date(2024, 2, 29));
   EXPECT_FALSE(valid_date(2023, 2, 29));
   EXPECT_FALSE(valid_date(1900, 2, 29));

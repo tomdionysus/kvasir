@@ -442,6 +442,36 @@ std::string number_text(const Moment& m, Kind kind, int fsp) {
   return out;
 }
 
+Moment from_unix_us(int64_t us) {
+  constexpr int64_t per_day = 86400LL * 1000000;
+  int64_t days = us / per_day;
+  int64_t rest = us % per_day;
+  if (rest < 0) {
+    rest += per_day;
+    --days;
+  }
+  // Days since 1970-01-01 as a civil date (Howard Hinnant's algorithm).
+  const int64_t z = days + 719468;
+  const int64_t era = (z >= 0 ? z : z - 146096) / 146097;
+  const int64_t doe = z - era * 146097;
+  const int64_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+  const int64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  const int64_t mp = (5 * doy + 2) / 153;
+  const int64_t d = doy - (153 * mp + 2) / 5 + 1;
+  const int64_t mo = mp < 10 ? mp + 3 : mp - 9;
+  const int64_t y = yoe + era * 400 + (mo <= 2 ? 1 : 0);
+  Moment m;
+  m.year = static_cast<uint32_t>(y);
+  m.month = static_cast<uint32_t>(mo);
+  m.day = static_cast<uint32_t>(d);
+  const int64_t seconds = rest / 1000000;
+  m.hour = static_cast<uint32_t>(seconds / 3600);
+  m.minute = static_cast<uint32_t>(seconds / 60 % 60);
+  m.second = static_cast<uint32_t>(seconds % 60);
+  m.micro = static_cast<uint32_t>(rest % 1000000);
+  return m;
+}
+
 int64_t ordinal(const Moment& m, Kind kind) {
   const int64_t seconds = static_cast<int64_t>(m.hour) * 3600 + m.minute * 60 + m.second;
   if (kind == Kind::time) {

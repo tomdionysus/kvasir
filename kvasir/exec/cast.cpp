@@ -28,6 +28,7 @@ namespace {
 namespace f = protocol::field_type;
 namespace c = protocol::column_flag;
 using sql::Expr;
+using sql::ExprKind;
 
 constexpr uint16_t binary_collation = protocol::collation::binary;
 // utf8mb4's default collation, utf8mb4_0900_ai_ci.
@@ -252,6 +253,67 @@ std::optional<int> Evaluator::compare_temporal(const Value& x, const ResultType&
 
 std::optional<int> Evaluator::compare_as_numbers(const Value& x, const ResultType& tx, const Value& y, const ResultType& ty, bool quiet_x, bool quiet_y) {
   return compare_values(temporal_number(x, tx), as_number_type(tx), temporal_number(y, ty), as_number_type(ty), std::nullopt, quiet_x, quiet_y);
+}
+
+namespace {
+
+// NOW() and its kin: what each gives, whether in UTC, and the name a
+// precision past 6 is refused under (observed: 'now', 'curtime').
+struct TimeFunction {
+  std::string_view name;
+  temporal::Kind kind;
+  bool utc;
+  bool current;  // SYSDATE: the time as it is, not the statement's
+  std::string_view refused_as;
+};
+
+constexpr TimeFunction time_functions[] = {
+    {"NOW", temporal::Kind::datetime, false, false, "now"},          {"CURRENT_TIMESTAMP", temporal::Kind::datetime, false, false, "now"},
+    {"LOCALTIME", temporal::Kind::datetime, false, false, "now"},    {"LOCALTIMESTAMP", temporal::Kind::datetime, false, false, "now"},
+    {"SYSDATE", temporal::Kind::datetime, false, true, "sysdate"},   {"CURDATE", temporal::Kind::date, false, false, "curdate"},
+    {"CURRENT_DATE", temporal::Kind::date, false, false, "curdate"}, {"CURTIME", temporal::Kind::time, false, false, "curtime"},
+    {"CURRENT_TIME", temporal::Kind::time, false, false, "curtime"}, {"UTC_DATE", temporal::Kind::date, true, false, "utc_date"},
+    {"UTC_TIME", temporal::Kind::time, true, false, "utc_time"},     {"UTC_TIMESTAMP", temporal::Kind::datetime, true, false, "utc_timestamp"},
+};
+
+const TimeFunction* time_function_named(const std::string& name) {
+  for (const auto& f : time_functions)
+    if (f.name == name) return &f;
+  return nullptr;
+}
+
+}  // namespace
+
+std::optional<ResultType> Evaluator::time_function(const Expr& e) const {
+  const auto* f = time_function_named(e.value);
+  if (!f) return std::nullopt;
+  int fsp = 0;
+  if (f->kind != temporal::Kind::date && e.args.size() == 1 && e.args[0]->kind == ExprKind::integer) {
+    const auto n = written(e, 0).value_or(0);
+    if (n > 6) throw SqlError(1426, "42000", "Too-big precision " + std::to_string(n) + " specified for '" + std::string(f->refused_as) + "'. Maximum is 6.");
+    fsp = static_cast<int>(n);
+  } else if (!e.args.empty()) {
+    throw SqlError(1582, "42000", "Incorrect parameter count in the call to native function '" + e.value + "'");
+  }
+  auto t = temporal_type(f->kind, fsp, true);
+  // A TIME from the clock is 8 long, a literal's 10 (observed).
+  if (f->kind == temporal::Kind::time) t.length -= 2;
+  return t;
+}
+
+Value Evaluator::time_function_value(const Expr& e) {
+  const auto t = *time_function(e);
+  const auto* f = time_function_named(e.value);
+  const int64_t now = f->current && _settings.clock_us ? _settings.clock_us() : _settings.statement_us;
+  auto m = temporal::from_unix_us(now + (f->utc ? 0 : static_cast<int64_t>(_settings.zone_seconds) * 1000000));
+  // The clock's fraction cut to the digits asked, not rounded (observed:
+  // NOW() never runs ahead of the clock).
+  uint32_t step = 1;
+  for (int i = t.decimals; i < 6; ++i) step *= 10;
+  m.micro -= m.micro % step;
+  if (f->kind == temporal::Kind::date) m.hour = m.minute = m.second = m.micro = 0;
+  if (f->kind == temporal::Kind::time) m.year = m.month = m.day = 0;
+  return temporal::text(m, f->kind, t.decimals);
 }
 
 ResultType Evaluator::cast_type(const Expr& e) const {

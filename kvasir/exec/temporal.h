@@ -84,6 +84,9 @@ Moment parse_text(std::string_view text, Kind kind);
 // 20240229123456, with its fraction's digits after the point.
 std::string number_text(const Moment& m, Kind kind, int fsp);
 
+// Microseconds since the Unix epoch as the date and time they are.
+Moment from_unix_us(int64_t us);
+
 // A sortable key: earlier is less. A DATE is a DATETIME at midnight.
 int64_t ordinal(const Moment& m, Kind kind);
 

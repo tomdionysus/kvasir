@@ -1278,3 +1278,10 @@ The record, newest first. Each entry says what landed, with its gate counts.
   lists its earlier warnings before its error. CI green on CAST (2f05fd8).
 - Gate (node-c): release, ASan and TSan each **433 tests, 1321 of 1321**
   statements, TSan with no reports; coverage 99.1% of lines.
+- Temporal types, T1b part two: NOW() and its kin from Dannan's wall clock,
+  the statement's time fixed at its start, SYSDATE() as it is, in the
+  session's zone (SYSTEM is UTC); typed and refused as MySQL does. The
+  clock test found SYSTEM read as a six-character offset. CI green on part
+  one (f26877f).
+- Gate (node-c): release, ASan and TSan each **434 tests, 1326 of 1326**
+  statements, TSan with no reports; coverage 99.2% of lines.

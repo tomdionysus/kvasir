@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include <cstdint>
+#include <functional>
 #include <optional>
 #include <set>
 #include <string>
@@ -133,6 +135,13 @@ struct EvalSettings {
   // Whether it is a _bin collation, whose string results MySQL flags BINARY
   // (observed).
   bool result_collation_binary = false;
+  // The statement's time, microseconds since the Unix epoch in UTC: what
+  // NOW() and its kin read, the same for the statement's length.
+  int64_t statement_us = 0;
+  // The session's time zone, as seconds east of UTC.
+  int32_t zone_seconds = 0;
+  // The time as it is now, for SYSDATE(); none reads the statement's.
+  std::function<int64_t()> clock_us;
 };
 
 // A value as the bit operators and BIT_AND, BIT_OR and BIT_XOR take it, a
@@ -228,6 +237,10 @@ class Evaluator {
   // 1427 for a DECIMAL it cannot be), and its value converted.
   ResultType cast_type(const sql::Expr& e) const;
   Value cast_value(const sql::Expr& e);
+  // NOW() and its kin (cast.cpp): their type, or nothing for a name that is
+  // not one of them; and their value from the statement's time.
+  std::optional<ResultType> time_function(const sql::Expr& e) const;
+  Value time_function_value(const sql::Expr& e);
   // Two values one of which is temporal (cast.cpp): as moments when both
   // are DATEs and DATETIMEs or both TIMEs; a DATE or DATETIME beside a
   // string with the string read as one (1525 when it cannot be); a TIME

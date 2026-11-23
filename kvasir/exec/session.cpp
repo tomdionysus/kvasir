@@ -295,8 +295,20 @@ EvalSettings Session::eval_settings() const {
   e.result_collation = collation ? collation->id : protocol::collation::utf8mb4_0900_ai_ci;
   e.result_max_bytes = collation && collation->charset == "binary" ? 1 : 4;
   e.result_collation_binary = collation && collation->name.size() > 4 && collation->name.compare(collation->name.size() - 4, 4, "_bin") == 0;
+  // The statement's time, and the session's zone: SYSTEM is the node's,
+  // UTC (as system_time_zone says), else a +hh:mm offset.
+  e.statement_us = _statement_us;
+  const auto zone = _variables.text("time_zone");
+  if (zone.size() == 6 && (zone[0] == '+' || zone[0] == '-')) {
+    const int32_t seconds = ((zone[1] - '0') * 10 + (zone[2] - '0')) * 3600 + ((zone[4] - '0') * 10 + (zone[5] - '0')) * 60;
+    e.zone_seconds = zone[0] == '-' ? -seconds : seconds;
+  }
+  const auto* clock = &wall_clock();
+  e.clock_us = [clock] { return static_cast<int64_t>(clock->unix_ms()) * 1000; };
   return e;
 }
+
+const dannan::contract::WallClock& Session::wall_clock() const { return _info.clock ? *_info.clock : dannan::contract::system_wall_clock(); }
 
 // @@warning_count and @@error_count count the diagnostics of the statement
 // before; every other variable is the registry's.
@@ -666,6 +678,8 @@ Outcome Session::execute(const sql::Statement& statement) {
   _waiting.reset();
   _previous = std::move(_warnings);
   _warnings.clear();
+  // NOW() and its kin read the statement's start, fixed for its length.
+  _statement_us = static_cast<int64_t>(wall_clock().unix_ms()) * 1000;
   try {
     auto outcome = run(statement);
     if (outcome.result) {

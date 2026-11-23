@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "dannan/contract/time_source.h"
 #include "kvasir/catalog/catalog.h"
 #include "kvasir/exec/expression.h"
 #include "kvasir/exec/information_schema.h"
@@ -112,6 +113,9 @@ struct SessionInfo {
   uint32_t connection_id = 0;
   // The collation the client asked for in its handshake; 0 for none.
   uint16_t client_collation = 0;
+  // The wall clock NOW() and its kin read (Dannan's); none for the system's.
+  // Tests hand in a stepped one.
+  const dannan::contract::WallClock* clock = nullptr;
 };
 
 class Session : private VariableSource {
@@ -223,6 +227,10 @@ class Session : private VariableSource {
   // INSERT ... SELECT's source is being read: inside the INSERT's statement,
   // which alone ends it, and as FOR SHARE unless under READ COMMITTED.
   bool _insert_source = false;
+  // The statement's start, microseconds since the Unix epoch, from the
+  // session's wall clock.
+  int64_t _statement_us = 0;
+  const dannan::contract::WallClock& wall_clock() const;
   // The SELECT's locking clause for the table it reads, by the name the
   // statement gives it: nothing for none; 3568 for an OF naming another
   // table, 3569 for two clauses over it (observed on MySQL 8.4.13).
