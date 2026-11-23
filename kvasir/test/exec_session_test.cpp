@@ -1547,9 +1547,27 @@ TEST(ExecSessionRows, Transactions) {
   run(b.s, "CREATE TABLE t (a INT PRIMARY KEY)");
   EXPECT_TRUE(run(b.s, "SELECT a FROM t").result->rows.empty());
 
-  // SERIALIZABLE needs read marks Kvasir does not keep yet.
+  // SERIALIZABLE: in a transaction (BEGIN, or autocommit off) a plain SELECT
+  // reads FOR SHARE, so others' changes to what it read, and inserts into
+  // the keys it read, wait; a SELECT that is its own transaction locks
+  // nothing past itself (the manual, "Transaction Isolation Levels").
+  run(b.s, "INSERT INTO t VALUES (1), (2)");
   run(b.s, "SET transaction_isolation = 'SERIALIZABLE'");
-  b.expect_refused("SELECT a FROM t", 1235, "42000", "This version of Kvasir doesn't yet support 'SERIALIZABLE'");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a FROM t")), (Rows{{"1"}, {"2"}}));
+  run(other, "INSERT INTO t VALUES (3)");
+  run(b.s, "BEGIN");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a FROM t WHERE a = 1")), (Rows{{"1"}}));
+  EXPECT_THROW(run(other, "DELETE FROM t WHERE a = 1"), LockWaitNeeded);
+  run(other, "DELETE FROM t WHERE a = 2");
+  EXPECT_EQ(rows_of(run(other, "SELECT a FROM t WHERE a = 1")), (Rows{{"1"}}));
+  run(b.s, "COMMIT");
+  run(b.s, "SET autocommit = 0");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT COUNT(*) FROM t")), (Rows{{"2"}}));
+  EXPECT_THROW(run(other, "INSERT INTO t VALUES (9)"), LockWaitNeeded);
+  run(b.s, "COMMIT");
+  run(other, "INSERT INTO t VALUES (9)");
+  run(b.s, "SET autocommit = 1");
+  run(b.s, "SET transaction_isolation = 'REPEATABLE-READ'");
 }
 
 // UPDATE and DELETE, observed on MySQL 8.4.13 (2026-11-16): UPDATE counts

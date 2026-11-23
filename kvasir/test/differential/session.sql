@@ -788,6 +788,20 @@ SELECT c + 0 AS e1, MIN(i) AS e2 FROM kv_grouped.t GROUP BY c, k
 SELECT i + 0 AS e1, COUNT(*) AS n FROM kv_grouped.t GROUP BY i, c
 SELECT c + 0 AS e1 FROM kv_grouped.t GROUP BY c, i
 DROP DATABASE kv_grouped
+CREATE DATABASE kv_serial
+CREATE TABLE kv_serial.t (id INT PRIMARY KEY, n INT)
+INSERT INTO kv_serial.t VALUES (1, 10), (2, 20)
+SET @kept_isolation = @@transaction_isolation
+SET SESSION transaction_isolation = 'SERIALIZABLE'
+SELECT @@transaction_isolation
+SELECT * FROM kv_serial.t WHERE id = 1
+BEGIN
+SELECT COUNT(*), SUM(n) FROM kv_serial.t
+UPDATE kv_serial.t SET n = n + 1 WHERE id = 2
+SELECT * FROM kv_serial.t ORDER BY id
+COMMIT
+SET SESSION transaction_isolation = @kept_isolation
+DROP DATABASE kv_serial
 SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 SELECT REPEAT('ab',3), REPEAT('ab',0), REPEAT('ab',-1), REPEAT(NULL,2), REPEAT(1,2), REVERSE('abc'), REVERSE('héllo'), REVERSE(NULL), REVERSE(123), REVERSE(_binary'ab')
 SELECT REPEAT('ab', 40000000)

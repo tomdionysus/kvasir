@@ -125,8 +125,10 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
      primary key (=, IN, <, <=, >, >=, BETWEEN in a conjunction); anything
      else locks the table's whole key range, as InnoDB's scan without an
      index does. A range lock is shared among readers and blocks only
-     inserts (and keys moved into it) by others. SERIALIZABLE's range read
-     marks are these locks taken by every read.
+     inserts (and keys moved into it) by others. SERIALIZABLE (served
+     2026-11-23) takes these locks for every plain SELECT in a transaction
+     (BEGIN, or autocommit off), as InnoDB's FOR SHARE; a SELECT that is its
+     own transaction stays a consistent read.
      Locking reads observed on MySQL 8.4.13 (two PyMySQL sessions,
      `build/connectors/py_locks*`): a plain read never waits; FOR UPDATE and
      FOR SHARE NOWAIT on a held row are 3572; SKIP LOCKED leaves held rows
@@ -174,8 +176,7 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
 Waiting on nothing, to take when the above is blocked:
 - Dannan's pin to its latest 0.10.x patch (0.10.2, tag f36d697; none of
   0.10.1's or 0.10.2's changes reaches Kvasir), at the next release gate.
-- SQL: SERIALIZABLE (range read marks), INSERT IGNORE, REPLACE, ON
-  DUPLICATE KEY UPDATE, INSERT ... SELECT; joins, subqueries, unions;
+- SQL: joins, subqueries, unions;
   utf8mb4_unicode_ci and other character sets; temporal types.
 - Differences recorded, to probe and build: a character past U+FFFF in a
   name (MySQL turns it into `?`, warnings 1300 and 3854); an intermediate

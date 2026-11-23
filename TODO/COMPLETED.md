@@ -113,6 +113,13 @@ The record, newest first. Each entry says what landed, with its gate counts.
   snapshot held fold when it ends. The gate caught a version moved onto
   itself (emptied) before it merged.
 - Gate (node-c): release, ASan and TSan each **420 tests, 1151 of 1151**
+  statements, TSan with no reports. CI green on 74fa6c5.
+- SERIALIZABLE served: REPEATABLE READ with every plain SELECT in a
+  transaction (BEGIN, or autocommit off) read FOR SHARE, its rows and key
+  range locked; a SELECT that is its own transaction stays a consistent
+  read. The 1235 refusal is gone. Red first: the new gate statements were
+  refused (1161 of 1165).
+- Gate (node-c): release, ASan and TSan each **420 tests, 1165 of 1165**
   statements, TSan with no reports.
 
 ## 2026-11-22: A real MySQL client library drives a node in the tests (step 1, most of it)

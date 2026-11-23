@@ -37,7 +37,8 @@
 // autocommit each statement is one; DDL commits first; a failed statement
 // undoes only itself. REPEATABLE READ (a snapshot at the first read) and
 // READ COMMITTED (a snapshot each statement) are served, READ UNCOMMITTED
-// as READ COMMITTED; SERIALIZABLE is refused until read marks exist. Not
+// as READ COMMITTED; SERIALIZABLE as REPEATABLE READ with every plain
+// SELECT in a transaction read FOR SHARE, its rows and key range locked. Not
 // thread-safe: one connection's strand owns it (the catalog and store are
 // safe from any thread).
 namespace kvasir::exec {
@@ -206,8 +207,6 @@ class Session : private VariableSource {
   // DDL commits what came before it.
   void implicit_commit();
   void rollback();
-  // SERIALIZABLE is refused until read marks exist.
-  void check_isolation() const;
   // A statement that reads takes its snapshot as the isolation level says.
   void begin_reading(txn::Transaction& t);
   // INSERT ... SELECT's source is being read: inside the INSERT's statement,

@@ -1302,11 +1302,6 @@ class HavingColumns : public ColumnSource {
 
 }  // namespace
 
-void Session::check_isolation() const {
-  if (sql::same_word(_variables.text("transaction_isolation"), "SERIALIZABLE"))
-    throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'SERIALIZABLE'");
-}
-
 void Session::begin_reading(txn::Transaction& t) {
   // READ COMMITTED (and READ UNCOMMITTED, served as it) reads afresh each
   // statement; REPEATABLE READ keeps the snapshot of its first read.
@@ -1423,11 +1418,15 @@ const sql::Select::Locking* Session::locking_clause(const sql::Select& select, c
   // COMMITTED (the manual, "Locks Set by Different SQL Statements in
   // InnoDB").
   static const sql::Select::Locking source_lock;
+  const auto level = _variables.text("transaction_isolation");
   if (_insert_source && select.locking.empty()) {
-    const auto level = _variables.text("transaction_isolation");
     if (sql::same_word(level, "READ-COMMITTED") || sql::same_word(level, "READ-UNCOMMITTED")) return nullptr;
     return &source_lock;
   }
+  // SERIALIZABLE reads every plain SELECT as FOR SHARE in a transaction (BEGIN,
+  // or autocommit off); a SELECT that is its own transaction is a consistent
+  // read (the manual, "Transaction Isolation Levels").
+  if (select.locking.empty() && sql::same_word(level, "SERIALIZABLE") && (_in_transaction || !_variables.number("autocommit"))) return &source_lock;
   const sql::Select::Locking* found = nullptr;
   for (const auto& clause : select.locking) {
     bool applies = clause.of.empty();
@@ -1494,7 +1493,6 @@ Outcome Session::select_from_table(const sql::Select& select) {
     ~ViewScope() { s._view = nullptr; }
   } view_scope{*this};
   if (is_grouped(select)) return select_groups(select, &*table, database);
-  check_isolation();
   auto settings = eval_settings();
   TableColumns columns(*table, database, from.alias, settings, _view, through_temporary_table(select));
   settings.columns = &columns;
@@ -1719,7 +1717,6 @@ Outcome Session::select_from_table(const sql::Select& select) {
 // first row's.
 Outcome Session::select_groups(const sql::Select& select, const catalog::Table* table, const std::string& database) {
   if (select.with_rollup) throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'WITH ROLLUP'");
-  if (table) check_isolation();
   auto settings = eval_settings();
   std::optional<TableColumns> table_columns;
   if (table) {
@@ -2096,7 +2093,6 @@ Outcome Session::insert(const sql::Statement& statement) {
     if (!_catalog.database(database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
     throw SqlError(1146, "42S02", "Table '" + database + "." + in.table.back() + "' doesn't exist");
   }
-  check_isolation();
 
   // The columns given, by index.
   std::vector<size_t> given;
@@ -2427,7 +2423,6 @@ Outcome Session::change_rows(const sql::Statement& statement) {
     if (!_catalog.database(database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
     throw SqlError(1146, "42S02", "Table '" + database + "." + c.table.name.back() + "' doesn't exist");
   }
-  check_isolation();
   auto settings = eval_settings();
   TableColumns columns(*table, database, c.table.alias, settings);
   settings.columns = &columns;
