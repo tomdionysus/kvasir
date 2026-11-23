@@ -1281,7 +1281,7 @@ TEST(ExecSessionTables, DefinitionsMySqlRefuses) {
   }
   // Kvasir's own refusals: what it does not yet carry out.
   b.expect_refused("CREATE TABLE u18 LIKE t1", 1235, "42000", "This version of Kvasir doesn't yet support 'CREATE TABLE ... LIKE'");
-  b.expect_refused("CREATE TABLE u24 (f DATE)", 1235, "42000", "This version of Kvasir doesn't yet support 'the DATE type'");
+  b.expect_refused("CREATE TABLE u24 (f BIT)", 1235, "42000", "This version of Kvasir doesn't yet support 'the BIT type'");
   b.expect_refused("CREATE TABLE u36 (a INT) CHARSET latin1", 1235, "42000", "This version of Kvasir doesn't yet support 'character set latin1'");
   b.expect_refused("CREATE TABLE u37 (a VARCHAR(3) CHARACTER SET latin1)", 1235, "42000", "This version of Kvasir doesn't yet support 'character set latin1'");
 }
@@ -2814,10 +2814,12 @@ TEST(ExecSessionInformationSchema, ViewsNotBuiltAreRefused) {
 }
 
 // A type Kvasir does not build yet is refused as not yet supported, where
-// MySQL would create the table (the date and time types wait on step 2).
+// MySQL would create the table.
 TEST(ExecSessionDdl, TypesNotBuiltAreRefused) {
   TableBed b;
-  b.expect_refused("CREATE TABLE d (a DATE)", 1235, "42000", "This version of Kvasir doesn't yet support 'the DATE type'");
+  b.expect_refused("CREATE TABLE d (a JSON)", 1235, "42000", "This version of Kvasir doesn't yet support 'the JSON type'");
+  b.expect_refused("CREATE TABLE d (a DATETIME DEFAULT CURRENT_TIMESTAMP)", 1235, "42000",
+                   "This version of Kvasir doesn't yet support 'DEFAULT CURRENT_TIMESTAMP'");
 }
 
 // Index and column options Kvasir does not build yet are refused as not yet

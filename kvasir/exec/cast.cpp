@@ -204,6 +204,21 @@ ResultType as_number_type(ResultType t) {
 
 }  // namespace
 
+std::string number_text(const Value& v) {
+  if (const auto* i = std::get_if<int64_t>(&v)) return std::to_string(*i);
+  if (const auto* u = std::get_if<uint64_t>(&v)) return std::to_string(*u);
+  if (const auto* d = std::get_if<Decimal>(&v)) return d->to_string();
+  if (const auto* r = std::get_if<double>(&v)) {
+    char buffer[400];
+    std::snprintf(buffer, sizeof buffer, "%.6f", *r);
+    return buffer;
+  }
+  uint64_t out = 0;
+  if (const auto* s = std::get_if<std::string>(&v))
+    for (const char ch : *s) out = (out << 8) | static_cast<uint8_t>(ch);
+  return std::to_string(out);
+}
+
 bool is_temporal_type(const ResultType& t) {
   return t.field_type == f::date || t.field_type == f::time || t.field_type == f::datetime || t.field_type == f::timestamp;
 }
@@ -449,35 +464,8 @@ Value Evaluator::cast_value(const Expr& e) {
       return temporal::text(m, kind, fsp);
     }
     // A number: its integer part and its fraction's microseconds.
-    std::string digits;
-    if (const auto* i = std::get_if<int64_t>(&v)) {
-      digits = std::to_string(*i);
-    } else if (const auto* u = std::get_if<uint64_t>(&v)) {
-      digits = std::to_string(*u);
-    } else if (const auto* d = std::get_if<Decimal>(&v)) {
-      digits = d->to_string();
-    } else if (const auto* r = std::get_if<double>(&v)) {
-      char buffer[400];
-      std::snprintf(buffer, sizeof buffer, "%.6f", *r);
-      digits = buffer;
-    } else {
-      uint64_t out = 0;
-      for (const char ch : *text) out = (out << 8) | static_cast<uint8_t>(ch);
-      digits = std::to_string(out);
-    }
-    const auto shown = *to_text(v, from);
-    const bool negative = !digits.empty() && digits[0] == '-';
-    if (negative) digits.erase(0, 1);
-    const auto point = digits.find('.');
-    const auto whole = digits.substr(0, point);
-    std::string micro = point == std::string::npos ? "" : digits.substr(point + 1);
-    micro.resize(6, '0');
-    if (whole.size() > 19) return incorrect(shown);
-    const uint64_t integer = std::stoull(whole);
-    bool clamped = false;
-    const auto m = time ? temporal::time_from_number(integer, static_cast<uint32_t>(std::stoul(micro)), negative, fsp, &clamped)
-                        : temporal::datetime_from_number(integer, static_cast<uint32_t>(std::stoul(micro)), negative, fsp);
-    if (!m) return incorrect(shown);
+    const auto m = temporal::from_number(number_text(v), kind, fsp);
+    if (!m) return incorrect(*to_text(v, from));
     auto out = *m;
     if (kind == temporal::Kind::date) temporal::round(out, kind, 0);
     return temporal::text(out, kind, fsp);

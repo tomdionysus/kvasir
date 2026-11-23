@@ -79,9 +79,9 @@ void add(View& v, const Spec& s, std::string refused = {}) { add(v, s, s, std::m
 std::optional<std::string> text(const std::string& s) { return s; }
 
 const std::string& kind_name(TypeKind k) {
-  static const std::array<std::string, 20> names = {"tinyint",    "smallint", "mediumint", "int",    "bigint",     "decimal",  "float",
-                                                    "double",     "char",     "varchar",   "binary", "varbinary",  "tinytext", "text",
-                                                    "mediumtext", "longtext", "tinyblob",  "blob",   "mediumblob", "longblob"};
+  static const std::array<std::string, 25> names = {"tinyint",    "smallint", "mediumint", "int",      "bigint",   "decimal",    "float",    "double",   "char",
+                                                    "varchar",    "binary",   "varbinary", "tinytext", "text",     "mediumtext", "longtext", "tinyblob", "blob",
+                                                    "mediumblob", "longblob", "date",      "time",     "datetime", "timestamp",  "year"};
   return names[static_cast<size_t>(k)];
 }
 
@@ -115,6 +115,10 @@ std::string column_type(const catalog::ColumnType& t) {
     out += "(" + std::to_string(t.length) + "," + std::to_string(t.scale) + ")";
   } else if (t.kind == TypeKind::float_ || t.kind == TypeKind::double_) {
     if (t.length) out += "(" + std::to_string(t.length) + "," + std::to_string(t.scale) + ")";
+  } else if (catalog::is_temporal(t.kind) || t.kind == TypeKind::year) {
+    // time(3), datetime(6); YEAR as year (observed).
+    if (t.scale) out += "(" + std::to_string(t.scale) + ")";
+    return out;
   } else if (!catalog::is_blob(t.kind)) {
     out += "(" + std::to_string(t.length) + ")";
   }
@@ -277,7 +281,10 @@ View columns(const catalog::Catalog& catalog) {
         row.push_back(octets);
         row.push_back(numeric_precision(type));
         row.push_back(numeric_scale(type));
-        row.push_back(std::nullopt);
+        // DATETIME_PRECISION: TIME's, DATETIME's and TIMESTAMP's fraction
+        // digits, 0 when none is written; NULL for the rest (observed).
+        const bool fraction = catalog::is_temporal(type.kind) && type.kind != TypeKind::date;
+        row.push_back(fraction ? std::optional<std::string>(std::to_string(type.scale)) : std::nullopt);
         row.push_back(is_text ? std::optional<std::string>(type.charset) : std::nullopt);
         row.push_back(is_text ? std::optional<std::string>(type.collation) : std::nullopt);
         row.push_back(column_type(type));

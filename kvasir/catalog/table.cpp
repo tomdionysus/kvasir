@@ -45,7 +45,9 @@ bool is_binary(TypeKind kind) noexcept {
   return kind == TypeKind::binary || kind == TypeKind::varbinary || (kind >= TypeKind::tinyblob && kind <= TypeKind::longblob);
 }
 
-bool is_blob(TypeKind kind) noexcept { return kind >= TypeKind::tinytext; }
+bool is_blob(TypeKind kind) noexcept { return kind >= TypeKind::tinytext && kind <= TypeKind::longblob; }
+
+bool is_temporal(TypeKind kind) noexcept { return kind >= TypeKind::date && kind <= TypeKind::timestamp; }
 
 uint64_t blob_max_bytes(TypeKind kind) noexcept {
   switch (kind) {
@@ -109,6 +111,18 @@ uint32_t pack_length(const ColumnType& type) noexcept {
     case TypeKind::longtext:
     case TypeKind::longblob:
       return 12;
+    // InnoDB's: a fraction takes a byte for each two of its digits, rounded
+    // up.
+    case TypeKind::date:
+      return 3;
+    case TypeKind::time:
+      return 3 + (type.scale + 1u) / 2;
+    case TypeKind::datetime:
+      return 5 + (type.scale + 1u) / 2;
+    case TypeKind::timestamp:
+      return 4 + (type.scale + 1u) / 2;
+    case TypeKind::year:
+      return 1;
   }
   return 0;
 }

@@ -889,12 +889,15 @@ class Parser {
       string_attributes(t);
       return;
     }
-    static constexpr std::array<std::string_view, 19> later = {"BIT",
-                                                               "DATE",
-                                                               "DATETIME",
-                                                               "TIMESTAMP",
-                                                               "TIME",
-                                                               "YEAR",
+    // DATE, YEAR[(4)], and TIME, DATETIME and TIMESTAMP with their
+    // fractional seconds' digits.
+    if (w == "DATE" || w == "TIME" || w == "DATETIME" || w == "TIMESTAMP" || w == "YEAR") {
+      take();
+      t.name = w;
+      if (w != "DATE") t.length = length();
+      return;
+    }
+    static constexpr std::array<std::string_view, 14> later = {"BIT",
                                                                "ENUM",
                                                                "SET",
                                                                "JSON",

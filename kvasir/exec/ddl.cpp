@@ -192,6 +192,25 @@ catalog::ColumnType column_type(const sql::ColumnSpec& column, const CollationIn
     }
     return t;
   }
+  // The temporal types: YEAR as MySQL 8.4 keeps it (4 digits, UNSIGNED
+  // ZEROFILL), the rest with fractional seconds up to 6 digits (1426).
+  if (d.name == "YEAR") {
+    if (d.length && *d.length != 4) refuse(1818, "HY000", "Invalid display width. Use YEAR instead.");
+    t.kind = TypeKind::year;
+    t.length = 4;
+    t.is_unsigned = true;
+    t.zerofill = true;
+    return t;
+  }
+  if (d.name == "DATE" || d.name == "TIME" || d.name == "DATETIME" || d.name == "TIMESTAMP") {
+    const uint64_t fsp = d.length.value_or(0);
+    if (fsp > 6) refuse(1426, "42000", "Too-big precision " + std::to_string(fsp) + " specified for '" + name + "'. Maximum is 6.");
+    t.is_unsigned = false;
+    t.zerofill = false;
+    t.kind = d.name == "DATE" ? TypeKind::date : d.name == "TIME" ? TypeKind::time : d.name == "DATETIME" ? TypeKind::datetime : TypeKind::timestamp;
+    t.scale = static_cast<uint8_t>(fsp);
+    return t;
+  }
   // The string types.
   t.is_unsigned = false;
   t.zerofill = false;
@@ -270,6 +289,8 @@ void check_name(const std::string& name, uint16_t code, const char* what) {
 void set_default(catalog::Column& column, const sql::Expr& e, const TableContext& context, std::vector<Warning>& warnings) {
   if (catalog::is_blob(column.type.kind) && e.kind != sql::ExprKind::null)
     refuse(1101, "42000", "BLOB, TEXT, GEOMETRY or JSON column '" + column.name + "' can't have a default value");
+  // DEFAULT CURRENT_TIMESTAMP waits for its stage.
+  if (e.kind == sql::ExprKind::call && catalog::is_temporal(column.type.kind) && !column.auto_increment) not_yet("DEFAULT " + e.value);
   if (column.auto_increment || e.kind == sql::ExprKind::call) invalid_default(column.name);
   if (e.kind == sql::ExprKind::null) {
     if (!column.nullable) invalid_default(column.name);
@@ -582,6 +603,38 @@ ResultType column_result_type(const catalog::Table& table, size_t index, const E
       r.field_type = f::blob;
       r.length = static_cast<uint32_t>(catalog::blob_max_bytes(t.kind));
       flags |= c::blob | c::binary;
+      break;
+    // DATE 10 long; TIME 10, DATETIME and TIMESTAMP 19, each with a point and
+    // its fraction's digits; all BINARY (observed). The digits each carries
+    // into arithmetic: 8, 7, 14.
+    case TypeKind::date:
+    case TypeKind::time:
+    case TypeKind::datetime:
+    case TypeKind::timestamp: {
+      const uint32_t fraction = t.scale ? t.scale + 1u : 0u;
+      r.decimals = t.scale;
+      if (t.kind == TypeKind::date) {
+        r.field_type = f::date;
+        r.length = 10;
+        r.precision = 8;
+      } else if (t.kind == TypeKind::time) {
+        r.field_type = f::time;
+        r.length = 10 + fraction;
+        r.precision = 7 + t.scale;
+      } else {
+        r.field_type = t.kind == TypeKind::datetime ? f::datetime : f::timestamp;
+        r.length = 19 + fraction;
+        r.precision = 14 + t.scale;
+      }
+      flags |= c::binary;
+      break;
+    }
+    // YEAR: 4 long, UNSIGNED ZEROFILL NUM (observed).
+    case TypeKind::year:
+      r.field_type = f::year;
+      r.length = 4;
+      r.precision = 4;
+      flags |= c::num;
       break;
   }
   r.flags = static_cast<uint16_t>(flags);

@@ -40,6 +40,11 @@ enum class TypeKind : uint8_t {
   blob,
   mediumblob,
   longblob,
+  date,
+  time,
+  datetime,
+  timestamp,
+  year,
 };
 
 struct ColumnType {
@@ -48,7 +53,8 @@ struct ColumnType {
   // its display width, 0 for none. DECIMAL: its precision. FLOAT and DOUBLE:
   // M of (M,D), 0 for none.
   uint32_t length = 0;
-  // DECIMAL's and FLOAT(M,D)'s D.
+  // DECIMAL's and FLOAT(M,D)'s D; TIME's, DATETIME's and TIMESTAMP's
+  // fractional seconds' digits.
   uint8_t scale = 0;
   bool is_unsigned = false;
   bool zerofill = false;
@@ -65,6 +71,8 @@ bool is_text(TypeKind kind) noexcept;
 bool is_binary(TypeKind kind) noexcept;
 // The TEXT and BLOB types.
 bool is_blob(TypeKind kind) noexcept;
+// DATE, TIME, DATETIME and TIMESTAMP (YEAR is a number).
+bool is_temporal(TypeKind kind) noexcept;
 // The most a TEXT or BLOB type holds, in bytes.
 uint64_t blob_max_bytes(TypeKind kind) noexcept;
 

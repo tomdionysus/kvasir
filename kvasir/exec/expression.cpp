@@ -93,7 +93,8 @@ Domain domain_of(const ResultType& t) {
   // a fraction.
   if (is_temporal_type(t)) return t.decimals ? Domain::decimal : Domain::integer;
   // A table's column may be any of the integer types.
-  if (t.field_type == f::longlong || t.field_type == f::long_ || t.field_type == f::int24 || t.field_type == f::short_ || t.field_type == f::tiny)
+  if (t.field_type == f::longlong || t.field_type == f::long_ || t.field_type == f::int24 || t.field_type == f::short_ || t.field_type == f::tiny ||
+      t.field_type == f::year)
     return Domain::integer;
   if (t.field_type == f::newdecimal) return Domain::decimal;
   // A hex or bit literal is an unsigned integer in a numeric context.

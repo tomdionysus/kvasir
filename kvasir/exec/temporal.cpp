@@ -348,6 +348,26 @@ std::optional<Moment> time_from_number(uint64_t n, uint32_t micro, bool negative
   return m;
 }
 
+std::optional<Moment> from_number(std::string_view text, Kind kind, int fsp) {
+  const bool negative = !text.empty() && text[0] == '-';
+  if (negative) text.remove_prefix(1);
+  const auto point = text.find('.');
+  const auto whole = text.substr(0, point);
+  std::string micro(point == std::string_view::npos ? std::string_view() : text.substr(point + 1));
+  micro.resize(6, '0');
+  if (whole.empty() || whole.size() > 19) return std::nullopt;
+  uint64_t integer = 0;
+  for (const char ch : whole) {
+    if (!digit(ch)) return std::nullopt;
+    integer = integer * 10 + static_cast<uint64_t>(ch - '0');
+  }
+  if (kind == Kind::time) {
+    bool clamped = false;
+    return time_from_number(integer, number(micro), negative, fsp, &clamped);
+  }
+  return datetime_from_number(integer, number(micro), negative, kind == Kind::date ? 6 : fsp);
+}
+
 void round(Moment& m, Kind kind, int fsp) {
   if (kind == Kind::date) {
     m.hour = m.minute = m.second = m.micro = 0;

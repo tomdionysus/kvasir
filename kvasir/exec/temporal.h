@@ -67,6 +67,10 @@ Read read_time(std::string_view text, int fsp);
 std::optional<Moment> datetime_from_number(uint64_t integer, uint32_t micro, bool negative, int fsp);
 std::optional<Moment> time_from_number(uint64_t integer, uint32_t micro, bool negative, int fsp, bool* clamped);
 
+// A number's text ([-]digits[.digits]) as a DATE or DATETIME, or as a
+// TIME: the integer part by the rules above, the fraction as microseconds.
+std::optional<Moment> from_number(std::string_view text, Kind kind, int fsp);
+
 // Whether a year, month and day name a real date (no zero part).
 bool valid_date(uint32_t year, uint32_t month, uint32_t day);
 

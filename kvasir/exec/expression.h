@@ -286,6 +286,9 @@ ResultType column_as_expression(const ResultType& column);
 
 // A DATE, TIME or DATETIME type (cast.cpp).
 bool is_temporal_type(const ResultType& t);
+// A number's text as a date or time reads it: [-]digits[.digits], a DOUBLE
+// to 6 places, a hex or bit literal as its bytes' integer.
+std::string number_text(const Value& v);
 // A temporal type's value as the number it is in a numeric context:
 // 20240229, 123456, 20240229123456 (a DECIMAL with its fraction); any
 // other value as it is.

@@ -16,6 +16,7 @@
 #include "kvasir/exec/collation.h"
 #include "kvasir/exec/ddl.h"
 #include "kvasir/exec/store.h"
+#include "kvasir/exec/temporal.h"
 
 namespace kvasir::exec {
 
@@ -65,6 +66,11 @@ Value value_of(const catalog::ColumnType& type, const std::string& text) {
     return v;
   }
   if (type.kind == TypeKind::decimal) return Decimal::parse(text).value_or(Decimal());
+  if (type.kind == TypeKind::year) {
+    int64_t v = 0;
+    std::from_chars(text.data(), text.data() + text.size(), v);
+    return v;
+  }
   if (type.kind == TypeKind::float_) return static_cast<double>(std::strtof(text.c_str(), nullptr));
   if (type.kind == TypeKind::double_) return std::strtod(text.c_str(), nullptr);
   return text;
@@ -96,6 +102,13 @@ std::string encode_key(const catalog::Table& table, const catalog::Key& key, con
     }
     out.push_back('\1');
     const auto& type = column.type;
+    // A TIME sorts by what it is, a negative one first (its text does not:
+    // -1:00:00, 100:00:00).
+    if (type.kind == TypeKind::time) {
+      const auto at = temporal::ordinal(temporal::parse_text(*value, temporal::Kind::time), temporal::Kind::time);
+      append_big_endian(out, static_cast<uint64_t>(at) ^ (uint64_t{1} << 63));
+      continue;
+    }
     const auto v = value_of(type, *value);
     if (const auto* i = std::get_if<int64_t>(&v)) {
       append_big_endian(out, static_cast<uint64_t>(*i) ^ (uint64_t{1} << 63));

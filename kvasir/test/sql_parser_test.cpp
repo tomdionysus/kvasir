@@ -694,7 +694,7 @@ TEST(SqlParser, CreateTable) {
   EXPECT_EQ(one("CREATE TABLE t2 (a INT DEFAULT (1 + 1))").unsupported, "DEFAULT (expression)");
   EXPECT_EQ(one("CREATE TABLE t2 (a INT AS (1) STORED)").unsupported, "generated columns");
   EXPECT_EQ(one("CREATE TABLE t2 (a INT GENERATED ALWAYS AS (1))").unsupported, "generated columns");
-  EXPECT_EQ(one("CREATE TABLE t2 (a DATE)").unsupported, "the DATE type");
+  EXPECT_EQ(one("CREATE TABLE t2 (a BIT)").unsupported, "the BIT type");
   EXPECT_EQ(one("CREATE TABLE t2 (a ENUM('x'))").unsupported, "the ENUM type");
   EXPECT_EQ(one("CREATE TABLE t2 (a INT, FULLTEXT (a))").unsupported, "FULLTEXT");
   EXPECT_EQ(one("CREATE TABLE t2 (a INT, KEY ((a + 1)))").unsupported, "functional key parts");

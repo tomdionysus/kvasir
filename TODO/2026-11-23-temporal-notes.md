@@ -57,6 +57,59 @@ module is written to. Each goes into the differential gate as it is built.
   and show '2024-01-01 00:00:00'; `GREATEST(DATE, DATE)` reports DATE with
   utf8mb4_0900_ai_ci, length 40.
 
+## Columns (T2)
+
+- Column metadata: DATE length 10, flags BINARY (and NOT_NULL as defined);
+  TIME(3) length 14 (13 shown) decimals 3; DATETIME(6) length 26 decimals
+  6; TIMESTAMP field type TIMESTAMP, length 19; YEAR field type YEAR,
+  length 4, flags UNSIGNED ZEROFILL NUM.
+- Stored as given: '12:34:56.7891' in TIME(3) is 12:34:56.789; a DATETIME(6)
+  of '...56.1234567' is .123457 (rounded); numbers by the CAST rules
+  (20240301, 123456); '24-3-2' is 2024-03-02; '-1 02:00' in TIME(3) is
+  -26:00:00.000; YEAR 2024 or '1999'; YEAR 24 is 2024.
+- Strict (the default sql_mode): an invalid date, a zero date
+  ('0000-00-00', with NO_ZERO_DATE), a TIME past 838:59:59 are 1292
+  "Incorrect date value: '2024-02-30' for column 'd' at row 1" (date, time,
+  datetime by the column's type); YEAR 1900 is 1264 "Out of range value for
+  column 'y' at row 1"; a TIMESTAMP before 1970-01-01 00:00:01 UTC is 1292
+  "Incorrect datetime value: ... for column 'ts'"; a DATETIME string into a
+  DATE keeps the date with Note 1292 "Incorrect date value: '2024-02-03
+  04:05:06' for column 'd' at row 1".
+- Not strict (sql_mode ''): each of those is stored as the zero value
+  (0000-00-00, 838:59:59.000 clamped, YEAR 0000) with Warning 1264 "Out of
+  range value for column 'd' at row 1".
+- In expressions: d + 0 LONGLONG 20240229 (length 10, nullable: BINARY
+  NUM); t + 0 of TIME(3) NEWDECIMAL 123456.789 (length 13, 3 decimals);
+  dt + 0 of DATETIME(6) NEWDECIMAL length 23 decimals 6; y + 0 LONGLONG
+  UNSIGNED length 5; d = '2024-02-29' and y = 2024 compare as values.
+- information_schema.COLUMNS: DATA_TYPE date, time, datetime, timestamp,
+  year; COLUMN_TYPE time(3), datetime(6), timestamp, year;
+  DATETIME_PRECISION the fsp for TIME, DATETIME and TIMESTAMP (0 when none
+  is written), NULL for DATE and YEAR; COLUMN_DEFAULT CURRENT_TIMESTAMP and
+  EXTRA "DEFAULT_GENERATED on update CURRENT_TIMESTAMP" for DATETIME DEFAULT
+  CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP; a DATE default '2000-01-01'.
+
+## CURRENT_TIMESTAMP defaults and ON UPDATE (T2b)
+
+- `a DATETIME DEFAULT CURRENT_TIMESTAMP`: flags BINARY; COLUMN_DEFAULT
+  CURRENT_TIMESTAMP, EXTRA DEFAULT_GENERATED. `b TIMESTAMP(3) NOT NULL
+  DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`: flags
+  NOT_NULL BINARY TIMESTAMP ON_UPDATE_NOW (no NO_DEFAULT_VALUE);
+  COLUMN_DEFAULT CURRENT_TIMESTAMP(3), EXTRA "DEFAULT_GENERATED on update
+  CURRENT_TIMESTAMP(3)". `c DATETIME ON UPDATE NOW()`: flags BINARY only;
+  COLUMN_DEFAULT NULL, EXTRA "on update CURRENT_TIMESTAMP".
+- NOW(), LOCALTIME and LOCALTIMESTAMP serve as CURRENT_TIMESTAMP, with
+  the column's fraction digits.
+- An omitted column takes the statement's time; an UPDATE that changes a
+  row sets its ON UPDATE columns not SET to the statement's time; one that
+  changes nothing leaves them (ROW_COUNT 0).
+- Refused: DATETIME(3) DEFAULT CURRENT_TIMESTAMP (fraction digits differ)
+  and DATE DEFAULT CURRENT_TIMESTAMP are 1067 "Invalid default value for
+  'a'"; INT ON UPDATE CURRENT_TIMESTAMP and DATETIME ON UPDATE
+  CURRENT_TIMESTAMP(2) are 1294 "Invalid ON UPDATE clause for 'a' column".
+- `DEFAULT (CURRENT_DATE)` (an expression default) is MySQL 8's
+  generated default: COLUMN_DEFAULT curdate(), EXTRA DEFAULT_GENERATED.
+
 ## The clock
 
 - NOW() and its kin take the statement's time from an injected wall clock:

@@ -1169,6 +1169,21 @@ std::string stored_text(const catalog::Column& column, const Value& value, const
     return stored.lenient;
   };
   const std::string truncated = "Data truncated for column '" + column.name + "'" + at_row;
+  // A date or time names its type (observed: 1292 "Incorrect date value:
+  // '2024-02-30' for column 'd' at row 1"; a DATETIME into a DATE a Note).
+  if (catalog::is_temporal(column.type.kind)) {
+    const char* word = column.type.kind == catalog::TypeKind::date ? "date" : column.type.kind == catalog::TypeKind::time ? "time" : "datetime";
+    const auto incorrect = std::string("Incorrect ") + word + " value: '" + value_text() + "' for column '" + column.name + "'" + at_row;
+    if (stored.result == Stored::Result::truncated) {
+      warnings.push_back({"Note", er_truncated_wrong_value, incorrect});
+      return stored.text;
+    }
+    // Ignoring the error stores the zero value, a TIME clamped, with 1264.
+    if (stored.result != Stored::Result::stored) {
+      if (ignore) return failed("Warning", 1264, "22003", "Out of range value for column '" + column.name + "'" + at_row);
+      return failed("Warning", er_truncated_wrong_value, "22007", incorrect);
+    }
+  }
   switch (stored.result) {
     case Stored::Result::truncated:
       warnings.push_back({"Note", 1265, truncated});

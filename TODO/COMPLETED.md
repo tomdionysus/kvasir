@@ -1285,3 +1285,12 @@ The record, newest first. Each entry says what landed, with its gate counts.
   one (f26877f).
 - Gate (node-c): release, ASan and TSan each **434 tests, 1326 of 1326**
   statements, TSan with no reports; coverage 99.2% of lines.
+- Temporal types, T2a: DATE, TIME, DATETIME, TIMESTAMP and YEAR columns,
+  stored and refused as MySQL's strict mode does (1292, 1264, a Note for a
+  dropped time, INSERT IGNORE's zero values), TIME keys by value,
+  information_schema's DATA_TYPE, COLUMN_TYPE and DATETIME_PRECISION.
+  CURRENT_TIMESTAMP defaults wait for T2b (observed and noted). CI green
+  on the clock (115def2).
+- Gate (node-c): release, ASan and TSan each **434 tests, 1355 of 1355**
+  statements, TSan with no reports; 1359 with the coverage statements;
+  coverage 99.2% of lines.

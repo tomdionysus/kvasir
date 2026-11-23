@@ -7,6 +7,7 @@
 
 #include "kvasir/exec/store.h"
 
+#include <algorithm>
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
@@ -16,6 +17,9 @@
 #include <string_view>
 
 #include "dannan/encoding/base.h"
+#include "kvasir/exec/expression.h"
+#include "kvasir/exec/temporal.h"
+#include "kvasir/protocol/types.h"
 
 namespace kvasir::exec {
 
@@ -415,6 +419,86 @@ Stored store_string(const catalog::ColumnType& type, const Value& value) {
   return {result, finished(text), {}};
 }
 
+temporal::Kind temporal_kind(TypeKind kind) {
+  if (kind == TypeKind::date) return temporal::Kind::date;
+  if (kind == TypeKind::time) return temporal::Kind::time;
+  return temporal::Kind::datetime;
+}
+
+// The zero value of a DATE, TIME or DATETIME column, what a statement that
+// ignores errors stores for one it cannot take (observed: 0000-00-00).
+std::string zero_temporal(const catalog::ColumnType& type) {
+  temporal::Moment zero;
+  return temporal::text(zero, temporal_kind(type.kind), type.scale);
+}
+
+// A value into a DATE, TIME, DATETIME or TIMESTAMP column (observed on MySQL
+// 8.4.13, TODO/2026-11-23-temporal-notes.md): a string or number as CAST
+// reads it, but trailing text or a TIME past 838:59:59 is invalid; a
+// DATETIME's time dropped into a DATE is truncated (Note 1292); a
+// TIMESTAMP outside 1970-01-01 00:00:01 to 2038-01-19 03:14:07 UTC is
+// invalid.
+Stored store_temporal(const catalog::ColumnType& type, const Value& value, const ResultType& from) {
+  const auto kind = temporal_kind(type.kind);
+  const int fsp = type.scale;
+  const auto invalid = [&] { return Stored{Result::invalid, {}, zero_temporal(type)}; };
+  std::optional<temporal::Moment> m;
+  const auto* s = std::get_if<std::string>(&value);
+  if (s && is_temporal_type(from)) {
+    const auto from_kind = from.field_type == protocol::field_type::date   ? temporal::Kind::date
+                           : from.field_type == protocol::field_type::time ? temporal::Kind::time
+                                                                           : temporal::Kind::datetime;
+    // A TIME takes today's date to be a DATE, which the clock gives later.
+    if (from_kind == temporal::Kind::time && kind != temporal::Kind::time) return invalid();
+    m = temporal::parse_text(*s, from_kind);
+    if (kind == temporal::Kind::time) m->year = m->month = m->day = 0;
+  } else if (s && !from.number_string) {
+    const auto read = kind == temporal::Kind::time ? temporal::read_time(*s, fsp) : temporal::read_datetime(*s, kind == temporal::Kind::date ? 6 : fsp);
+    // A TIME past its limit is kept clamped by a statement that ignores the
+    // error (observed: 838:59:59.000).
+    if (read.clamped && read.moment) return {Result::invalid, {}, temporal::text(*read.moment, kind, fsp)};
+    if (!read.moment || read.truncated) return invalid();
+    m = read.moment;
+  } else {
+    m = temporal::from_number(number_text(value), kind, kind == temporal::Kind::date ? 6 : fsp);
+    if (!m) return invalid();
+  }
+  const bool lost = kind == temporal::Kind::date && (m->hour || m->minute || m->second || m->micro);
+  temporal::round(*m, kind, fsp);
+  if (type.kind == TypeKind::timestamp) {
+    const auto at = temporal::ordinal(*m, temporal::Kind::datetime);
+    const temporal::Moment first{false, 1970, 1, 1, 0, 0, 1, 0};
+    const temporal::Moment last{false, 2038, 1, 19, 3, 14, 7, 999999};
+    if (at < temporal::ordinal(first, temporal::Kind::datetime) || at > temporal::ordinal(last, temporal::Kind::datetime)) return invalid();
+  }
+  return {lost ? Result::truncated : Result::stored, temporal::text(*m, kind, fsp), {}};
+}
+
+// A value into a YEAR column: 1901 to 2155, or 0; a number 1 to 69 the
+// 2000s and 70 to 99 the 1900s, and a string of one or two digits so too
+// ('0' and '00' are 2000); past that out of range (1264).
+Stored store_year(const Value& value, const ResultType& from) {
+  int64_t year = 0;
+  bool short_string = false;
+  const auto* s = std::get_if<std::string>(&value);
+  if (s && !from.number_string) {
+    const auto t = trim(*s);
+    if (t.empty() || t.size() > 6 || !std::all_of(t.begin(), t.end(), is_digit)) return {Result::invalid, {}, "0"};
+    year = std::stoll(std::string(t));
+    short_string = t.size() <= 2;
+  } else if (const auto* d = std::get_if<Decimal>(&value)) {
+    year = d->rounded(0).to_int().value_or(-1);
+  } else if (const auto* r = std::get_if<double>(&value)) {
+    year = std::llround(std::clamp(*r, -1.0, 100000.0));
+  } else {
+    const auto text = number_text(value);
+    year = text.size() > 6 ? -1 : std::stoll(text);
+  }
+  if (short_string || (year >= 1 && year <= 99)) year = year < 70 ? 2000 + year : 1900 + year;
+  if (year != 0 && (year < 1901 || year > 2155)) return {Result::out_of_range, {}, "0"};
+  return {Result::stored, std::to_string(year), {}};
+}
+
 }  // namespace
 
 size_t character_end(const std::string& s, uint64_t count) {
@@ -430,11 +514,14 @@ Stored store(const catalog::ColumnType& type, const Value& value, const ResultTy
   if (catalog::is_integer(type.kind)) return store_integer(type, value, from);
   if (type.kind == TypeKind::decimal) return store_decimal(type, value, from);
   if (type.kind == TypeKind::float_ || type.kind == TypeKind::double_) return store_real(type, value, from);
+  if (catalog::is_temporal(type.kind)) return store_temporal(type, value, from);
+  if (type.kind == TypeKind::year) return store_year(value, from);
   return store_string(type, value);
 }
 
 std::string implicit_default(const catalog::ColumnType& type) {
-  if (catalog::is_integer(type.kind) || type.kind == TypeKind::float_ || type.kind == TypeKind::double_) return "0";
+  if (catalog::is_integer(type.kind) || type.kind == TypeKind::float_ || type.kind == TypeKind::double_ || type.kind == TypeKind::year) return "0";
+  if (catalog::is_temporal(type.kind)) return zero_temporal(type);
   if (type.kind == TypeKind::decimal) return zero_text(type.scale);
   if (type.kind == TypeKind::binary) return std::string(type.length, '\0');
   return {};
