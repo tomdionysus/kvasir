@@ -405,6 +405,7 @@ ResultType Evaluator::type(const Expr& e) const {
       throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + name + "' in 'field list'");
     }
     case ExprKind::call:
+      if (e.value == "CAST") return cast_type(e);
       if (is_aggregate(e)) {
         if (_settings.aggregates)
           if (const auto t = _settings.aggregates->aggregate_type(e)) return *t;
@@ -984,6 +985,7 @@ Value Evaluator::value(const Expr& e) {
     case ExprKind::case_when:
       return flow_value(e);
     case ExprKind::call: {
+      if (e.value == "CAST") return cast_value(e);
       if (is_flow_control(e)) return flow_value(e);
       if (string_function(e)) return string_function_value(e);
       if (number_function(e)) return number_function_value(e);

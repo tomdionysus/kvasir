@@ -68,6 +68,8 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
   INSERT IGNORE, REPLACE, ON DUPLICATE KEY UPDATE and INSERT ... SELECT.
 - **Joins next** (2026-11-23): after the SQL writes, SERIALIZABLE and
   version folding, joins come before subqueries, UNION and temporal types.
+- **Temporal types next** (2026-11-23): after joins, DATE, TIME, DATETIME,
+  TIMESTAMP and YEAR come before subqueries and UNION.
 - **Joins run a fixed plan** (2026-11-23: "Fixed plan, record gaps"): tables
   in written order, outer joins as written, nothing reordered; the
   temporary-table flags follow from that plan. Rows, values, types,
@@ -183,6 +185,32 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    first table with each later table found through an index, when grouped
    other than off such an index, or under DISTINCT; with no ORDER BY the
    order is the plan's (see the known differences).
+1c. **Temporal types** (the maintainer's choice, 2026-11-23), each stage on
+   its own branch, gated and merged, every behaviour observed on the
+   reference server first:
+   - T1a, CAST and CONVERT, which Kvasir lacks altogether: to SIGNED,
+     UNSIGNED, CHAR[(n)] [CHARACTER SET], BINARY[(n)], DECIMAL[(m[,d])],
+     DOUBLE, FLOAT[(p)], and CONVERT(x USING charset).
+   - T1b, temporal values in expressions: DATE, TIME, TIMESTAMP literals,
+     CAST and CONVERT to DATE, TIME, DATETIME (with fsp), comparison and
+     ordering, the result metadata (DATE, TIME, DATETIME types, lengths,
+     decimals); NOW, CURDATE, CURTIME, CURRENT_TIMESTAMP, SYSDATE, UTC_*
+     from an injected clock (the statement's time, fixed for its length).
+   - T2, columns: DATE, TIME[(fsp)], DATETIME[(fsp)], TIMESTAMP[(fsp)],
+     YEAR in CREATE TABLE; stored text and key order; INSERT and UPDATE
+     conversion from strings and numbers (1292 in strict mode, warnings
+     else; NO_ZERO_DATE, NO_ZERO_IN_DATE); DEFAULT CURRENT_TIMESTAMP and ON
+     UPDATE CURRENT_TIMESTAMP; information_schema's columns.
+   - T3, TIMESTAMP's time zone: stored in UTC, shown in the session's
+     time_zone (SYSTEM and offsets; named zones refused until zone data
+     exists).
+   - T4, the date and time functions: DATE_FORMAT, STR_TO_DATE, DATE_ADD
+     and DATE_SUB with INTERVAL, DATEDIFF, TIMESTAMPDIFF, TIMESTAMPADD,
+     EXTRACT, YEAR, MONTH, DAY and the rest, UNIX_TIMESTAMP, FROM_UNIXTIME,
+     LAST_DAY, DAYNAME, WEEK and its kin.
+   - T5, the binary protocol: temporal parameters of COM_STMT_EXECUTE and
+     temporal columns of binary result rows (what Connector/J and
+     Connector/C++ prepared statements send and read).
 2. **Step 2b: each node's state in Dagda**, in the cluster's shape. Waits on
    Dagda's durable AcceptorStore (after its 0.4.0, which carries the
    register map; 0.4.0 waits on the maintainer's word to tag). Dagda's

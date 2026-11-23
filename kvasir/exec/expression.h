@@ -224,6 +224,10 @@ class Evaluator {
   // ROUND and TRUNCATE; nothing for a name that is not one of them.
   std::optional<ResultType> number_function(const sql::Expr& e) const;
   Value number_function_value(const sql::Expr& e);
+  // CAST and CONVERT (cast.cpp): the type a call converts to (1425, 1426,
+  // 1427 for a DECIMAL it cannot be), and its value converted.
+  ResultType cast_type(const sql::Expr& e) const;
+  Value cast_value(const sql::Expr& e);
   // A string operand's collation and coercibility.
   std::pair<uint16_t, int> derivation(const sql::Expr& e, const ResultType& t) const;
   // The character set an operand's value is in.

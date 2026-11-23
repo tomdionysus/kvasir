@@ -1618,6 +1618,64 @@ class Parser {
     return column();
   }
 
+  // A CAST's type (the manual's "Cast Functions and Operators"): BINARY[(n)],
+  // CHAR[(n)] [CHARACTER SET cs], SIGNED or UNSIGNED [INTEGER | INT],
+  // DECIMAL[(m[,d])], DOUBLE, REAL, FLOAT[(p)], DATE, TIME[(fsp)],
+  // DATETIME[(fsp)], YEAR, JSON. Anything else is a syntax error (observed:
+  // CAST(1 AS INT) is 1064 near INT).
+  void cast_type(Expr& call) {
+    const auto number = [&] {
+      if (peek().kind != TokenKind::integer) fail(peek());
+      const auto at = peek().offset;
+      call.args.push_back(node(ExprKind::integer, at, take().value));
+    };
+    const auto length = [&](bool scale) {
+      if (!symbol("(")) return;
+      take();
+      number();
+      if (scale && symbol(",")) {
+        take();
+        number();
+      }
+      expect_symbol(")");
+    };
+    if (word("SIGNED") || word("UNSIGNED")) {
+      call.scope = upper(take().value);
+      if (!accept_word("INTEGER")) accept_word("INT");
+    } else if (accept_word("CHAR") || accept_word("CHARACTER")) {
+      call.scope = "CHAR";
+      length(false);
+      if (word("CHARACTER") && word("SET", 1)) {
+        take();
+        take();
+        call.charset = charset_name();
+      } else if (accept_word("CHARSET")) {
+        call.charset = charset_name();
+      }
+    } else if (accept_word("BINARY")) {
+      call.scope = "BINARY";
+      length(false);
+    } else if (accept_word("DECIMAL") || accept_word("DEC") || accept_word("NUMERIC") || accept_word("FIXED")) {
+      call.scope = "DECIMAL";
+      length(true);
+    } else if (accept_word("DOUBLE")) {
+      call.scope = "DOUBLE";
+      accept_word("PRECISION");
+    } else if (accept_word("REAL")) {
+      call.scope = "DOUBLE";
+    } else if (accept_word("FLOAT")) {
+      call.scope = "FLOAT";
+      length(false);
+    } else if (word("DATE") || word("YEAR") || word("JSON")) {
+      call.scope = upper(take().value);
+    } else if (word("TIME") || word("DATETIME")) {
+      call.scope = upper(take().value);
+      length(false);
+    } else {
+      fail(peek());
+    }
+  }
+
   void call_arguments(Expr& call) {
     expect_symbol("(");
     // The grammar's own: IF takes three arguments, COALESCE one or more.
@@ -1679,6 +1737,28 @@ class Parser {
         }
       }
       expect_symbol(")");
+      return;
+    }
+    // CAST(expr AS type), CONVERT(expr, type) and CONVERT(expr USING
+    // charset): `scope` the type, `charset` its character set, args[1] and
+    // args[2] its length and scale as written, `path` the call as written
+    // (a warning names it so).
+    if (call.value == "CAST" || call.value == "CONVERT") {
+      const bool cast = call.value == "CAST";
+      call.value = "CAST";
+      call.args.push_back(expression());
+      if (!cast && accept_word("USING")) {
+        call.scope = "CHAR";
+        call.charset = charset_name();
+      } else {
+        if (cast)
+          expect_word("AS");
+        else
+          expect_symbol(",");
+        cast_type(call);
+      }
+      expect_symbol(")");
+      call.path = {std::string(_text.substr(call.offset, _last_end - call.offset))};
       return;
     }
     // POSITION(substr IN str), as LOCATE(substr, str).
@@ -1875,6 +1955,8 @@ std::string to_string(const Expr& e) {
     case ExprKind::regexp:
       return "(" + negatable("REGEXP") + args(0) + ")";
     case ExprKind::call:
+      // (CAST x AS DECIMAL 5 2 CHARSET binary)
+      if (e.value == "CAST") return "(CAST " + to_string(*e.args[0]) + " AS " + e.scope + args(1) + (e.charset.empty() ? "" : " CHARSET " + e.charset) + ")";
       return "(" + e.value + (e.scope.empty() ? "" : " " + e.scope) + (e.distinct ? " DISTINCT" : "") + (e.star ? " *" : "") + args(0) + ")";
     case ExprKind::case_when: {
       std::string out = "(CASE";

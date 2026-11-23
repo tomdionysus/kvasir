@@ -684,6 +684,25 @@ TEST(ExecSession, SessionFunctions) {
 // The manual's examples (String Comparison Functions, STRCMP): -1, 0 or 1
 // by the collation the two arguments aggregate to, NULL for a NULL, and 1267
 // for collations that cannot be reconciled. Connector/C++'s getTables uses it.
+// CAST and CONVERT beyond what the differential gate holds: a multibyte
+// CHAR cut by characters, BINARY cut by bytes, a hex literal and a DOUBLE as
+// DECIMAL; the character sets and types not built yet refused (1235).
+TEST(ExecSession, Casts) {
+  auto s = make();
+  EXPECT_EQ(row(run(s, "SELECT CAST('héllo' AS CHAR(2)), CAST('héllo' AS BINARY(2)), CAST(X'0102' AS DECIMAL), CAST(2.25e0 AS DECIMAL(3,1))")),
+            (std::vector<std::string>{"hé", "h\xc3", "258", "2.3"}));
+  EXPECT_EQ(s.warnings().size(), 2u);
+  EXPECT_EQ(s.warnings()[0].message, "Truncated incorrect CHAR(2) value: 'héllo'");
+  EXPECT_EQ(s.warnings()[1].message, "Truncated incorrect BINARY(2) value: 'héllo'");
+  EXPECT_EQ(row(run(s, "SELECT CAST(X'41' AS SIGNED), CAST(-1e30 AS SIGNED), CAST(1e30 AS UNSIGNED), CAST(-12.5 AS DECIMAL(2,0))")),
+            (std::vector<std::string>{"65", "-9223372036854775808", "18446744073709551615", "-13"}));
+  EXPECT_EQ(
+      row(run(s, "SELECT CAST('1e-2' AS DECIMAL(5,3)), CAST('12.5e-1' AS DECIMAL(5,2)), CAST(2.5e0 AS UNSIGNED), CAST(18446744073709551615 AS DECIMAL(20,0))")),
+      (std::vector<std::string>{"0.010", "1.25", "3", "18446744073709551615"}));
+  EXPECT_EQ(refusal(s, "SELECT CAST('a' AS CHAR CHARACTER SET latin1)").code, 1235);
+  EXPECT_EQ(refusal(s, "SELECT CAST('2024-01-01' AS DATE)").message, "This version of Kvasir doesn't yet support 'CAST AS DATE'");
+}
+
 TEST(ExecSession, Strcmp) {
   auto s = make();
   EXPECT_EQ(row(run(s, "SELECT STRCMP('text', 'text2'), STRCMP('text2', 'text'), STRCMP('text', 'text'), STRCMP(NULL, 'a'), STRCMP('a', NULL)")),

@@ -1263,3 +1263,10 @@ The record, newest first. Each entry says what landed, with its gate counts.
   99.2% of lines again.
 - Gate (node-c): release, ASan and TSan each **427 tests, 1268 of 1268**
   statements, TSan with no reports.
+- Temporal types, T1a (the maintainer's choice of temporal types next,
+  2026-11-23): CAST and CONVERT, which Kvasir lacked, to SIGNED, UNSIGNED,
+  CHAR, BINARY, DECIMAL, DOUBLE, REAL and FLOAT, with MySQL's warnings
+  (1292, 1105, 1264) and errors (1425, 1426, 1427); other character sets
+  and the temporal targets refused until built. Coverage 99.2% of lines.
+- Gate (node-c): release, ASan and TSan each **429 tests, 1289 of 1289**
+  statements, TSan with no reports.

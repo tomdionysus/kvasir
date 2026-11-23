@@ -836,6 +836,28 @@ TEST(SqlParser, UpdateAndDelete) {
   EXPECT_EQ(error_at("DELETE FROM"), 11u);
 }
 
+// CAST and CONVERT (the manual's "Cast Functions and Operators"): the type,
+// its length, scale and character set; CONVERT(x USING cs) is CHAR in cs;
+// a type MySQL does not cast to is a syntax error at it (observed: INT).
+TEST(SqlParser, Casts) {
+  EXPECT_EQ(expr("CAST(a AS SIGNED)"), "(CAST a AS SIGNED)");
+  EXPECT_EQ(expr("CAST(a AS UNSIGNED INTEGER)"), "(CAST a AS UNSIGNED)");
+  EXPECT_EQ(expr("CAST(a AS CHAR(3) CHARACTER SET utf8mb4)"), "(CAST a AS CHAR 3 CHARSET utf8mb4)");
+  EXPECT_EQ(expr("CAST(a AS BINARY)"), "(CAST a AS BINARY)");
+  EXPECT_EQ(expr("CAST(1 + 2 AS DECIMAL(5, 2))"), "(CAST (+ 1 2) AS DECIMAL 5 2)");
+  EXPECT_EQ(expr("CAST(a AS REAL)"), "(CAST a AS DOUBLE)");
+  EXPECT_EQ(expr("CAST(a AS DOUBLE PRECISION)"), "(CAST a AS DOUBLE)");
+  EXPECT_EQ(expr("CAST(a AS FLOAT(30))"), "(CAST a AS FLOAT 30)");
+  EXPECT_EQ(expr("CAST(a AS DATETIME(3))"), "(CAST a AS DATETIME 3)");
+  EXPECT_EQ(expr("CONVERT(a, SIGNED)"), "(CAST a AS SIGNED)");
+  EXPECT_EQ(expr("CONVERT(a USING binary)"), "(CAST a AS CHAR CHARSET binary)");
+  const auto s = one("SELECT CAST(x AS DECIMAL(3,1)) + 1");
+  EXPECT_EQ(s.select.items[0].expr->args[0]->path, (std::vector<std::string>{"CAST(x AS DECIMAL(3,1))"}));
+  EXPECT_EQ(error_at("SELECT CAST(1 AS INT)"), 17u);
+  EXPECT_EQ(error_at("SELECT CAST(1 AS DECIMAL(a))"), 25u);
+  EXPECT_EQ(error_at("SELECT CAST(1, SIGNED)"), 13u);
+}
+
 // The multiple-table forms (the manual's UPDATE and DELETE statements):
 // UPDATE over table references; DELETE targets FROM references and DELETE
 // FROM targets USING references, a target `name` or `name.*`, with WHERE

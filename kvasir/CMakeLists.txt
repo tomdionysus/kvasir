@@ -59,6 +59,7 @@ add_library(kvasir ${kvasir_library_type}
   catalog/catalog.cpp
   catalog/table.cpp
   exec/aggregate.cpp
+  exec/cast.cpp
   exec/casing.cpp
   exec/collation.cpp
   exec/ddl.cpp
