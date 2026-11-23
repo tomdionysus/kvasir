@@ -394,6 +394,13 @@ Each to be closed, or kept by a decision.
   transactions end within a deadline, then closes sessions; after startup
   it pushes a "kvasir.ranges" check (not_ready while a range has not caught
   up, degraded while a replica set is short).
+- **Dannan**: the node-program helper (its item 14, 0.12.0; drawn at its
+  TODO/2026-11-23-node-program.md, 61c292d), confirmed by Kvasir
+  2026-11-23. kvasir-node moves onto it when Kvasir joins the cluster, not
+  at 0.12.0. Asked: named subcommands (hash-password), a default port for
+  add_listener_settings (3306, keys mysql.listen.* and mysql.tls.*,
+  renaming today's listen.* and tls.*), and what a drain step past its
+  deadline does (assumed: on_stop runs, and rolls back what is open).
 - **Dagda**: 0.4.0 (register map) is tagged (2026-11-23, 94a1b60), built on
   Dannan 0.11.1. The durable AcceptorStore step 2b waits on is not in it;
   the coordinating session has asked Dagda to put it first (relayed
