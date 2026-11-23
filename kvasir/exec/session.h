@@ -221,6 +221,17 @@ class Session : private VariableSource {
   // statement gives it: nothing for none; 3568 for an OF naming another
   // table, 3569 for two clauses over it (observed on MySQL 8.4.13).
   const sql::Select::Locking* locking_clause(const sql::Select& select, const std::string& qualifier) const;
+  // The same for each of a join's tables, by their names.
+  std::vector<const sql::Select::Locking*> locking_clauses(const sql::Select& select, const std::vector<std::string>& qualifiers) const;
+  // A join's tables read: a table under a locking clause as a locking read
+  // reads it (the latest rows, less those SKIP LOCKED passes over), the
+  // others from the snapshot. True when any table is locked.
+  bool read_join(JoinFrom& from, const std::vector<const sql::Select::Locking*>& clauses, txn::Transaction& t);
+  // The rows each locked table gave `kept` joined rows locked, and its key
+  // range (from WHERE) as a locking read locks it; a row held elsewhere
+  // makes the statement wait, or with NOWAIT is 3572.
+  void lock_join(JoinFrom& from, const std::vector<const sql::Select::Locking*>& clauses, txn::Transaction& t,
+                 const std::vector<const std::vector<const txn::Row*>*>& kept, const sql::Expr* where);
   // A locking read's rows (SELECT ... FOR UPDATE / FOR SHARE): the rows as
   // UPDATE reads them, the latest committed and the transaction's own, less
   // those SKIP LOCKED passes over; the rows `passes` keeps locked in the

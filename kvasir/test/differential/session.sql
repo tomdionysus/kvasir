@@ -854,6 +854,12 @@ SELECT DISTINCT a.x FROM kv_join.a JOIN kv_join.b ON 1 GROUP BY a.x, b.y ORDER B
 SELECT b.a_id, b.y FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id GROUP BY b.a_id
 SELECT a.x, b.y FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id GROUP BY a.x
 SELECT id, COUNT(*) FROM kv_join.a JOIN kv_join.b ON 1 GROUP BY id
+SELECT a.id, b.id FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY b.id FOR UPDATE
+SELECT a.id, b.id FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id FOR UPDATE OF zz
+SELECT a.id, b.id FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id FOR UPDATE OF a FOR SHARE OF a
+SELECT a.id, b.id FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY b.id FOR UPDATE OF a FOR SHARE OF b
+SELECT t.id FROM kv_join.a AS t JOIN kv_join.b ON t.id = b.a_id FOR UPDATE OF a
+SELECT a.id, COUNT(*) FROM kv_join.a LEFT JOIN kv_join.b ON a.id = b.a_id GROUP BY a.id ORDER BY a.id FOR SHARE
 DROP DATABASE kv_join
 SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 SELECT REPEAT('ab',3), REPEAT('ab',0), REPEAT('ab',-1), REPEAT(NULL,2), REPEAT(1,2), REVERSE('abc'), REVERSE('héllo'), REVERSE(NULL), REVERSE(123), REVERSE(_binary'ab')

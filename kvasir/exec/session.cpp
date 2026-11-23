@@ -916,6 +916,8 @@ struct JoinLeaf {
   std::string database;
   std::unique_ptr<TableColumns> columns;
   std::vector<txn::Row> rows;
+  // Each row's key, for a table a locking read reads.
+  std::vector<std::string> keys;
   // On the inner side of an outer join: its columns may be NULL whatever
   // their definition says.
   bool nullable = false;
@@ -1568,31 +1570,39 @@ txn::Store::KeyRange key_range(const sql::Expr* where, const catalog::Table& tab
 }  // namespace
 
 const sql::Select::Locking* Session::locking_clause(const sql::Select& select, const std::string& qualifier) const {
+  return locking_clauses(select, {qualifier}).front();
+}
+
+std::vector<const sql::Select::Locking*> Session::locking_clauses(const sql::Select& select, const std::vector<std::string>& qualifiers) const {
   // INSERT ... SELECT reads its source with shared locks, but under READ
   // COMMITTED (the manual, "Locks Set by Different SQL Statements in
   // InnoDB").
   static const sql::Select::Locking source_lock;
   const auto level = _variables.text("transaction_isolation");
+  std::vector<const sql::Select::Locking*> out(qualifiers.size(), nullptr);
   if (_insert_source && select.locking.empty()) {
-    if (sql::same_word(level, "READ-COMMITTED") || sql::same_word(level, "READ-UNCOMMITTED")) return nullptr;
-    return &source_lock;
+    if (sql::same_word(level, "READ-COMMITTED") || sql::same_word(level, "READ-UNCOMMITTED")) return out;
+    return std::vector<const sql::Select::Locking*>(qualifiers.size(), &source_lock);
   }
   // SERIALIZABLE reads every plain SELECT as FOR SHARE in a transaction (BEGIN,
   // or autocommit off); a SELECT that is its own transaction is a consistent
   // read (the manual, "Transaction Isolation Levels").
-  if (select.locking.empty() && sql::same_word(level, "SERIALIZABLE") && (_in_transaction || !_variables.number("autocommit"))) return &source_lock;
-  const sql::Select::Locking* found = nullptr;
-  for (const auto& clause : select.locking) {
-    bool applies = clause.of.empty();
-    for (const auto& name : clause.of) {
-      if (name != qualifier) throw SqlError(3568, "HY000", "Unresolved table name `" + name + "` in locking clause.");
-      applies = true;
+  if (select.locking.empty() && sql::same_word(level, "SERIALIZABLE") && (_in_transaction || !_variables.number("autocommit")))
+    return std::vector<const sql::Select::Locking*>(qualifiers.size(), &source_lock);
+  // Each OF names a table of the statement (3568); a table falls under one
+  // clause at most (3569: named in backquotes when OF named it, observed).
+  for (const auto& clause : select.locking)
+    for (const auto& name : clause.of)
+      if (std::find(qualifiers.begin(), qualifiers.end(), name) == qualifiers.end())
+        throw SqlError(3568, "HY000", "Unresolved table name `" + name + "` in locking clause.");
+  for (size_t k = 0; k < qualifiers.size(); ++k)
+    for (const auto& clause : select.locking) {
+      const bool named = std::find(clause.of.begin(), clause.of.end(), qualifiers[k]) != clause.of.end();
+      if (!clause.of.empty() && !named) continue;
+      if (out[k]) throw SqlError(3569, "HY000", "Table " + (named ? "`" + qualifiers[k] + "`" : qualifiers[k]) + " appears in multiple locking clauses.");
+      out[k] = &clause;
     }
-    if (!applies) continue;
-    if (found) throw SqlError(3569, "HY000", "Table " + qualifier + " appears in multiple locking clauses.");
-    found = &clause;
-  }
-  return found;
+  return out;
 }
 
 std::vector<txn::Row> Session::locked_rows(const sql::Select::Locking& clause, txn::Transaction& t, const catalog::Table& table,
@@ -2393,6 +2403,63 @@ class JoinIndexed : public IndexedColumns {
 
 }  // namespace
 
+bool Session::read_join(JoinFrom& from, const std::vector<const sql::Select::Locking*>& clauses, txn::Transaction& t) {
+  begin_reading(t);
+  const bool locking = std::any_of(clauses.begin(), clauses.end(), [](const auto* c) { return c != nullptr; });
+  if (locking && !_insert_source) _rows.begin_statement(t);
+  for (size_t l = 0; l < from.leaves.size(); ++l) {
+    auto& leaf = *from.leaves[l];
+    leaf.rows.clear();
+    leaf.keys.clear();
+    const auto* clause = clauses[l];
+    if (!clause) {
+      leaf.rows = _rows.rows(t, leaf.table.id);
+      continue;
+    }
+    const auto mode = clause->exclusive ? txn::Store::LockMode::exclusive : txn::Store::LockMode::shared;
+    for (auto& held : _rows.current(t, leaf.table.id)) {
+      if (clause->wait == sql::Select::Locking::Wait::skip_locked && _rows.held_by_other(t, leaf.table.id, held.key, mode)) continue;
+      leaf.keys.push_back(std::move(held.key));
+      leaf.rows.push_back(std::move(held.row));
+    }
+  }
+  return locking;
+}
+
+void Session::lock_join(JoinFrom& from, const std::vector<const sql::Select::Locking*>& clauses, txn::Transaction& t,
+                        const std::vector<const std::vector<const txn::Row*>*>& kept, const sql::Expr* where) {
+  using Wait = sql::Select::Locking::Wait;
+  const auto level = _variables.text("transaction_isolation");
+  const bool gaps = !sql::same_word(level, "READ-COMMITTED") && !sql::same_word(level, "READ-UNCOMMITTED");
+  for (size_t l = 0; l < from.leaves.size(); ++l) {
+    const auto* clause = clauses[l];
+    if (!clause) continue;
+    auto& leaf = *from.leaves[l];
+    const auto blocked = [&](uint64_t holder) {
+      if (clause->wait == Wait::nowait) throw SqlError(3572, "HY000", "Statement aborted because lock(s) could not be acquired immediately and NOWAIT is set.");
+      throw LockWaitNeeded(t.id(), holder);
+    };
+    // The rows of this table the kept joined rows hold (none for a row an
+    // outer join made NULL).
+    std::vector<std::string> keys;
+    for (const auto* joined : kept) {
+      const auto* row = (*joined)[l];
+      if (!row) continue;
+      const auto& key = leaf.keys[static_cast<size_t>(row - leaf.rows.data())];
+      if (std::find(keys.begin(), keys.end(), key) == keys.end()) keys.push_back(key);
+    }
+    uint64_t holder = 0;
+    if (gaps && clause->wait != Wait::skip_locked) {
+      auto settings = eval_settings();
+      settings.columns = leaf.columns.get();
+      Evaluator evaluator(settings);
+      if (!_rows.lock_range(t, leaf.table.id, key_range(where, leaf.table, *leaf.columns, evaluator), &holder)) blocked(holder);
+    }
+    const auto mode = clause->exclusive ? txn::Store::LockMode::exclusive : txn::Store::LockMode::shared;
+    if (!_rows.lock_rows(t, leaf.table.id, keys, mode, &holder)) blocked(holder);
+  }
+}
+
 // Joins on the fixed plan (the maintainer's ruling of 2026-11-23): each
 // join's tables in written order (a RIGHT JOIN's right side first), nested
 // loops, a row of the preserved side with each of the other's that its ON
@@ -2404,10 +2471,6 @@ class JoinIndexed : public IndexedColumns {
 // its expressions as fields (observed on MySQL 8.4.13, where the
 // optimizer's order decides; recorded where it differs).
 Outcome Session::select_joined(const sql::Select& select) {
-  const auto refuse = [](const std::string& what) {
-    throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support '" + what + "'");
-  };
-  if (!select.locking.empty()) refuse("locking reads over joins");
   auto settings = eval_settings();
   auto from = join_from(select, _catalog, [&](const std::vector<std::string>& name) { return database_of(name); }, settings);
   if (is_grouped(select)) return select_groups(select, nullptr, "", from.get());
@@ -2540,13 +2603,13 @@ Outcome Session::select_joined(const sql::Select& select) {
   const uint64_t limit = select.limit ? limit_of(*select.limit) : _variables.number("sql_select_limit");
   const uint64_t offset = select.offset ? limit_of(*select.offset) : 0;
 
+  std::vector<std::string> qualifiers;
+  for (const auto& leaf : leaves) qualifiers.push_back(leaf->columns->qualifier());
+  const auto clauses = locking_clauses(select, qualifiers);
   auto& t = transaction();
+  bool locking = false;
   try {
-    // A read that would lock (INSERT ... SELECT's source, SERIALIZABLE) waits
-    // for locking reads over joins.
-    if (locking_clause(select, leaves.front()->columns->qualifier())) refuse("locking reads over joins");
-    begin_reading(t);
-    for (auto& leaf : leaves) leaf->rows = _rows.rows(t, leaf->table.id);
+    locking = read_join(*from, clauses, t);
     const auto where_type = select.where ? evaluator.type(*select.where) : ResultType{};
     const auto passes = [&] {
       const auto b = evaluator.truth(evaluator.value(*select.where), where_type);
@@ -2567,6 +2630,12 @@ Outcome Session::select_joined(const sql::Select& select) {
         for (const auto& sort : sorts) c.keys.push_back(evaluator.value(*sort.expr));
         chosen.push_back(std::move(c));
       }
+    // A locking read locks the rows WHERE kept, each table's by its clause.
+    if (locking) {
+      std::vector<const Joined*> kept;
+      for (const auto& c : chosen) kept.push_back(&c.row);
+      lock_join(*from, clauses, t, kept, select.where.get());
+    }
     const auto value_of_output = [&](const Output& o) {
       return o.column ? leaves[o.column->leaf]->columns->value_at(o.column->column) : evaluator.value(*o.expr);
     };
@@ -2605,6 +2674,9 @@ Outcome Session::select_joined(const sql::Select& select) {
     set_joined(nullptr);
   } catch (...) {
     set_joined(nullptr);
+    // A locking read that could not finish gives back what it locked (an
+    // INSERT's source, with the INSERT).
+    if (locking && !_insert_source) _rows.undo_statement(t);
     end_statement(true);
     throw;
   }
@@ -2896,19 +2968,20 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
     if (table_columns) table_columns->set_row(k == no_row ? nullptr : &table_rows[k]);
   };
   const sql::Select::Locking* clause = nullptr;
+  std::vector<const sql::Select::Locking*> join_clauses;
+  bool join_locking = false;
   try {
     if (join) {
-      // A read that would lock (INSERT ... SELECT's source, SERIALIZABLE)
-      // waits for locking reads over joins.
-      if (locking_clause(select, join->leaves.front()->columns->qualifier()))
-        throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'locking reads over joins'");
+      std::vector<std::string> qualifiers;
+      for (const auto& leaf : join->leaves) qualifiers.push_back(leaf->columns->qualifier());
+      join_clauses = locking_clauses(select, qualifiers);
+      join_locking = read_join(*join, join_clauses, *t);
+      joined_rows = join->rows();
     } else if (t) {
       clause = locking_clause(select, table_columns->qualifier());
     }
     if (join) {
-      begin_reading(*t);
-      for (auto& leaf : join->leaves) leaf->rows = _rows.rows(*t, leaf->table.id);
-      joined_rows = join->rows();
+      // Its rows are read above.
     } else if (t && clause) {
       // A locking read: the current rows, those WHERE keeps locked.
       begin_reading(*t);
@@ -2928,9 +3001,11 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
       table_rows.emplace_back();
     }
     const size_t row_count = join ? joined_rows.size() : table_rows.size();
+    std::vector<const Joined*> passed;
     for (size_t k = 0; k < row_count; ++k) {
       set_row(k);
       if (select.where && !(constant_where ? *constant_where : holds(rows, *select.where))) continue;
+      if (join_locking) passed.push_back(&joined_rows[k]);
       size_t g = 0;
       if (per_row) {
         g = new_group(k);
@@ -2953,6 +3028,8 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
         groups[g].sums[s].add(args, rows);
       }
     }
+    // A locking read over a join locks the rows WHERE kept.
+    if (join_locking) lock_join(*join, join_clauses, *t, passed, select.where.get());
 
     struct Chosen {
       std::vector<Value> keys;
@@ -3004,7 +3081,7 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
     set_row(no_row);
     // A locking read that could not finish gives back what it locked (an
     // INSERT's source, with the INSERT).
-    if (t && clause && !_insert_source) _rows.undo_statement(*t);
+    if (t && (clause || join_locking) && !_insert_source) _rows.undo_statement(*t);
     if (t) end_statement(true);
     throw;
   }

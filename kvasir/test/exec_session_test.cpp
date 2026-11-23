@@ -2247,7 +2247,6 @@ TEST(ExecSessionGroups, Refusals) {
   b.expect_refused("SELECT k FROM v GROUP BY k WITH ROLLUP", 1235, "42000", "This version of Kvasir doesn't yet support 'WITH ROLLUP'");
   b.expect_refused("SELECT GROUP_CONCAT(c) FROM v", 1235, "42000", "This version of Kvasir doesn't yet support 'GROUP_CONCAT'");
   // What joins do not yet carry out.
-  b.expect_refused("SELECT * FROM v JOIN v AS w ON 1 FOR UPDATE", 1235, "42000", "This version of Kvasir doesn't yet support 'locking reads over joins'");
   b.expect_refused("SELECT * FROM v JOIN information_schema.tables ON 1", 1235, "42000",
                    "This version of Kvasir doesn't yet support 'joins over information_schema'");
   run(b.s, "SET SESSION sql_mode = ''");
@@ -2322,12 +2321,62 @@ TEST(ExecSessionJoins, InnerJoins) {
   b.expect_refused("SELECT 1 FROM a AS a JOIN b AS a ON 1", 1066, "42000", "Not unique table/alias: 'a'");
   b.expect_refused("SELECT zz.* FROM a JOIN b ON 1", 1051, "42S02", "Unknown table 'zz'");
   b.expect_refused("SELECT 1 FROM a JOIN nope ON 1", 1146, "42S02", "Table 'pt.nope' doesn't exist");
-  // SERIALIZABLE's shared locks over a join wait for locking reads over joins.
+}
+
+// Locking reads over joins (the manual, "Locking Reads"; errors observed on
+// MySQL 8.4.13): each table under a clause, all of them without OF, has the
+// rows the joined rows WHERE kept locked, and its key range; OF names a
+// table by its alias (3568 else), one clause each (3569, in backquotes when
+// OF named it). SERIALIZABLE reads a join in a transaction as FOR SHARE,
+// grouped or not.
+TEST(ExecSessionJoins, LockingReads) {
+  TableBed b;
+  run(b.s, "CREATE TABLE a (id INT PRIMARY KEY, x VARCHAR(10) NOT NULL)");
+  run(b.s, "CREATE TABLE b (id INT PRIMARY KEY, a_id INT NOT NULL)");
+  run(b.s, "INSERT INTO a VALUES (1,'one'),(2,'two'),(3,'three')");
+  run(b.s, "INSERT INTO b VALUES (10,1),(11,1),(12,3)");
+  auto other = b.other();
+
+  run(b.s, "BEGIN");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a.id, b.id FROM a JOIN b ON a.id = b.a_id WHERE b.id = 10 FOR UPDATE")), (Rows{{"1", "10"}}));
+  EXPECT_THROW(run(other, "UPDATE a SET x = 'uno' WHERE id = 1"), LockWaitNeeded);
+  EXPECT_THROW(run(other, "UPDATE b SET a_id = 2 WHERE id = 10"), LockWaitNeeded);
+  run(other, "UPDATE a SET x = 'dos' WHERE id = 2");
+  run(other, "UPDATE b SET a_id = 3 WHERE id = 11");
+  run(b.s, "COMMIT");
+
+  // OF one table: only its rows.
+  run(b.s, "BEGIN");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT t.x FROM a AS t JOIN b ON t.id = b.a_id WHERE b.id = 12 FOR SHARE OF t")), (Rows{{"three"}}));
+  EXPECT_THROW(run(other, "UPDATE a SET x = 'tres' WHERE id = 3"), LockWaitNeeded);
+  run(other, "UPDATE b SET a_id = 3 WHERE id = 12");
+  run(b.s, "COMMIT");
+
+  // NOWAIT and SKIP LOCKED against a row another transaction holds.
+  run(other, "BEGIN");
+  run(other, "UPDATE b SET a_id = 1 WHERE id = 10");
+  b.expect_refused("SELECT a.id FROM a JOIN b ON a.id = b.a_id FOR UPDATE NOWAIT", 3572, "HY000",
+                   "Statement aborted because lock(s) could not be acquired immediately and NOWAIT is set.");
+  run(b.s, "BEGIN");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT b.id FROM a JOIN b ON a.id = b.a_id ORDER BY b.id FOR UPDATE OF b SKIP LOCKED")), (Rows{{"11"}, {"12"}}));
+  run(b.s, "ROLLBACK");
+  run(other, "ROLLBACK");
+
+  b.expect_refused("SELECT 1 FROM a JOIN b ON 1 FOR UPDATE OF zz", 3568, "HY000", "Unresolved table name `zz` in locking clause.");
+  b.expect_refused("SELECT 1 FROM a JOIN b ON 1 FOR UPDATE OF a FOR SHARE OF a", 3569, "HY000", "Table `a` appears in multiple locking clauses.");
+  b.expect_refused("SELECT 1 FROM a AS t JOIN b ON 1 FOR UPDATE OF a", 3568, "HY000", "Unresolved table name `a` in locking clause.");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT COUNT(*) FROM a JOIN b ON a.id = b.a_id FOR UPDATE OF a FOR SHARE OF b")), (Rows{{"3"}}));
+
+  // SERIALIZABLE: a plain read of a join in a transaction shares its rows'
+  // locks; grouped too.
   run(b.s, "SET transaction_isolation = 'SERIALIZABLE'");
   EXPECT_EQ(rows_of(run(b.s, "SELECT a.id FROM a JOIN b ON a.id = b.a_id WHERE b.id = 12")), (Rows{{"3"}}));
+  run(other, "UPDATE a SET x = 'tres' WHERE id = 3");
   run(b.s, "BEGIN");
-  b.expect_refused("SELECT a.id FROM a JOIN b ON a.id = b.a_id", 1235, "42000", "This version of Kvasir doesn't yet support 'locking reads over joins'");
-  run(b.s, "ROLLBACK");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a.id, COUNT(*) FROM a JOIN b ON a.id = b.a_id WHERE a.id = 3 GROUP BY a.id")), (Rows{{"3", "2"}}));
+  EXPECT_THROW(run(other, "UPDATE a SET x = 'three' WHERE id = 3"), LockWaitNeeded);
+  run(other, "UPDATE a SET x = 'one' WHERE id = 1");
+  run(b.s, "COMMIT");
   run(b.s, "SET transaction_isolation = 'REPEATABLE-READ'");
 }
 

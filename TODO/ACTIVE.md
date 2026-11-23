@@ -29,12 +29,12 @@ it. What landed, and how, is in `TODO/COMPLETED.md`; this file is the plan.
   node's logging and setting names, the commit protocol for one range
   (step 3), Connector/J's metadata against a node (step 1d), the fuzz
   targets on Dannan's harness, a real MySQL client library driving a node
-  in the tests, STRCMP, and fixes. Last gate (node-c, 2026-11-22): release,
-  clang, ASan and TSan each **401 tests, 966 of 966** differential
-  statements; hosted CI green on 8a53e58, coverage 99.3% of lines.
-- **Nothing is running and no claim is held.** Stopped 2026-11-22 15:10Z:
-  what is next needs the reference server, and Docker on the Mac was not
-  running (starting it is the maintainer's to do).
+  in the tests, the SQL writes (INSERT IGNORE, REPLACE, ON DUPLICATE KEY
+  UPDATE, INSERT ... SELECT, locking reads, shared and range locks),
+  SERIALIZABLE, folded row versions, and joins (inner, outer, USING,
+  NATURAL, grouped, locking). Last gate (node-c, 2026-11-23): release,
+  ASan and TSan each **425 tests, 1224 of 1224** differential statements;
+  hosted CI green, coverage 99.2% of lines.
 
 ## Rulings in force
 
@@ -157,7 +157,8 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    the gate, each ACID as every statement is (a REPLACE's delete and insert,
    an upsert's read and write, one statement's whole effect or none).
 1b. **Joins** (the maintainer's choice, 2026-11-23), each stage on its own
-   branch, gated and merged:
+   branch, gated and merged. J1 to J5 landed 2026-11-23 (see COMPLETED);
+   left: multi-table UPDATE and DELETE.
    - J1, the parser: JOIN, INNER JOIN, CROSS JOIN, STRAIGHT_JOIN, LEFT and
      RIGHT [OUTER] JOIN, NATURAL [LEFT | RIGHT] JOIN, ON, USING, comma
      lists and parentheses, as a tree (a comma binds looser than JOIN, so
@@ -177,10 +178,11 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    - J5, locking reads and SERIALIZABLE over joins: each table's rows locked
      by its own clause (OF names a table or alias).
    - Later: multi-table UPDATE and DELETE.
-   Observed on MySQL 8.4.13 (2026-11-23, the probes in this session): the
-   rows above; a temporary table (sorting on a table the plan does not read
-   first, grouping, DISTINCT) drops key flags; with no ORDER BY the order is
-   the plan's.
+   Observed on MySQL 8.4.13 (2026-11-23): a temporary table drops key
+   flags, and a join goes through one when sorted other than by the plan's
+   first table with each later table found through an index, when grouped
+   other than off such an index, or under DISTINCT; with no ORDER BY the
+   order is the plan's (see the known differences).
 2. **Step 2b: each node's state in Dagda**, in the cluster's shape. Waits on
    Dagda's durable AcceptorStore (after its 0.4.0, which carries the
    register map; 0.4.0 waits on the maintainer's word to tag). Dagda's

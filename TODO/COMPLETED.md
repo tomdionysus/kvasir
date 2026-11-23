@@ -1238,3 +1238,11 @@ The record, newest first. Each entry says what landed, with its gate counts.
   later table is found through an index. CI green on J3 (ef1747a).
 - Gate (node-c): release, ASan and TSan each **424 tests, 1218 of 1218**
   statements, TSan with no reports.
+- Joins, J5: locking reads over joins, plain and grouped (each table under
+  its clause read as a locking read, the rows WHERE kept locked and its
+  key range; OF by alias, 3568, 3569 in backquotes when OF named it);
+  SERIALIZABLE and INSERT ... SELECT over joins share locks. Red first: 6
+  of the new gate statements failed on the old code. CI green on J4
+  (1bd90fd). Joins J1 to J5 done; multi-table UPDATE and DELETE left.
+- Gate (node-c): release, ASan and TSan each **425 tests, 1224 of 1224**
+  statements, TSan with no reports.
