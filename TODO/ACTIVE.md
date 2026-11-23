@@ -405,14 +405,12 @@ Each to be closed, or kept by a decision.
   transactions end within a deadline, then closes sessions; after startup
   it pushes a "kvasir.ranges" check (not_ready while a range has not caught
   up, degraded while a replica set is short).
-- **Manannan** (the maintainer's ruling, relayed 2026-11-23): the cluster's
-  DNS is Manannan's, Dannan's DNS responder (stack item 25) dropped, and a
-  founding seed stays HOST:PORT. Kvasir's needs sent to Manannan the same
-  day: one service name for MySQL clients (A/AAAA and _mysql._tcp SRV) over
-  every node that serves them, following health (in while ready or
-  degraded, out while draining or not_ready), short TTLs, and per-node
-  names its certificates can carry. Asked back: how a hosted system
-  registers, and the name scheme. Wanted from Kvasir's distribution stage.
+- **DNS** (the maintainer, relayed 2026-11-23): no project depends on
+  Manannan, or on any cluster DNS. Kvasir resolves names with the system's
+  resolver (or a resolver in Dannan, should that ever be simpler). Dannan's
+  DNS responder (stack item 25) is dropped, and a founding seed stays
+  HOST:PORT. What Kvasir had sent Manannan as needs was withdrawn the same
+  day; how clients find a node is the operator's own DNS.
 - **Dannan**: the node-program helper (its item 14, 0.12.0; drawn at its
   TODO/2026-11-23-node-program.md, 61c292d), confirmed by Kvasir
   2026-11-23. kvasir-node moves onto it when Kvasir joins the cluster, not
