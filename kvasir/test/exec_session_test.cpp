@@ -727,6 +727,9 @@ TEST(ExecSession, TheClock) {
   EXPECT_EQ(row(run(s, "SELECT LOCALTIMESTAMP, LOCALTIME(), CURRENT_TIME"))[0], "2024-02-28 23:34:56");
   clock.ms += 1000;
   EXPECT_EQ(row(run(s, "SELECT NOW() + 0"))[0], "20240228233457");
+  // A TIME read as a date takes the statement's date, in the session's zone.
+  EXPECT_EQ(row(run(s, "SELECT YEAR(TIME '10:00:00'), DATE(TIME '25:00:00'), DAYOFMONTH(TIME '-01:00:00')")),
+            (std::vector<std::string>{"2024", "2024-02-29", "27"}));
   EXPECT_EQ(refusal(s, "SELECT NOW(7)").message, "Too-big precision 7 specified for 'now'. Maximum is 6.");
   EXPECT_EQ(refusal(s, "SELECT CURTIME(9)").message, "Too-big precision 9 specified for 'curtime'. Maximum is 6.");
   EXPECT_EQ(refusal(s, "SELECT CURDATE(1)").code, 1582);

@@ -62,6 +62,7 @@ add_library(kvasir ${kvasir_library_type}
   exec/cast.cpp
   exec/casing.cpp
   exec/collation.cpp
+  exec/date_functions.cpp
   exec/ddl.cpp
   exec/like.cpp
   exec/decimal.cpp

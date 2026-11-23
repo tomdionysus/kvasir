@@ -212,8 +212,8 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
      temporal columns of binary result rows (what Connector/J and
      Connector/C++ prepared statements send and read).
 2. **Step 2b: each node's state in Dagda**, in the cluster's shape. Waits on
-   Dagda's durable AcceptorStore (after its 0.4.0, which carries the
-   register map; 0.4.0 waits on the maintainer's word to tag). Dagda's
+   Dagda's durable AcceptorStore, which is not in its 0.4.0 (tagged
+   2026-11-23, 94a1b60, carrying the register map). Dagda's
    answer (2026-11-20), the shape to build:
    - pin Dagda exactly, fetched as Dannan is; use `dagda::Context` from a
      `dagda::Node` over Kvasir's Dannan node, never LocalStore;
@@ -238,9 +238,9 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    query on other nodes; the Lugh plugin; a change feed.
 
 Waiting on nothing, to take when the above is blocked:
-- Dannan's pin to its latest 0.10.x patch (0.10.2, tag f36d697; none of
-  0.10.1's or 0.10.2's changes reaches Kvasir), at the next release gate.
-- SQL: joins, subqueries, unions;
+- Dannan's pin to 0.11.1 (the pin target, relayed 2026-11-23; Dagda 0.4.0
+  is built on it), at the next release gate.
+- SQL: subqueries, unions;
   utf8mb4_unicode_ci and other character sets; temporal types.
 - Differences recorded, to probe and build: a character past U+FFFF in a
   name (MySQL turns it into `?`, warnings 1300 and 3854); an intermediate
@@ -374,19 +374,30 @@ Each to be closed, or kept by a decision.
   node_config(settings), in dannan/config/node_settings.h. Kvasir's own
   listen.* (its MySQL listener) does not collide; Dannan's note names
   mysql.* as the form for a project's own listener, to consider at the
-  cluster step. kvasir-node has no copy of the reader. On Dannan's develop
-  since 2026-11-22; 0.11.0 also adds Fault::cancelled after failed (Kvasir
+  cluster step. kvasir-node has no copy of the reader. Released: Dannan
+  0.11.0 and 0.11.1 are tagged (relayed by the coordinating session,
+  2026-11-23); 0.11.0 also adds Fault::cancelled after failed (Kvasir
   switches over no Fault yet).
-- **Dannan**: Kvasir is on 0.10.0. Its atomic commit across replica sets
-  (item 26) is for 0.12.0, design first. Its HTTP core (item 24) and the
+- **Dannan**: Kvasir is on 0.10.0; its pin target is 0.11.1. Its atomic
+  commit across replica sets (item 26) is planned for the minor after
+  0.12.0, design first (relayed 2026-11-23). Its HTTP core (item 24) and the
   credential and node helpers come in later minors. Kvasir's commitments
   to its agreement: one name per change; changes repeatable by commit id;
   a range's value kept under `max_value` (256 MiB) by splitting; a crashed
   acceptor that answers from memory restarts not ready and catches up
   before voting.
-- **Dagda**: 0.4.0 (register map) awaits its tag; the durable AcceptorStore
-  follows in a 0.4.x or 0.5.0 on Dannan 0.10.x, and Dagda will send its
-  design and date. Dagda's objects offer no `decided`.
+- **Dannan**: readiness and health (its item 7, 0.12.0; drawn at its
+  TODO/2026-11-23-readiness-health.md, f8c9242), confirmed by Kvasir
+  2026-11-23: kvasir-node refuses new clients while health() is not_ready
+  (incomplete startup included), not while degraded; on draining it stops
+  taking connections, moves proposer stickiness away, lets open
+  transactions end within a deadline, then closes sessions; after startup
+  it pushes a "kvasir.ranges" check (not_ready while a range has not caught
+  up, degraded while a replica set is short).
+- **Dagda**: 0.4.0 (register map) is tagged (2026-11-23, 94a1b60), built on
+  Dannan 0.11.1. The durable AcceptorStore step 2b waits on is not in it;
+  the coordinating session has asked Dagda to put it first (relayed
+  2026-11-23). Dagda's objects offer no `decided`.
 - **Mimir**: shares the level names; co-proposed the cross-range commit
   that Dannan now owns.
 - **Lugh**: @lugh/admin-ui (Lugh's develop 05ebbaf, out in its next tag) is
@@ -417,7 +428,6 @@ Each to be closed, or kept by a decision.
 ## Waiting on the maintainer
 
 Nothing blocks Kvasir's next item. Open, none blocking:
-- Dagda 0.4.0's tag (Dagda's to put to him).
 - Two figures Kvasir gave Dannan as proposals: a range splits at about
   64 MiB of folded data; a range is unavailable to writes for at most
   about 1 s while it moves.

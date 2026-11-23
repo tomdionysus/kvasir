@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+#include "kvasir/exec/temporal.h"
 #include "kvasir/exec/value.h"
 #include "kvasir/sql/ast.h"
 
@@ -241,6 +242,11 @@ class Evaluator {
   // not one of them; and their value from the statement's time.
   std::optional<ResultType> time_function(const sql::Expr& e) const;
   Value time_function_value(const sql::Expr& e);
+  // The date and time functions over a value (date_functions.cpp): YEAR,
+  // MONTH, DAY and their kin, DATE(), TIME(), LAST_DAY, DATEDIFF, TO_DAYS,
+  // DAYNAME, MONTHNAME; nothing for a name that is not one of them.
+  std::optional<ResultType> date_function(const sql::Expr& e) const;
+  Value date_function_value(const sql::Expr& e);
   // Two values one of which is temporal (cast.cpp): as moments when both
   // are DATEs and DATETIMEs or both TIMEs; a DATE or DATETIME beside a
   // string with the string read as one (1525 when it cannot be); a TIME
@@ -286,6 +292,9 @@ ResultType column_as_expression(const ResultType& column);
 
 // A DATE, TIME or DATETIME type (cast.cpp).
 bool is_temporal_type(const ResultType& t);
+// Which a temporal type is; and such a result as MySQL reports it.
+temporal::Kind temporal_kind_of(const ResultType& t);
+ResultType temporal_result_type(temporal::Kind kind, int fsp, bool not_null);
 // A number's text as a date or time reads it: [-]digits[.digits], a DOUBLE
 // to 6 places, a hex or bit literal as its bytes' integer.
 std::string number_text(const Value& v);

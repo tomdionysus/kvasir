@@ -219,6 +219,10 @@ std::string number_text(const Value& v) {
   return std::to_string(out);
 }
 
+temporal::Kind temporal_kind_of(const ResultType& t) { return kind_of(t); }
+
+ResultType temporal_result_type(temporal::Kind kind, int fsp, bool not_null) { return temporal_type(kind, fsp, not_null); }
+
 bool is_temporal_type(const ResultType& t) {
   return t.field_type == f::date || t.field_type == f::time || t.field_type == f::datetime || t.field_type == f::timestamp;
 }

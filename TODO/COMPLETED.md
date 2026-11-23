@@ -1307,3 +1307,13 @@ The record, newest first. Each entry says what landed, with its gate counts.
   old code. CI green on T2b (7479898).
 - Gate (node-c): release, ASan and TSan each **435 tests, 1390 of 1390**
   statements, TSan with no reports; coverage 99.3% of lines.
+- Temporal types, T4a: YEAR, MONTH, DAY, DAYOFMONTH, DAYOFWEEK, WEEKDAY,
+  DAYOFYEAR, QUARTER, TO_DAYS, DATEDIFF, DAYNAME, MONTHNAME, LAST_DAY,
+  DATE, HOUR, MINUTE, SECOND, MICROSECOND and TIME, typed and answered as
+  MySQL does. A stop from the maintainer (relayed, 2026-11-23) cut the
+  first sanitizer run; rerun once lifted. CI green on T3 (3514239).
+  Recorded besides: the coordinator's corrections (Dagda 0.4.0 tagged on
+  Dannan 0.11.1, pin target 0.11.1), Kvasir's confirmation of Dannan's
+  readiness and health shape, and INTERVAL arithmetic observed for T4b.
+- Gate (node-c): release, ASan and TSan each **435 tests, 1398 of 1398**
+  statements, TSan with no reports; coverage 99.3% of lines.

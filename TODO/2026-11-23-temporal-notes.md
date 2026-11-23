@@ -110,6 +110,27 @@ module is written to. Each goes into the differential gate as it is built.
 - `DEFAULT (CURRENT_DATE)` (an expression default) is MySQL 8's
   generated default: COLUMN_DEFAULT curdate(), EXTRA DEFAULT_GENERATED.
 
+## INTERVAL arithmetic (T4b)
+
+- DATE_ADD, DATE_SUB, ADDDATE, SUBDATE, `+ INTERVAL`, `- INTERVAL`,
+  `INTERVAL n unit + d`, TIMESTAMPADD: the result's type follows the
+  operand and the unit: a DATE with a day unit or longer is a DATE; a DATE
+  with a time unit, or a DATETIME, is a DATETIME; a TIME with a time unit
+  is a TIME; a string operand gives STRING (field type 254),
+  utf8mb4_0900_ai_ci, length 116, decimals 31, nullable, its text a date
+  ('2024-02-01') or a datetime ('2024-01-01 11:30:00') as the sum is, with
+  6 fraction digits once it has a fraction ('2024-01-01 00:00:01.500000').
+- Months clamp the day: '2024-01-31' + 1 MONTH is 2024-02-29; 2024-02-29 +
+  1 YEAR is 2025-02-28. ADDDATE(d, n) adds n days. 1.5 DAY rounds to 2.
+  Compound units read their string: '1:30' HOUR_MINUTE is 1h30m.
+- NULL in, NULL out; 'abc' is NULL with 1292 "Incorrect datetime value:
+  'abc'"; past 9999-12-31 NULL with 1441 "Datetime function: datetime
+  field overflow".
+- TIMESTAMPDIFF: LONGLONG length 21; MONTH between 2024-01-31 and
+  2024-02-29 is 0 (whole months only); SECOND over a day 86400.
+- EXTRACT: YEAR_MONTH of 2024-02-29 is 202402 (LONGLONG length 7); HOUR of
+  TIME '838:00:00' 838 (length 4).
+
 ## The clock
 
 - NOW() and its kin take the statement's time from an injected wall clock:
