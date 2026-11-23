@@ -863,6 +863,29 @@ TEST(SqlParser, Casts) {
   EXPECT_EQ(error_at("SELECT CAST(1, SIGNED)"), 13u);
 }
 
+// Date arithmetic (the manual's "Temporal Intervals"): + INTERVAL, -
+// INTERVAL, INTERVAL ... + d, ADDDATE and SUBDATE (with an interval or a
+// number of days), TIMESTAMPADD as DATE_ADD and DATE_SUB, the unit as
+// `scope`; TIMESTAMPDIFF and EXTRACT; a unit MySQL does not have is a syntax
+// error at it, and TIMESTAMPADD takes only the simple ones (and SQL_TSI_).
+TEST(SqlParser, Intervals) {
+  EXPECT_EQ(expr("d + INTERVAL 1 DAY"), "(DATE_ADD DAY d 1)");
+  EXPECT_EQ(expr("d - INTERVAL '1:2' HOUR_MINUTE + 1"), "(+ (DATE_SUB HOUR_MINUTE d '1:2') 1)");
+  EXPECT_EQ(expr("INTERVAL 1 + 1 MONTH + d"), "(DATE_ADD MONTH d (+ 1 1))");
+  EXPECT_EQ(expr("DATE_ADD(d, INTERVAL 2 YEAR_MONTH)"), "(DATE_ADD YEAR_MONTH d 2)");
+  EXPECT_EQ(expr("SUBDATE(d, INTERVAL 1 week)"), "(DATE_SUB WEEK d 1)");
+  EXPECT_EQ(expr("ADDDATE(d, 3)"), "(DATE_ADD DAY d 3)");
+  EXPECT_EQ(expr("TIMESTAMPADD(SQL_TSI_HOUR, 2, d)"), "(DATE_ADD HOUR d 2)");
+  EXPECT_EQ(expr("TIMESTAMPDIFF(MONTH, a, b)"), "(TIMESTAMPDIFF MONTH a b)");
+  EXPECT_EQ(expr("EXTRACT(DAY_MICROSECOND FROM d)"), "(EXTRACT DAY_MICROSECOND d)");
+  // INTERVAL( is the function INTERVAL(n, ...).
+  EXPECT_EQ(expr("INTERVAL(1, 2)"), "(INTERVAL 1 2)");
+  EXPECT_EQ(error_at("SELECT d + INTERVAL 1 DAYS"), 22u);
+  EXPECT_EQ(error_at("SELECT DATE_ADD(d, 1)"), 19u);
+  EXPECT_EQ(error_at("SELECT TIMESTAMPADD(DAY_HOUR, 1, d)"), 20u);
+  EXPECT_EQ(error_at("SELECT INTERVAL 1 DAY - d"), 22u);
+}
+
 // The multiple-table forms (the manual's UPDATE and DELETE statements):
 // UPDATE over table references; DELETE targets FROM references and DELETE
 // FROM targets USING references, a target `name` or `name.*`, with WHERE

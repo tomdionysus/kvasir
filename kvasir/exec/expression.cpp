@@ -419,6 +419,7 @@ ResultType Evaluator::type(const Expr& e) const {
       if (e.value == "CAST" || e.value == "TEMPORAL") return cast_type(e);
       if (const auto t = time_function(e)) return *t;
       if (const auto t = date_function(e)) return *t;
+      if (const auto t = interval_function(e)) return *t;
       if (is_aggregate(e)) {
         if (_settings.aggregates)
           if (const auto t = _settings.aggregates->aggregate_type(e)) return *t;
@@ -1013,6 +1014,7 @@ Value Evaluator::value(const Expr& e) {
       if (e.value == "CAST" || e.value == "TEMPORAL") return cast_value(e);
       if (time_function(e)) return time_function_value(e);
       if (date_function(e)) return date_function_value(e);
+      if (interval_function(e)) return interval_function_value(e);
       if (is_flow_control(e)) return flow_value(e);
       if (string_function(e)) return string_function_value(e);
       if (number_function(e)) return number_function_value(e);

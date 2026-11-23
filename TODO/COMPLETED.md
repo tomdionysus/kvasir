@@ -1317,3 +1317,13 @@ The record, newest first. Each entry says what landed, with its gate counts.
   readiness and health shape, and INTERVAL arithmetic observed for T4b.
 - Gate (node-c): release, ASan and TSan each **435 tests, 1398 of 1398**
   statements, TSan with no reports; coverage 99.3% of lines.
+- Temporal types, T4b: DATE_ADD and DATE_SUB (with ADDDATE, SUBDATE,
+  TIMESTAMPADD, + INTERVAL, - INTERVAL and INTERVAL ... + d) over every
+  interval unit, TIMESTAMPDIFF and EXTRACT, typed and answered as MySQL
+  8.4.13 does (observed facts in TODO/2026-11-23-temporal-notes.md). Its
+  tests were written from the MySQL recordings after the code, not watched
+  failing first. Recorded besides: the no-preferred-node rule, the
+  confirmation of Dannan's node-program helper, and Kvasir's DNS needs sent
+  to Manannan.
+- Gate (node-c): release, ASan and TSan each **437 tests, 1419 of 1419**
+  statements, TSan with no reports; coverage 99.3% of lines.

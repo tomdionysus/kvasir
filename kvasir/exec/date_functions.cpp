@@ -66,13 +66,7 @@ const DateFunction* named(const std::string& name) {
 }
 
 // Days since 1970-01-01 of a date.
-int64_t days_of(const Moment& m) {
-  Moment day = m;
-  day.hour = day.minute = day.second = day.micro = 0;
-  day.negative = false;
-  const int64_t us = temporal::to_unix_us(day);
-  return us >= 0 ? us / day_us : -((-us + day_us - 1) / day_us);
-}
+int64_t days_of(const Moment& m) { return temporal::day_number(m) - days_to_epoch; }
 
 // The fraction digits a TIME() result keeps: its argument's own, a string
 // constant's written digits (observed: TIME('...56.5') has 1).
@@ -125,61 +119,71 @@ std::optional<ResultType> Evaluator::date_function(const Expr& e) const {
   return std::nullopt;
 }
 
+std::optional<Moment> Evaluator::datetime_argument(const Expr& arg, bool* has_time) {
+  const auto at = type(arg);
+  const auto v = value(arg);
+  if (has_time) *has_time = true;
+  if (is_null(v)) return std::nullopt;
+  const auto* s = std::get_if<std::string>(&v);
+  std::optional<Moment> m;
+  if (s && is_temporal_type(at)) {
+    const auto kind = temporal_kind_of(at);
+    m = temporal::parse_text(*s, kind);
+    if (has_time) *has_time = kind != Kind::date;
+    if (kind == Kind::time) {
+      // The statement's date, which a TIME takes to be a date (observed:
+      // YEAR of a TIME is this year).
+      auto today = temporal::from_unix_us(_settings.statement_us + static_cast<int64_t>(_settings.zone_seconds) * 1000000);
+      today.hour = today.minute = today.second = today.micro = 0;
+      const int64_t into = (static_cast<int64_t>(m->hour) * 3600 + m->minute * 60 + m->second) * 1000000 + m->micro;
+      m = temporal::from_unix_us(temporal::to_unix_us(today) + (m->negative ? -into : into));
+    }
+  } else if (s && !at.number_string) {
+    const auto read = temporal::read_datetime(*s, 6);
+    m = read.moment;
+    if (has_time) *has_time = read.has_time;
+  } else {
+    const auto n = number_text(v);
+    m = temporal::from_number(n, Kind::datetime, 6);
+    if (has_time) *has_time = n.substr(0, n.find('.')).size() > 8;
+  }
+  if (!m) _warnings.push_back({"Warning", er_truncated_wrong_value, "Incorrect datetime value: '" + to_text(v, at).value_or("") + "'"});
+  return m;
+}
+
+std::optional<Moment> Evaluator::time_argument(const Expr& arg, bool keep_date) {
+  const auto at = type(arg);
+  const auto v = value(arg);
+  if (is_null(v)) return std::nullopt;
+  const auto* s = std::get_if<std::string>(&v);
+  std::optional<Moment> m;
+  if (s && is_temporal_type(at)) {
+    const auto kind = temporal_kind_of(at);
+    // A temporal value's time alone, its day dropped whatever `keep_date`
+    // (observed: EXTRACT(DAY_HOUR FROM DATE '2024-02-29') is 0).
+    m = kind == Kind::date ? Moment{} : temporal::parse_text(*s, kind);
+    m->year = m->month = m->day = 0;
+  } else if (s && !at.number_string) {
+    // A date and time read whole (observed: EXTRACT(DAY_HOUR FROM
+    // '2024-02-29 10:00') is 2910).
+    const auto whole = keep_date ? temporal::read_datetime(*s, 6) : temporal::Read{};
+    if (whole.moment && whole.has_time) return whole.moment;
+    const auto read = temporal::read_time(*s, 6);
+    m = read.moment;
+    if (read.clamped) _warnings.push_back({"Warning", er_truncated_wrong_value, "Truncated incorrect time value: '" + *s + "'"});
+  } else {
+    m = temporal::from_number(number_text(v), Kind::time, 6);
+  }
+  if (!m) _warnings.push_back({"Warning", er_truncated_wrong_value, "Truncated incorrect time value: '" + to_text(v, at).value_or("") + "'"});
+  if (m && !keep_date) m->year = m->month = m->day = 0;
+  return m;
+}
+
 Value Evaluator::date_function_value(const Expr& e) {
   const auto t = *date_function(e);
   const auto* fn = named(e.value);
-  // The statement's date, which a TIME takes to be a date (observed: YEAR
-  // of a TIME is this year).
-  const auto today = [&] {
-    auto m = temporal::from_unix_us(_settings.statement_us + static_cast<int64_t>(_settings.zone_seconds) * 1000000);
-    m.hour = m.minute = m.second = m.micro = 0;
-    return m;
-  };
-  // An argument as a date and time, or nothing (NULL, with 1292 for a value
-  // that is no date).
-  const auto as_datetime = [&](const Expr& arg) -> std::optional<Moment> {
-    const auto at = type(arg);
-    const auto v = value(arg);
-    if (is_null(v)) return std::nullopt;
-    const auto* s = std::get_if<std::string>(&v);
-    std::optional<Moment> m;
-    if (s && is_temporal_type(at)) {
-      const auto kind = temporal_kind_of(at);
-      m = temporal::parse_text(*s, kind);
-      if (kind == Kind::time) {
-        const int64_t into = (static_cast<int64_t>(m->hour) * 3600 + m->minute * 60 + m->second) * 1000000 + m->micro;
-        m = temporal::from_unix_us(temporal::to_unix_us(today()) + (m->negative ? -into : into));
-      }
-    } else if (s && !at.number_string) {
-      const auto read = temporal::read_datetime(*s, 6);
-      m = read.moment;
-    } else {
-      m = temporal::from_number(number_text(v), Kind::datetime, 6);
-    }
-    if (!m) _warnings.push_back({"Warning", er_truncated_wrong_value, "Incorrect datetime value: '" + to_text(v, at).value_or("") + "'"});
-    return m;
-  };
-  // An argument as a time, or nothing.
-  const auto as_time = [&](const Expr& arg) -> std::optional<Moment> {
-    const auto at = type(arg);
-    const auto v = value(arg);
-    if (is_null(v)) return std::nullopt;
-    const auto* s = std::get_if<std::string>(&v);
-    std::optional<Moment> m;
-    if (s && is_temporal_type(at)) {
-      const auto kind = temporal_kind_of(at);
-      m = kind == Kind::date ? Moment{} : temporal::parse_text(*s, kind);
-    } else if (s && !at.number_string) {
-      const auto read = temporal::read_time(*s, 6);
-      m = read.moment;
-      if (read.clamped) _warnings.push_back({"Warning", er_truncated_wrong_value, "Truncated incorrect time value: '" + *s + "'"});
-    } else {
-      m = temporal::from_number(number_text(v), Kind::time, 6);
-    }
-    if (!m) _warnings.push_back({"Warning", er_truncated_wrong_value, "Truncated incorrect time value: '" + to_text(v, at).value_or("") + "'"});
-    if (m) m->year = m->month = m->day = 0;
-    return m;
-  };
+  const auto as_datetime = [&](const Expr& arg) { return datetime_argument(arg); };
+  const auto as_time = [&](const Expr& arg) { return time_argument(arg); };
   if (fn->reads == Reads::time) {
     const auto m = as_time(*e.args[0]);
     if (!m) return {};

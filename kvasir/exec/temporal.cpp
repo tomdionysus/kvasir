@@ -13,19 +13,22 @@
 
 namespace kvasir::exec::temporal {
 
-namespace {
-
-// TIME's limit: 838:59:59.
-constexpr uint32_t max_hours = 838;
-
-bool digit(char ch) { return std::isdigit(static_cast<unsigned char>(ch)) != 0; }
-bool space(char ch) { return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'; }
-
 uint32_t days_in_month(uint32_t year, uint32_t month) {
   static constexpr uint32_t days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
   const bool leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
   return month == 2 && leap ? 29 : days[month - 1];
 }
+
+namespace {
+
+// TIME's limit: 838:59:59.
+constexpr uint32_t max_hours = 838;
+constexpr int64_t day_us = 86400LL * 1000000;
+// TO_DAYS of 1970-01-01.
+constexpr int64_t days_to_epoch = 719528;
+
+bool digit(char ch) { return std::isdigit(static_cast<unsigned char>(ch)) != 0; }
+bool space(char ch) { return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'; }
 
 // A two-digit year as MySQL reads it: 70-99 the 1900s, 00-69 the 2000s.
 uint32_t full_year(uint32_t year) { return year < 70 ? 2000 + year : 1900 + year; }
@@ -119,6 +122,7 @@ Read read_datetime(std::string_view s, int fsp) {
     m.month = number(d.substr(y, 2));
     m.day = number(d.substr(y + 2, 2));
     if (length >= 12) {
+      out.has_time = true;
       m.hour = number(d.substr(y + 4, 2));
       m.minute = number(d.substr(y + 6, 2));
       m.second = number(d.substr(y + 8, 2));
@@ -152,6 +156,7 @@ Read read_datetime(std::string_view s, int fsp) {
       ++i;
     }
     if (count < 3) return out;
+    out.has_time = count > 3;
     m.year = year_digits <= 2 ? full_year(fields[0]) : fields[0];
     m.month = fields[1];
     m.day = fields[2];
@@ -503,6 +508,16 @@ int64_t to_unix_us(const Moment& m) {
   const int64_t days = era * 146097 + doe - 719468;
   const int64_t seconds = days * 86400 + static_cast<int64_t>(m.hour) * 3600 + m.minute * 60 + m.second;
   return seconds * 1000000 + m.micro;
+}
+
+int64_t day_number(const Moment& m) {
+  Moment day{false, m.year, m.month, m.day, 0, 0, 0, 0};
+  return to_unix_us(day) / day_us + days_to_epoch;
+}
+
+Moment from_day_number(int64_t day) {
+  if (day <= 365) return Moment{};
+  return from_unix_us((day - days_to_epoch) * day_us);
 }
 
 std::string shifted(std::string_view datetime, int fsp, int64_t seconds) {

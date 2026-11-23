@@ -44,6 +44,8 @@ struct Read {
   bool truncated = false;
   // A TIME past 838:59:59, clamped to it (1292).
   bool clamped = false;
+  // A date read with a time after it (a DATETIME, not a DATE).
+  bool has_time = false;
   // Positions of delimiters MySQL calls superfluous (4096): a space before
   // or after the value.
   std::vector<size_t> superfluous;
@@ -92,6 +94,14 @@ std::string number_text(const Moment& m, Kind kind, int fsp);
 // back.
 Moment from_unix_us(int64_t us);
 int64_t to_unix_us(const Moment& m);
+
+// A date's day number, as TO_DAYS counts (0001-01-01 is 366); and the date
+// of a day number, MySQL's zero date for 365 and under.
+int64_t day_number(const Moment& m);
+Moment from_day_number(int64_t day);
+
+// The days in a month of a year.
+uint32_t days_in_month(uint32_t year, uint32_t month);
 
 // A DATETIME's text moved by `seconds` (a TIMESTAMP between UTC and a
 // session's zone).

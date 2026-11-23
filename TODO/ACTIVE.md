@@ -204,10 +204,13 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    - T3, TIMESTAMP's time zone: stored in UTC, shown in the session's
      time_zone (SYSTEM and offsets; named zones refused until zone data
      exists).
-   - T4, the date and time functions: DATE_FORMAT, STR_TO_DATE, DATE_ADD
-     and DATE_SUB with INTERVAL, DATEDIFF, TIMESTAMPDIFF, TIMESTAMPADD,
-     EXTRACT, YEAR, MONTH, DAY and the rest, UNIX_TIMESTAMP, FROM_UNIXTIME,
-     LAST_DAY, DAYNAME, WEEK and its kin.
+   - T4, the date and time functions. Done: T4a, the part functions (YEAR,
+     MONTH, DAY and the rest, DATEDIFF, LAST_DAY, DAYNAME); T4b, INTERVAL
+     arithmetic (DATE_ADD, DATE_SUB, ADDDATE, SUBDATE, TIMESTAMPADD, +
+     INTERVAL), TIMESTAMPDIFF and EXTRACT. Left, T4c: DATE_FORMAT,
+     STR_TO_DATE, UNIX_TIMESTAMP, FROM_UNIXTIME, WEEK() and its kin
+     (YEARWEEK, WEEKOFYEAR, with modes), ADDTIME, SUBTIME, TIMEDIFF,
+     MAKEDATE, MAKETIME, SEC_TO_TIME, TIME_TO_SEC.
    - T5, the binary protocol: temporal parameters of COM_STMT_EXECUTE and
      temporal columns of binary result rows (what Connector/J and
      Connector/C++ prepared statements send and read).
@@ -331,6 +334,14 @@ Each to be closed, or kept by a decision.
   tree in `/root/kvasir-work/kvasir` with build-ci/{release,clang,asan,
   tsan}; node-d (4 GB) has clang-format and a tree; node-a a coverage tree.
   Which node is which, and their addresses, are in `CLAUDE.local.md`.
+- No preferred node (the maintainer's rule, relayed 2026-11-23): a job
+  takes whichever node has the cores free now, never waiting for one
+  because it holds a warm tree. Send the tree there and build from scratch;
+  a missing tool or -dev package is installed there (1 core, `nice -n 19
+  apt-get install -y <pkg>`, then a board note naming it and the node).
+  Wait only when no node has the cores, naming them all (`claim-board wait
+  --any`). The one exception is a job that must run on one node (a service
+  living there), said so in the claim's job text; never ASan on node-d.
 - Send sources with `rsync -a --exclude .git --exclude 'build/' --exclude
   'build-ci/' --exclude 'build-deb/' --exclude CLAUDE.local.md --exclude
   basemind.toml`, then touch the changed files on the node (the clocks
@@ -394,6 +405,14 @@ Each to be closed, or kept by a decision.
   transactions end within a deadline, then closes sessions; after startup
   it pushes a "kvasir.ranges" check (not_ready while a range has not caught
   up, degraded while a replica set is short).
+- **Manannan** (the maintainer's ruling, relayed 2026-11-23): the cluster's
+  DNS is Manannan's, Dannan's DNS responder (stack item 25) dropped, and a
+  founding seed stays HOST:PORT. Kvasir's needs sent to Manannan the same
+  day: one service name for MySQL clients (A/AAAA and _mysql._tcp SRV) over
+  every node that serves them, following health (in while ready or
+  degraded, out while draining or not_ready), short TTLs, and per-node
+  names its certificates can carry. Asked back: how a hosted system
+  registers, and the name scheme. Wanted from Kvasir's distribution stage.
 - **Dannan**: the node-program helper (its item 14, 0.12.0; drawn at its
   TODO/2026-11-23-node-program.md, 61c292d), confirmed by Kvasir
   2026-11-23. kvasir-node moves onto it when Kvasir joins the cluster, not

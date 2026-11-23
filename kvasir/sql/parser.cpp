@@ -1483,9 +1483,62 @@ class Parser {
     auto left = multiplicative();
     while (symbol("+") || symbol("-")) {
       auto op = take().value;
+      // d + INTERVAL n unit and d - INTERVAL n unit are DATE_ADD and DATE_SUB.
+      if (interval_ahead()) {
+        auto e = node(ExprKind::call, left->offset, op == "+" ? "DATE_ADD" : "DATE_SUB");
+        e->args.push_back(std::move(left));
+        interval(*e);
+        left = std::move(e);
+        continue;
+      }
       left = binary(op, std::move(left), multiplicative());
     }
     return left;
+  }
+
+  // INTERVAL not followed by '(' (which is the function INTERVAL(n, ...)).
+  bool interval_ahead() { return word("INTERVAL") && !symbol("(", 1); }
+
+  // The units of the manual's "Temporal Intervals".
+  static constexpr std::array<std::string_view, 20> interval_units = {"MICROSECOND",
+                                                                      "SECOND",
+                                                                      "MINUTE",
+                                                                      "HOUR",
+                                                                      "DAY",
+                                                                      "WEEK",
+                                                                      "MONTH",
+                                                                      "QUARTER",
+                                                                      "YEAR",
+                                                                      "SECOND_MICROSECOND",
+                                                                      "MINUTE_MICROSECOND",
+                                                                      "MINUTE_SECOND",
+                                                                      "HOUR_MICROSECOND",
+                                                                      "HOUR_SECOND",
+                                                                      "HOUR_MINUTE",
+                                                                      "DAY_MICROSECOND",
+                                                                      "DAY_SECOND",
+                                                                      "DAY_MINUTE",
+                                                                      "DAY_HOUR",
+                                                                      "YEAR_MONTH"};
+
+  // A unit; `simple` allows only the first nine, and their SQL_TSI_ names
+  // (TIMESTAMPADD and TIMESTAMPDIFF).
+  std::string interval_unit(bool simple) {
+    if (peek().kind != TokenKind::word) fail(peek());
+    auto unit = upper(peek().value);
+    if (simple && unit.starts_with("SQL_TSI_")) unit = unit.substr(8);
+    const auto end = simple ? interval_units.begin() + 9 : interval_units.end();
+    if (std::find(interval_units.begin(), end, unit) == end) fail(peek());
+    take();
+    return unit;
+  }
+
+  // INTERVAL expr unit: the amount appended to `call`'s arguments, the unit
+  // its `scope`.
+  void interval(Expr& call) {
+    expect_word("INTERVAL");
+    call.args.push_back(expression());
+    call.scope = interval_unit(false);
   }
 
   ExprPtr multiplicative() {
@@ -1602,6 +1655,18 @@ class Parser {
       return strings(offset, std::move(charset));
     }
     if (word("CASE")) return case_when();
+    // INTERVAL n unit + d, as d + INTERVAL n unit.
+    if (interval_ahead()) {
+      auto e = node(ExprKind::call, offset, "DATE_ADD");
+      Expr amount;
+      interval(amount);
+      if (!symbol("+")) fail(peek());
+      take();
+      e->args.push_back(multiplicative());
+      e->args.push_back(std::move(amount.args[0]));
+      e->scope = amount.scope;
+      return e;
+    }
     // DATE 'str', TIME 'str' and TIMESTAMP 'str' (the manual's "Date and Time
     // Literals"): a TEMPORAL call, `scope` DATE, TIME or DATETIME.
     if ((word("DATE") || word("TIME") || word("TIMESTAMP")) && peek(1).kind == TokenKind::string) {
@@ -1777,6 +1842,47 @@ class Parser {
       }
       expect_symbol(")");
       call.path = {std::string(_text.substr(call.offset, _last_end - call.offset))};
+      return;
+    }
+    // DATE_ADD(d, INTERVAL n unit) and DATE_SUB; ADDDATE and SUBDATE the
+    // same, or (d, n) for n days: DATE_ADD or DATE_SUB, args d and n,
+    // `scope` the unit.
+    if (call.value == "DATE_ADD" || call.value == "DATE_SUB" || call.value == "ADDDATE" || call.value == "SUBDATE") {
+      const bool days = call.value == "ADDDATE" || call.value == "SUBDATE";
+      call.value = call.value == "DATE_ADD" || call.value == "ADDDATE" ? "DATE_ADD" : "DATE_SUB";
+      call.args.push_back(expression());
+      expect_symbol(",");
+      if (!days || interval_ahead()) {
+        interval(call);
+      } else {
+        call.args.push_back(expression());
+        call.scope = "DAY";
+      }
+      expect_symbol(")");
+      return;
+    }
+    // TIMESTAMPADD(unit, n, d) as DATE_ADD(d, INTERVAL n unit);
+    // TIMESTAMPDIFF(unit, a, b), `scope` the unit.
+    if (call.value == "TIMESTAMPADD" || call.value == "TIMESTAMPDIFF") {
+      const bool add = call.value == "TIMESTAMPADD";
+      call.scope = interval_unit(true);
+      expect_symbol(",");
+      call.args.push_back(expression());
+      expect_symbol(",");
+      call.args.push_back(expression());
+      expect_symbol(")");
+      if (add) {
+        call.value = "DATE_ADD";
+        std::swap(call.args[0], call.args[1]);
+      }
+      return;
+    }
+    // EXTRACT(unit FROM d), `scope` the unit.
+    if (call.value == "EXTRACT") {
+      call.scope = interval_unit(false);
+      expect_word("FROM");
+      call.args.push_back(expression());
+      expect_symbol(")");
       return;
     }
     // POSITION(substr IN str), as LOCATE(substr, str).

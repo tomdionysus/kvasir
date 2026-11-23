@@ -130,6 +130,33 @@ module is written to. Each goes into the differential gate as it is built.
   2024-02-29 is 0 (whole months only); SECOND over a day 86400.
 - EXTRACT: YEAR_MONTH of 2024-02-29 is 202402 (LONGLONG length 7); HOUR of
   TIME '838:00:00' 838 (length 4).
+- The amount (observed 2026-11-23, second probe): a simple unit's is an
+  integer, a number rounded (1.5 DAY is 2, -1.5 is -2), a string's leading
+  integer with 1292 "Truncated incorrect INTEGER value: '1.5'"; SECOND
+  keeps a fraction, adding its digits to the result's (1.25 SECOND gives
+  DATETIME(2), '1.5' gives 6); a microsecond unit gives 6. A compound
+  unit's amount is read as text: optional spaces and '-', then digit
+  groups split by anything else; fewer groups fill the last fields ('5'
+  HOUR_MINUTE is 5 minutes, 1 DAY_HOUR one hour), a microsecond group is
+  scaled by its digits ('1.5' SECOND_MICROSECOND is 1.5 s, '5' is 0.5 s);
+  more groups than fields is NULL with 1441 "Datetime function:
+  date_add_interval field overflow"; no digits at all is zero.
+- Days and time are counted from the first of the month; a day number of
+  365 or under is 0000-00-00 (0001-01-01 - 1 DAY); YEAR -1 of 0001-01-01 is
+  0000-01-01. A TIME moved past 838:59:59 is NULL with 1441 "Datetime
+  function: time field overflow"; a TIME moved by a day or longer is a
+  DATETIME on the statement's date; a string TIME ('10:00:00') is no
+  datetime (1292, NULL). A YEAR column's operand gives STRING and NULL.
+- TIMESTAMPDIFF months: the months between, one fewer when the later's day
+  and time come before the earlier's; backwards is negative.
+- EXTRACT: YEAR, QUARTER, MONTH, WEEK (mode 0), DAY and YEAR_MONTH read a
+  date (a TIME on the statement's date); the rest read a time keeping a
+  date and time's day (DAY_HOUR of '2024-02-29 10:00' is 2910, of TIME
+  '30:00:00' is 30), signed. Lengths: YEAR 5, QUARTER 2, MONTH 3, WEEK 3,
+  DAY 3, HOUR 4, MINUTE 3, SECOND 3, MICROSECOND 7, YEAR_MONTH 7, DAY_HOUR
+  9, DAY_MINUTE 11, DAY_SECOND 13, DAY_MICROSECOND 20, HOUR_MINUTE 6,
+  HOUR_SECOND 8, HOUR_MICROSECOND 14, MINUTE_SECOND 5, MINUTE_MICROSECOND
+  11, SECOND_MICROSECOND 9.
 
 ## The clock
 

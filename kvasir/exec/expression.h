@@ -247,6 +247,20 @@ class Evaluator {
   // DAYNAME, MONTHNAME; nothing for a name that is not one of them.
   std::optional<ResultType> date_function(const sql::Expr& e) const;
   Value date_function_value(const sql::Expr& e);
+  // An argument as a date and time (a TIME on the statement's date), or
+  // nothing: NULL, or a value that is no date (1292). `has_time` is told
+  // whether a string or number had a time part.
+  std::optional<temporal::Moment> datetime_argument(const sql::Expr& arg, bool* has_time = nullptr);
+  // An argument as a time (a date's time; a date and time string's day kept
+  // when `keep_date`), or nothing: NULL, or a value that is no time (1292).
+  std::optional<temporal::Moment> time_argument(const sql::Expr& arg, bool keep_date = false);
+  // Date arithmetic (interval.cpp): DATE_ADD and DATE_SUB (ADDDATE,
+  // SUBDATE, TIMESTAMPADD, + INTERVAL and - INTERVAL as the parser gives
+  // them), TIMESTAMPDIFF and EXTRACT; nothing for a name that is not one.
+  std::optional<ResultType> interval_function(const sql::Expr& e) const;
+  Value interval_function_value(const sql::Expr& e);
+  Value timestamp_difference(const sql::Expr& e, std::string_view unit);
+  Value extracted(const sql::Expr& e, std::string_view unit);
   // Two values one of which is temporal (cast.cpp): as moments when both
   // are DATEs and DATETIMEs or both TIMEs; a DATE or DATETIME beside a
   // string with the string read as one (1525 when it cannot be); a TIME

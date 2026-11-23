@@ -735,6 +735,36 @@ TEST(ExecSession, TheClock) {
   EXPECT_EQ(refusal(s, "SELECT CURDATE(1)").code, 1582);
 }
 
+// Date arithmetic (observed on MySQL 8.4.13, TODO/2026-11-23-temporal-
+// notes.md): a TIME moved by a day or longer, or read as a date, takes the
+// statement's date; a TIME past 838:59:59, or a date past 9999-12-31, is
+// NULL with 1441.
+TEST(ExecSession, Intervals) {
+  struct SteppedClock : dannan::contract::WallClock {
+    uint64_t ms = 0;
+    uint64_t unix_ms() const noexcept override { return ms; }
+  } clock;
+  clock.ms = 1709210096789;  // 2024-02-29 12:34:56.789 UTC
+  Session s(registry(), node_catalog(), node_store(), SessionInfo{"root", "localhost", 1, 0, &clock});
+  EXPECT_EQ(row(run(s,
+                    "SELECT TIME '10:00:00' + INTERVAL 1 DAY, ADDDATE(TIME '10:00:00', 1), TIMESTAMPDIFF(HOUR, TIME '10:00:00', '2024-02-29 12:00'), "
+                    "EXTRACT(DAY FROM TIME '30:00:00'), EXTRACT(DAY_HOUR FROM TIME '30:00:00')")),
+            (std::vector<std::string>{"2024-03-01 10:00:00", "2024-03-01 10:00:00", "2", "1", "30"}));
+  EXPECT_EQ(row(run(s,
+                    "SELECT DATE_ADD(TIME '23:00:00', INTERVAL 2 HOUR), DATE_SUB(TIME '01:00:00', INTERVAL '1:30' HOUR_MINUTE), "
+                    "TIME '-01:02:03.5' + INTERVAL 1 SECOND")),
+            (std::vector<std::string>{"25:00:00", "-00:30:00", "-01:02:02.5"}));
+  EXPECT_EQ(row(run(s, "SELECT TIME '838:00:00' + INTERVAL 1 HOUR, DATE '9999-12-31' + INTERVAL 1 DAY, DATE '2024-01-01' + INTERVAL '1 2 3' DAY_HOUR")),
+            (std::vector<std::string>{"NULL", "NULL", "NULL"}));
+  ASSERT_EQ(s.warnings().size(), 3u);
+  EXPECT_EQ(s.warnings()[0].message, "Datetime function: time field overflow");
+  EXPECT_EQ(s.warnings()[1].message, "Datetime function: datetime field overflow");
+  EXPECT_EQ(s.warnings()[2].message, "Datetime function: date_add_interval field overflow");
+  // Day number 365 and under is the zero date; a year moves to year 0.
+  EXPECT_EQ(row(run(s, "SELECT DATE '0001-01-01' - INTERVAL 1 DAY, DATE '0001-01-01' + INTERVAL -1 YEAR")),
+            (std::vector<std::string>{"0000-00-00", "0000-01-01"}));
+}
+
 // DEFAULT CURRENT_TIMESTAMP and ON UPDATE CURRENT_TIMESTAMP (observed on
 // MySQL 8.4.13, TODO/2026-11-23-temporal-notes.md): an omitted column, or
 // DEFAULT, takes the statement's time at the column's fraction digits; an
