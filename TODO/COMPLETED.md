@@ -1231,3 +1231,10 @@ The record, newest first. Each entry says what landed, with its gate counts.
   CI green on J1 (057413f) and J2 (5c471a5).
 - Gate (node-c): release, ASan and TSan each **423 tests, 1207 of 1207**
   statements, TSan with no reports.
+- Joins, J4: grouping over joins (one column interface for a table or a
+  join; the join's construction shared); COUNT over the NULL side 0;
+  ONLY_FULL_GROUP_BY through keys and the join's equalities; grouping off
+  an index only when the plan's first table is grouped by one and each
+  later table is found through an index. CI green on J3 (ef1747a).
+- Gate (node-c): release, ASan and TSan each **424 tests, 1218 of 1218**
+  statements, TSan with no reports.

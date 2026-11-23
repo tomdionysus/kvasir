@@ -43,6 +43,9 @@
 // safe from any thread).
 namespace kvasir::exec {
 
+// A FROM clause of joined tables (session.cpp).
+struct JoinFrom;
+
 struct Column {
   Column() = default;
   Column(std::string column_name, ResultType column_type) : name(std::move(column_name)), type(column_type) {}
@@ -194,9 +197,9 @@ class Session : private VariableSource {
   Outcome select_from_table(const sql::Select& select);
   // A SELECT over a join of tables.
   Outcome select_joined(const sql::Select& select);
-  // A SELECT with GROUP BY, HAVING or an aggregate, over `table` (none for
-  // a SELECT without FROM: one row).
-  Outcome select_groups(const sql::Select& select, const catalog::Table* table, const std::string& database);
+  // A SELECT with GROUP BY, HAVING or an aggregate, over `table`, or over
+  // `join`'s tables (neither for a SELECT without FROM: one row).
+  Outcome select_groups(const sql::Select& select, const catalog::Table* table, const std::string& database, JoinFrom* join = nullptr);
   Outcome insert(const sql::Statement& statement);
   // UPDATE and DELETE.
   Outcome change_rows(const sql::Statement& statement);

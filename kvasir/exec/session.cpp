@@ -766,17 +766,41 @@ void in_clause(const char* clause, F&& f) {
   }
 }
 
+bool holds_a_key(const catalog::Table& table, const std::vector<size_t>& listed);
+
+// The columns grouping reads, each by a number: one table's, or a join's.
+class IndexedColumns : public ColumnSource {
+ public:
+  virtual std::optional<size_t> index(const std::vector<std::string>& path) const = 0;
+  // As a result column reports it, named `name`.
+  virtual Column column(size_t i, std::string name) const = 0;
+  virtual Value value_at(size_t i) const = 0;
+  virtual std::optional<std::string> text(size_t i) const = 0;
+  virtual uint16_t collation_at(size_t i) const = 0;
+  // Its own name, and as 1055 names it: schema.table.column.
+  virtual const std::string& name_of(size_t i) const = 0;
+  virtual std::string named(size_t i) const = 0;
+  // What `*` or `table.*` names (1051 for a table not here).
+  virtual std::vector<size_t> star(const std::vector<std::string>& path) const = 0;
+  // `known` columns and those that follow from them, as ONLY_FULL_GROUP_BY
+  // finds them: a table one of whose keys is known is known whole.
+  virtual std::vector<size_t> determined(std::vector<size_t> known) const = 0;
+  // Whether grouping by these columns reads the groups off an index, with
+  // no temporary table.
+  virtual bool grouped_by_index(const std::vector<size_t>& by) const = 0;
+};
+
 // One table's columns, as a statement over it names them: column,
 // table.column (by its alias when it has one) or schema.table.column, read
 // from the row at hand.
-class TableColumns : public ColumnSource {
+class TableColumns : public IndexedColumns {
  public:
   // With `view`, information_schema's: its own types, and columns refused
   // when named.
   TableColumns(const catalog::Table& table, std::string database, std::string alias, const EvalSettings& eval, const View* view = nullptr, bool ordered = false)
       : _table(table), _database(std::move(database)), _alias(std::move(alias)), _eval(eval), _view(view), _view_ordered(ordered) {}
 
-  std::optional<size_t> index(const std::vector<std::string>& path) const {
+  std::optional<size_t> index(const std::vector<std::string>& path) const override {
     // information_schema's names match in any case; a table's as bytes.
     const auto same = [&](std::string_view a, std::string_view b) { return _view ? sql::same_word(a, b) : a == b; };
     if (path.size() == 2 && !same(path[0], qualifier())) return std::nullopt;
@@ -814,16 +838,49 @@ class TableColumns : public ColumnSource {
 
   void set_row(const txn::Row* row) { _row = row; }
 
-  Value value_at(size_t i) const {
+  Value value_at(size_t i) const override {
     if (!_row || !(*_row)[i]) return {};
     return value_of(_table.columns[i].type, *(*_row)[i]);
   }
   // What the column's values compare under: its collation, or 0 for a
   // number.
-  uint16_t collation_at(size_t i) const { return column_collation_id(_table.columns[i]); }
+  uint16_t collation_at(size_t i) const override { return column_collation_id(_table.columns[i]); }
+
+  const std::string& name_of(size_t i) const override { return _table.columns[i].name; }
+  std::string named(size_t i) const override { return _database + "." + qualifier() + "." + _table.columns[i].name; }
+
+  std::vector<size_t> star(const std::vector<std::string>& p) const override {
+    const bool ours = p.empty() || (p.size() == 1 && p[0] == qualifier()) || (p.size() == 2 && _alias.empty() && p[0] == _database && p[1] == _table.name);
+    if (!ours) throw SqlError(1051, "42S02", "Unknown table '" + p.back() + "'");
+    std::vector<size_t> out(_table.columns.size());
+    for (size_t i = 0; i < out.size(); ++i) out[i] = i;
+    return out;
+  }
+
+  std::vector<size_t> determined(std::vector<size_t> known) const override {
+    if (holds_a_key(_table, known)) return star({});
+    return known;
+  }
+
+  // Grouped by the leading columns of an index (in any order), MySQL reads
+  // the groups off the index (observed: GROUP BY c, k with k the primary
+  // key still uses a temporary table). A view has no index.
+  bool grouped_by_index(const std::vector<size_t>& by) const override {
+    if (_view) return false;
+    std::vector<size_t> distinct;
+    for (const auto i : by)
+      if (std::find(distinct.begin(), distinct.end(), i) == distinct.end()) distinct.push_back(i);
+    for (const auto& key : _table.keys) {
+      bool leading = key.parts.size() >= distinct.size();
+      for (size_t p = 0; leading && p < distinct.size(); ++p)
+        leading = !key.parts[p].prefix && std::find(distinct.begin(), distinct.end(), key.parts[p].column) != distinct.end();
+      if (leading) return true;
+    }
+    return false;
+  }
 
   // A column's value as a client is sent it.
-  std::optional<std::string> text(size_t i) const {
+  std::optional<std::string> text(size_t i) const override {
     if (!_row || !(*_row)[i]) return std::nullopt;
     if (_view) return (*_row)[i];
     return display_text(_table.columns[i].type, *(*_row)[i], column_result_type(_table, i, _eval).length);
@@ -832,7 +889,7 @@ class TableColumns : public ColumnSource {
   // The name the table goes by in the statement.
   const std::string& qualifier() const { return _alias.empty() ? _table.name : _alias; }
 
-  Column column(size_t i, std::string name) const {
+  Column column(size_t i, std::string name) const override {
     Column out(std::move(name), type_at(i));
     out.schema = _database;
     out.table = qualifier();
@@ -1237,7 +1294,7 @@ void bare_columns(const sql::Expr& e, std::vector<const sql::Expr*>& out) {
 }
 
 // Whether two expressions are the same, a column by the column it names.
-bool same_expr(const sql::Expr& a, const sql::Expr& b, const TableColumns* columns) {
+bool same_expr(const sql::Expr& a, const sql::Expr& b, const IndexedColumns* columns) {
   if (a.kind != b.kind) return false;
   if (a.kind == sql::ExprKind::column) {
     if (!columns) return false;
@@ -1256,7 +1313,7 @@ bool same_expr(const sql::Expr& a, const sql::Expr& b, const TableColumns* colum
 
 // The columns WHERE fixes to one value: `column = constant` in its top-level
 // AND.
-void fixed_columns(const sql::Expr& e, const TableColumns& columns, std::vector<size_t>& out) {
+void fixed_columns(const sql::Expr& e, const IndexedColumns& columns, std::vector<size_t>& out) {
   if (e.kind != sql::ExprKind::binary) return;
   if (e.value == "AND") {
     fixed_columns(*e.args[0], columns, out);
@@ -1350,7 +1407,7 @@ class GroupAggregates : public AggregateSource {
 // bare, or a select item's alias (observed: anything else is 1054).
 class HavingColumns : public ColumnSource {
  public:
-  HavingColumns(const TableColumns* table, const sql::Select& select, const std::vector<const sql::Expr*>& groups, Evaluator& items, uint16_t results)
+  HavingColumns(const IndexedColumns* table, const sql::Select& select, const std::vector<const sql::Expr*>& groups, Evaluator& items, uint16_t results)
       : _table(table), _select(select), _groups(groups), _items(items), _results(results) {}
 
   std::optional<Found> find_column(const std::vector<std::string>& path) const override {
@@ -1390,7 +1447,7 @@ class HavingColumns : public ColumnSource {
     return std::nullopt;
   }
 
-  const TableColumns* _table;
+  const IndexedColumns* _table;
   const sql::Select& _select;
   const std::vector<const sql::Expr*>& _groups;
   Evaluator& _items;
@@ -1837,166 +1894,112 @@ ResultType without_keys(ResultType t) {
   return t;
 }
 
-// The terms of a condition joined by AND.
-void conjuncts(const sql::Expr& e, std::vector<const sql::Expr*>& out) {
-  if (e.kind == sql::ExprKind::binary && e.value == "AND") {
-    conjuncts(*e.args[0], out);
-    conjuncts(*e.args[1], out);
-    return;
-  }
-  out.push_back(&e);
-}
-
-// Whether the fixed plan sorts a join through a temporary table (observed
-// on MySQL 8.4.13): it does unless every sort key is the first table's and
-// each later table is found through an index, by an equality between the
-// leading column of one of its keys and what the tables before it hold;
-// a table read whole goes through a join buffer, and the joined rows are
-// sorted apart.
-bool sorts_through_temporary(const sql::Select& select, const JoinNode& root, const JoinLeaves& leaves, const JoinedColumns& columns,
-                             const std::vector<std::vector<JoinPlace>>& stars) {
-  const auto& plan = root.plan;
-  std::vector<size_t> position(leaves.size());
-  for (size_t k = 0; k < plan.size(); ++k) position[plan[k]] = k;
-  // The tables an expression reads, or nothing when a name in it cannot be
-  // placed (it is reported where it is typed).
-  const auto tables_of = [&](const sql::Expr& e) -> std::optional<std::set<size_t>> {
-    std::set<size_t> out;
-    bool placed = true;
-    std::function<void(const sql::Expr&)> walk = [&](const sql::Expr& x) {
-      if (x.kind == sql::ExprKind::column) {
-        try {
-          if (const auto p = columns.place(x.path))
-            out.insert(p->leaf);
-          else
-            placed = false;
-        } catch (const SqlError&) {
-          placed = false;
-        }
-        return;
-      }
-      for (const auto& a : x.args)
-        if (a) walk(*a);
-      if (x.operand) walk(*x.operand);
-      if (x.otherwise) walk(*x.otherwise);
-    };
-    walk(e);
-    if (!placed) return std::nullopt;
-    return out;
-  };
-  for (const auto& order : select.order) {
-    const sql::Expr* e = order.expr.get();
-    std::optional<JoinPlace> star_column;
-    if (e->kind == sql::ExprKind::integer) {
-      uint64_t n = 0;
-      try {
-        n = std::stoull(e->value);
-      } catch (const std::exception&) {
-        return true;
-      }
-      size_t at = 0;
-      e = nullptr;
-      for (size_t k = 0; k < select.items.size() && !e && !star_column; ++k) {
-        if (!select.items[k].star) {
-          if (++at == n) e = select.items[k].expr.get();
-          continue;
-        }
-        if (n > at && n <= at + stars[k].size()) star_column = stars[k][n - at - 1];
-        at += stars[k].size();
-      }
-      if (!e && !star_column) return true;
-    } else if (e->kind == sql::ExprKind::column && e->path.size() == 1) {
-      for (const auto& item : select.items)
-        if (item.has_alias && sql::same_word(item.alias, e->path[0])) {
-          e = item.expr.get();
-          break;
-        }
-    }
-    if (star_column) {
-      if (star_column->leaf != plan.front()) return true;
-      continue;
-    }
-    const auto tables = tables_of(*e);
-    if (!tables) return true;
-    for (const auto t : *tables)
-      if (t != plan.front()) return true;
-  }
-  // The equalities a table may be found by: every ON's and USING's, and
-  // WHERE's for a table that cannot come back NULL.
-  std::vector<std::pair<const sql::Expr*, bool>> terms;  // a term, from WHERE
-  std::vector<std::pair<JoinPlace, JoinPlace>> pairs;
-  std::function<void(const JoinNode&)> collect = [&](const JoinNode& node) {
-    if (!node.left) return;
-    collect(*node.left);
-    collect(*node.right);
-    if (node.ref && node.ref->on) {
-      std::vector<const sql::Expr*> on;
-      conjuncts(*node.ref->on, on);
-      for (const auto* term : on) terms.emplace_back(term, false);
-    }
-    pairs.insert(pairs.end(), node.using_pairs.begin(), node.using_pairs.end());
-  };
-  collect(root);
-  if (select.where) {
-    std::vector<const sql::Expr*> where;
-    conjuncts(*select.where, where);
-    for (const auto* term : where) terms.emplace_back(term, true);
-  }
-  const auto leads = [&](JoinPlace p) {
-    for (const auto& key : leaves[p.leaf]->table.keys)
-      if (!key.parts.empty() && key.parts[0].column == p.column && !key.parts[0].prefix) return true;
-    return false;
-  };
-  for (size_t k = 1; k < plan.size(); ++k) {
-    const size_t table = plan[k];
-    const auto before = [&](const std::set<size_t>& tables) { return std::all_of(tables.begin(), tables.end(), [&](size_t t) { return position[t] < k; }); };
-    bool found = false;
-    for (const auto& [l, r] : pairs)
-      found = found || (l.leaf == table && leads(l) && position[r.leaf] < k) || (r.leaf == table && leads(r) && position[l.leaf] < k);
-    for (const auto& [term, from_where] : terms) {
-      if (found) break;
-      if (from_where && leaves[table]->nullable) continue;
-      if (term->kind != sql::ExprKind::binary || term->value != "=" || term->args.size() != 2) continue;
-      for (size_t side = 0; side < 2 && !found; ++side) {
-        const auto& column = *term->args[side];
-        if (column.kind != sql::ExprKind::column) continue;
-        std::optional<JoinPlace> p;
-        try {
-          p = columns.place(column.path);
-        } catch (const SqlError&) {
-        }
-        if (!p || p->leaf != table || !leads(*p)) continue;
-        const auto other = tables_of(*term->args[1 - side]);
-        found = other && before(*other);
-      }
-    }
-    if (!found) return true;
-  }
-  return false;
-}
-
 }  // namespace
 
-// Joins on the fixed plan (the maintainer's ruling of 2026-11-23): each
-// join's tables in written order (a RIGHT JOIN's right side first), nested
-// loops, a row of the preserved side with each of the other's that its ON
-// or USING keeps, and with the other side NULL for an outer join when none
-// does. Names resolve across the tables in scope (an ON's are its own
-// join's; USING's merged columns answer to their bare names). A join made
-// DISTINCT, or sorted other than as sorts_through_temporary allows, goes
-// through a temporary table, which drops its columns' key flags and reads
-// its expressions as fields (observed on MySQL 8.4.13, where the
-// optimizer's order decides; recorded where it differs).
-Outcome Session::select_joined(const sql::Select& select) {
-  using Join = sql::TableRef::Join;
-  const auto refuse = [](const std::string& what) {
-    throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support '" + what + "'");
-  };
-  if (is_grouped(select)) refuse("grouping over joins");
-  if (!select.locking.empty()) refuse("locking reads over joins");
-  auto settings = eval_settings();
+// A FROM clause of joined tables: the tables, how USING merged their
+// columns, the join tree, and the columns over all of them.
+struct JoinFrom {
   JoinLeaves leaves;
   JoinLinks links;
+  std::unique_ptr<JoinNode> root;
+  std::unique_ptr<JoinedColumns> columns;
+
+  // The joined row at hand (none: every table's row cleared).
+  void set(const Joined* joined) {
+    for (size_t l = 0; l < leaves.size(); ++l) leaves[l]->columns->set_row(joined ? (*joined)[l] : nullptr);
+  }
+
+  // The joined rows, over each table's rows as read: a row of the preserved
+  // side with each of the other's its ON or USING keeps, and for an outer
+  // join with the other side NULL when none does.
+  std::vector<Joined> rows() { return rows(*root); }
+
+  // What the ONs warned.
+  std::vector<Warning> warnings() const {
+    std::vector<Warning> out;
+    std::function<void(const JoinNode&)> gather = [&](const JoinNode& node) {
+      if (!node.left) return;
+      gather(*node.left);
+      gather(*node.right);
+      if (node.on) out.insert(out.end(), node.on->warnings().begin(), node.on->warnings().end());
+    };
+    gather(*root);
+    return out;
+  }
+
+ private:
+  std::vector<Joined> rows(const JoinNode& node) {
+    using Join = sql::TableRef::Join;
+    std::vector<Joined> out;
+    if (!node.left) {
+      for (const auto& row : leaves[node.first]->rows) {
+        Joined j(leaves.size(), nullptr);
+        j[node.first] = &row;
+        out.push_back(std::move(j));
+      }
+      return out;
+    }
+    const auto lefts = rows(*node.left);
+    const auto rights = rows(*node.right);
+    const auto keeps = [&](const Joined& j) {
+      if (!node.on && node.using_pairs.empty()) return true;
+      set(&j);
+      // USING's columns equal, as `=` finds them: NULL equals nothing.
+      for (const auto& [l, r] : node.using_pairs) {
+        const auto a = leaves[l.leaf]->columns->value_at(l.column), b = leaves[r.leaf]->columns->value_at(r.column);
+        if (is_null(a) || is_null(b) || compare_for_order(a, b, leaves[l.leaf]->columns->collation_at(l.column)) != 0) return false;
+      }
+      if (!node.on) return true;
+      const auto b = node.on->truth(node.on->value(*node.ref->on), node.on_type);
+      return b && *b;
+    };
+    const auto joined = [&](const Joined& l, const Joined& r) {
+      Joined j = l;
+      for (size_t k = node.right->first; k < node.right->end; ++k) j[k] = r[k];
+      return j;
+    };
+    // An outer join walks its preserved side, and keeps a row of it that
+    // nothing matched with the other side NULL.
+    if (node.join == Join::right) {
+      for (const auto& r : rights) {
+        bool matched = false;
+        for (const auto& l : lefts) {
+          auto j = joined(l, r);
+          if (!keeps(j)) continue;
+          matched = true;
+          out.push_back(std::move(j));
+        }
+        if (!matched) out.push_back(r);
+      }
+      return out;
+    }
+    for (const auto& l : lefts) {
+      bool matched = false;
+      for (const auto& r : rights) {
+        auto j = joined(l, r);
+        if (!keeps(j)) continue;
+        matched = true;
+        out.push_back(std::move(j));
+      }
+      if (!matched && node.join == Join::left) out.push_back(l);
+    }
+    return out;
+  }
+};
+
+namespace {
+
+using DatabaseOf = std::function<std::string(const std::vector<std::string>&)>;
+
+// The joined tables of a FROM clause: each table found (1146, 1049), named
+// once (1066); USING's and NATURAL's columns paired and merged (1054 'from
+// clause'); each ON typed over its own join's tables (1054, 1052 'on
+// clause'); an outer join's inner side marked as possibly NULL.
+std::unique_ptr<JoinFrom> join_from(const sql::Select& select, const catalog::Catalog& catalog, const DatabaseOf& database_of, const EvalSettings& settings) {
+  using Join = sql::TableRef::Join;
+  auto from = std::make_unique<JoinFrom>();
+  auto& leaves = from->leaves;
+  auto& links = from->links;
   std::function<void(JoinNode&)> join_sides;
   std::function<std::unique_ptr<JoinNode>(const sql::TableRef&)> build = [&](const sql::TableRef& ref) {
     auto node = std::make_unique<JoinNode>();
@@ -2004,10 +2007,11 @@ Outcome Session::select_joined(const sql::Select& select) {
     node->first = leaves.size();
     if (!ref.is_join()) {
       const auto database = database_of(ref.name);
-      if (is_information_schema(database)) refuse("joins over information_schema");
-      auto table = _catalog.table({database, ref.name.back()});
+      if (is_information_schema(database))
+        throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'joins over information_schema'");
+      auto table = catalog.table({database, ref.name.back()});
       if (!table) {
-        if (!_catalog.database(database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
+        if (!catalog.database(database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
         throw SqlError(1146, "42S02", "Table '" + database + "." + ref.name.back() + "' doesn't exist");
       }
       auto leaf = std::make_unique<JoinLeaf>();
@@ -2076,20 +2080,19 @@ Outcome Session::select_joined(const sql::Select& select) {
       for (const auto& p : side->star)
         if (std::find(merged.begin(), merged.end(), scope.merged(p)) == merged.end()) node.star.push_back(p);
   };
-  std::unique_ptr<JoinNode> root;
   for (const auto& ref : select.from) {
     auto next = build(ref);
-    if (!root) {
-      root = std::move(next);
+    if (!from->root) {
+      from->root = std::move(next);
       continue;
     }
     auto comma = std::make_unique<JoinNode>();
-    comma->first = root->first;
+    comma->first = from->root->first;
     comma->end = next->end;
-    comma->left = std::move(root);
+    comma->left = std::move(from->root);
     comma->right = std::move(next);
     join_sides(*comma);
-    root = std::move(comma);
+    from->root = std::move(comma);
   }
   // An outer join's inner side may come back NULL: a LEFT JOIN's right, a
   // RIGHT JOIN's left, and everything inside them.
@@ -2101,7 +2104,7 @@ Outcome Session::select_joined(const sql::Select& select) {
     mark(*node.left, nullable || node.join == Join::right);
     mark(*node.right, nullable || node.join == Join::left);
   };
-  mark(*root, false);
+  mark(*from->root, false);
   // Each ON, typed over its own join's tables.
   std::function<void(JoinNode&)> type_on = [&](JoinNode& node) {
     if (!node.left) return;
@@ -2114,14 +2117,306 @@ Outcome Session::select_joined(const sql::Select& select) {
     node.on = std::make_unique<Evaluator>(scoped);
     in_clause("on clause", [&] { node.on_type = node.on->type(*node.ref->on); });
   };
-  type_on(*root);
+  type_on(*from->root);
+  from->columns = std::make_unique<JoinedColumns>(leaves, links, 0, leaves.size());
+  return from;
+}
 
-  JoinedColumns columns(leaves, links, 0, leaves.size());
+// The terms of a condition joined by AND.
+void conjuncts(const sql::Expr& e, std::vector<const sql::Expr*>& out) {
+  if (e.kind == sql::ExprKind::binary && e.value == "AND") {
+    conjuncts(*e.args[0], out);
+    conjuncts(*e.args[1], out);
+    return;
+  }
+  out.push_back(&e);
+}
+
+// The tables an expression reads, or nothing when a name in it cannot be
+// placed (it is reported where it is typed).
+std::optional<std::set<size_t>> tables_of(const sql::Expr& e, const JoinedColumns& columns) {
+  std::set<size_t> out;
+  bool placed = true;
+  std::function<void(const sql::Expr&)> walk = [&](const sql::Expr& x) {
+    if (x.kind == sql::ExprKind::column) {
+      try {
+        if (const auto p = columns.place(x.path))
+          out.insert(p->leaf);
+        else
+          placed = false;
+      } catch (const SqlError&) {
+        placed = false;
+      }
+      return;
+    }
+    for (const auto& a : x.args)
+      if (a) walk(*a);
+    if (x.operand) walk(*x.operand);
+    if (x.otherwise) walk(*x.otherwise);
+  };
+  walk(e);
+  if (!placed) return std::nullopt;
+  return out;
+}
+
+// The column a bare or qualified name places, or nothing.
+std::optional<JoinPlace> placed(const sql::Expr& column, const JoinedColumns& columns) {
+  if (column.kind != sql::ExprKind::column) return std::nullopt;
+  try {
+    return columns.place(column.path);
+  } catch (const SqlError&) {
+    return std::nullopt;
+  }
+}
+
+// The equalities a join's tables meet: every ON's terms and USING's pairs,
+// and WHERE's terms (marked, as they say nothing of an outer join's inner
+// side).
+struct JoinTerms {
+  std::vector<std::pair<const sql::Expr*, bool>> terms;  // a term, from WHERE
+  std::vector<std::pair<JoinPlace, JoinPlace>> pairs;
+};
+
+JoinTerms join_terms(const sql::Select& select, const JoinNode& root) {
+  JoinTerms out;
+  std::function<void(const JoinNode&)> collect = [&](const JoinNode& node) {
+    if (!node.left) return;
+    collect(*node.left);
+    collect(*node.right);
+    if (node.ref && node.ref->on) {
+      std::vector<const sql::Expr*> on;
+      conjuncts(*node.ref->on, on);
+      for (const auto* term : on) out.terms.emplace_back(term, false);
+    }
+    out.pairs.insert(out.pairs.end(), node.using_pairs.begin(), node.using_pairs.end());
+  };
+  collect(root);
+  if (select.where) {
+    std::vector<const sql::Expr*> where;
+    conjuncts(*select.where, where);
+    for (const auto* term : where) out.terms.emplace_back(term, true);
+  }
+  return out;
+}
+
+// Whether the fixed plan finds each table after the first through an index:
+// by an equality between the leading column of one of its keys and what the
+// tables before it hold (a constant, or their columns). A table read whole
+// goes through a join buffer (observed on MySQL 8.4.13).
+bool found_through_indexes(const sql::Select& select, const JoinNode& root, const JoinLeaves& leaves, const JoinedColumns& columns) {
+  const auto& plan = root.plan;
+  std::vector<size_t> position(leaves.size());
+  for (size_t k = 0; k < plan.size(); ++k) position[plan[k]] = k;
+  const auto [terms, pairs] = join_terms(select, root);
+  const auto leads = [&](JoinPlace p) {
+    for (const auto& key : leaves[p.leaf]->table.keys)
+      if (!key.parts.empty() && key.parts[0].column == p.column && !key.parts[0].prefix) return true;
+    return false;
+  };
+  for (size_t k = 1; k < plan.size(); ++k) {
+    const size_t table = plan[k];
+    const auto before = [&](const std::set<size_t>& tables) { return std::all_of(tables.begin(), tables.end(), [&](size_t t) { return position[t] < k; }); };
+    bool found = false;
+    for (const auto& [l, r] : pairs)
+      found = found || (l.leaf == table && leads(l) && position[r.leaf] < k) || (r.leaf == table && leads(r) && position[l.leaf] < k);
+    for (const auto& [term, from_where] : terms) {
+      if (found) break;
+      if (from_where && leaves[table]->nullable) continue;
+      if (term->kind != sql::ExprKind::binary || term->value != "=" || term->args.size() != 2) continue;
+      for (size_t side = 0; side < 2 && !found; ++side) {
+        const auto p = placed(*term->args[side], columns);
+        if (!p || p->leaf != table || !leads(*p)) continue;
+        const auto other = tables_of(*term->args[1 - side], columns);
+        found = other && before(*other);
+      }
+    }
+    if (!found) return false;
+  }
+  return true;
+}
+
+// Whether the fixed plan sorts a join through a temporary table (observed
+// on MySQL 8.4.13): it does unless every sort key is the first table's and
+// each later table is found through an index; else the joined rows are
+// buffered and sorted apart.
+bool sorts_through_temporary(const sql::Select& select, const JoinNode& root, const JoinLeaves& leaves, const JoinedColumns& columns,
+                             const std::vector<std::vector<JoinPlace>>& stars) {
+  const auto& plan = root.plan;
+  for (const auto& order : select.order) {
+    const sql::Expr* e = order.expr.get();
+    std::optional<JoinPlace> star_column;
+    if (e->kind == sql::ExprKind::integer) {
+      uint64_t n = 0;
+      try {
+        n = std::stoull(e->value);
+      } catch (const std::exception&) {
+        return true;
+      }
+      size_t at = 0;
+      e = nullptr;
+      for (size_t k = 0; k < select.items.size() && !e && !star_column; ++k) {
+        if (!select.items[k].star) {
+          if (++at == n) e = select.items[k].expr.get();
+          continue;
+        }
+        if (n > at && n <= at + stars[k].size()) star_column = stars[k][n - at - 1];
+        at += stars[k].size();
+      }
+      if (!e && !star_column) return true;
+    } else if (e->kind == sql::ExprKind::column && e->path.size() == 1) {
+      for (const auto& item : select.items)
+        if (item.has_alias && sql::same_word(item.alias, e->path[0])) {
+          e = item.expr.get();
+          break;
+        }
+    }
+    if (star_column) {
+      if (star_column->leaf != plan.front()) return true;
+      continue;
+    }
+    const auto tables = tables_of(*e, columns);
+    if (!tables) return true;
+    for (const auto t : *tables)
+      if (t != plan.front()) return true;
+  }
+  return !found_through_indexes(select, root, leaves, columns);
+}
+
+// A join's columns as grouping reads them, each numbered: a table's
+// columns follow the tables before it's.
+class JoinIndexed : public IndexedColumns {
+ public:
+  JoinIndexed(const JoinFrom& from, const sql::Select& select) : _from(from), _select(select) {
+    size_t at = 0;
+    for (const auto& leaf : from.leaves) {
+      _offsets.push_back(at);
+      at += leaf->table.columns.size();
+    }
+    // Two columns an equality between them makes one, for what follows from
+    // what: ON's and WHERE's `column = column`, and USING's pairs.
+    const auto [terms, pairs] = join_terms(select, *from.root);
+    for (const auto& [l, r] : pairs) _equal.emplace_back(flat(l), flat(r));
+    for (const auto& [term, from_where] : terms) {
+      if (term->kind != sql::ExprKind::binary || term->value != "=" || term->args.size() != 2) continue;
+      const auto l = placed(*term->args[0], *from.columns), r = placed(*term->args[1], *from.columns);
+      if (l && r) _equal.emplace_back(flat(*l), flat(*r));
+    }
+  }
+
+  std::optional<Found> find_column(const std::vector<std::string>& path) const override { return _from.columns->find_column(path); }
+  Value column_value(const std::vector<std::string>& path) const override { return _from.columns->column_value(path); }
+  std::string written(const std::vector<std::string>& path) const override { return _from.columns->written(path); }
+
+  std::optional<size_t> index(const std::vector<std::string>& path) const override {
+    const auto p = _from.columns->place(path);
+    if (!p) return std::nullopt;
+    return flat(*p);
+  }
+  Column column(size_t i, std::string name) const override {
+    const auto p = place(i);
+    auto out = leaf(i).columns->column(p.column, std::move(name));
+    if (leaf(i).nullable) out.type.flags = static_cast<uint16_t>(out.type.flags & ~c::not_null);
+    return out;
+  }
+  Value value_at(size_t i) const override { return leaf(i).columns->value_at(place(i).column); }
+  std::optional<std::string> text(size_t i) const override { return leaf(i).columns->text(place(i).column); }
+  uint16_t collation_at(size_t i) const override { return leaf(i).columns->collation_at(place(i).column); }
+  const std::string& name_of(size_t i) const override { return leaf(i).table.columns[place(i).column].name; }
+  std::string named(size_t i) const override { return leaf(i).columns->named(place(i).column); }
+
+  std::vector<size_t> star(const std::vector<std::string>& p) const override {
+    std::vector<size_t> out;
+    if (p.empty()) {
+      for (const auto& at : _from.root->star) out.push_back(flat(at));
+      return out;
+    }
+    for (size_t l = 0; l < _from.leaves.size(); ++l) {
+      const auto& leaf = *_from.leaves[l];
+      const bool ours = (p.size() == 1 && p[0] == leaf.columns->qualifier()) ||
+                        (p.size() == 2 && leaf.columns->qualifier() == leaf.table.name && p[0] == leaf.database && p[1] == leaf.table.name);
+      if (ours)
+        for (size_t i = 0; i < leaf.table.columns.size(); ++i) out.push_back(_offsets[l] + i);
+    }
+    if (out.empty()) throw SqlError(1051, "42S02", "Unknown table '" + p.back() + "'");
+    return out;
+  }
+
+  // What follows from known columns, to a fixed point: a column equal to a
+  // known one is known; a table one of whose keys is known is known whole.
+  std::vector<size_t> determined(std::vector<size_t> known) const override {
+    const auto has = [&](size_t i) { return std::find(known.begin(), known.end(), i) != known.end(); };
+    for (bool more = true; more;) {
+      more = false;
+      for (const auto& [a, b] : _equal) {
+        if (has(a) && !has(b)) known.push_back(b), more = true;
+        if (has(b) && !has(a)) known.push_back(a), more = true;
+      }
+      for (size_t l = 0; l < _from.leaves.size(); ++l) {
+        const auto& table = _from.leaves[l]->table;
+        std::vector<size_t> own;
+        for (size_t i = 0; i < table.columns.size(); ++i)
+          if (has(_offsets[l] + i)) own.push_back(i);
+        if (own.size() == table.columns.size() || !holds_a_key(table, own)) continue;
+        for (size_t i = 0; i < table.columns.size(); ++i)
+          if (!has(_offsets[l] + i)) known.push_back(_offsets[l] + i), more = true;
+      }
+    }
+    return known;
+  }
+
+  // Off an index only when the plan's first table is grouped by one of its
+  // indexes and each table after it is found through an index (observed).
+  bool grouped_by_index(const std::vector<size_t>& by) const override {
+    const size_t first = _from.root->plan.front();
+    std::vector<size_t> own;
+    for (const auto i : by) {
+      if (place(i).leaf != first) return false;
+      own.push_back(place(i).column);
+    }
+    return _from.leaves[first]->columns->grouped_by_index(own) && found_through_indexes(_select, *_from.root, _from.leaves, *_from.columns);
+  }
+
+ private:
+  size_t flat(JoinPlace p) const { return _offsets[p.leaf] + p.column; }
+  JoinPlace place(size_t i) const {
+    size_t l = _offsets.size() - 1;
+    while (_offsets[l] > i) --l;
+    return {l, i - _offsets[l]};
+  }
+  const JoinLeaf& leaf(size_t i) const { return *_from.leaves[place(i).leaf]; }
+
+  const JoinFrom& _from;
+  const sql::Select& _select;
+  std::vector<size_t> _offsets;
+  std::vector<std::pair<size_t, size_t>> _equal;
+};
+
+}  // namespace
+
+// Joins on the fixed plan (the maintainer's ruling of 2026-11-23): each
+// join's tables in written order (a RIGHT JOIN's right side first), nested
+// loops, a row of the preserved side with each of the other's that its ON
+// or USING keeps, and with the other side NULL for an outer join when none
+// does. Names resolve across the tables in scope (an ON's are its own
+// join's; USING's merged columns answer to their bare names). A join made
+// DISTINCT, or sorted other than as sorts_through_temporary allows, goes
+// through a temporary table, which drops its columns' key flags and reads
+// its expressions as fields (observed on MySQL 8.4.13, where the
+// optimizer's order decides; recorded where it differs).
+Outcome Session::select_joined(const sql::Select& select) {
+  const auto refuse = [](const std::string& what) {
+    throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support '" + what + "'");
+  };
+  if (!select.locking.empty()) refuse("locking reads over joins");
+  auto settings = eval_settings();
+  auto from = join_from(select, _catalog, [&](const std::vector<std::string>& name) { return database_of(name); }, settings);
+  if (is_grouped(select)) return select_groups(select, nullptr, "", from.get());
+  auto& leaves = from->leaves;
+  const auto& root = from->root;
+  const JoinedColumns& columns = *from->columns;
   settings.columns = &columns;
   Evaluator evaluator(settings);
-  const auto set_joined = [&](const Joined* joined) {
-    for (size_t l = 0; l < leaves.size(); ++l) leaves[l]->columns->set_row(joined ? (*joined)[l] : nullptr);
-  };
+  const auto set_joined = [&](const Joined* joined) { from->set(joined); };
   using Place = JoinedColumns::Place;
   // Each star item's columns: `*` the join's, `t.*` the table's own.
   std::vector<std::vector<Place>> stars(select.items.size());
@@ -2252,62 +2547,6 @@ Outcome Session::select_joined(const sql::Select& select) {
     if (locking_clause(select, leaves.front()->columns->qualifier())) refuse("locking reads over joins");
     begin_reading(t);
     for (auto& leaf : leaves) leaf->rows = _rows.rows(t, leaf->table.id);
-    std::function<std::vector<Joined>(const JoinNode&)> join = [&](const JoinNode& node) {
-      std::vector<Joined> out;
-      if (!node.left) {
-        for (const auto& row : leaves[node.first]->rows) {
-          Joined j(leaves.size(), nullptr);
-          j[node.first] = &row;
-          out.push_back(std::move(j));
-        }
-        return out;
-      }
-      const auto lefts = join(*node.left);
-      const auto rights = join(*node.right);
-      const auto keeps = [&](const Joined& j) {
-        if (!node.on && node.using_pairs.empty()) return true;
-        set_joined(&j);
-        // USING's columns equal, as `=` finds them: NULL equals nothing.
-        for (const auto& [l, r] : node.using_pairs) {
-          const auto a = leaves[l.leaf]->columns->value_at(l.column), b = leaves[r.leaf]->columns->value_at(r.column);
-          if (is_null(a) || is_null(b) || compare_for_order(a, b, leaves[l.leaf]->columns->collation_at(l.column)) != 0) return false;
-        }
-        if (!node.on) return true;
-        const auto b = node.on->truth(node.on->value(*node.ref->on), node.on_type);
-        return b && *b;
-      };
-      const auto joined = [&](const Joined& l, const Joined& r) {
-        Joined j = l;
-        for (size_t k = node.right->first; k < node.right->end; ++k) j[k] = r[k];
-        return j;
-      };
-      // An outer join walks its preserved side, and keeps a row of it that
-      // nothing matched with the other side NULL.
-      if (node.join == Join::right) {
-        for (const auto& r : rights) {
-          bool matched = false;
-          for (const auto& l : lefts) {
-            auto j = joined(l, r);
-            if (!keeps(j)) continue;
-            matched = true;
-            out.push_back(std::move(j));
-          }
-          if (!matched) out.push_back(r);
-        }
-        return out;
-      }
-      for (const auto& l : lefts) {
-        bool matched = false;
-        for (const auto& r : rights) {
-          auto j = joined(l, r);
-          if (!keeps(j)) continue;
-          matched = true;
-          out.push_back(std::move(j));
-        }
-        if (!matched && node.join == Join::left) out.push_back(l);
-      }
-      return out;
-    };
     const auto where_type = select.where ? evaluator.type(*select.where) : ResultType{};
     const auto passes = [&] {
       const auto b = evaluator.truth(evaluator.value(*select.where), where_type);
@@ -2321,7 +2560,7 @@ Outcome Session::select_joined(const sql::Select& select) {
     };
     std::vector<Chosen> chosen;
     if (!constant_where || *constant_where)
-      for (auto& j : join(*root)) {
+      for (auto& j : from->rows()) {
         set_joined(&j);
         if (select.where && !constant_where && !passes()) continue;
         Chosen c{std::move(j), {}};
@@ -2371,16 +2610,8 @@ Outcome Session::select_joined(const sql::Select& select) {
   }
   end_statement(false);
   auto warnings = evaluator.warnings();
-  std::function<void(const JoinNode&)> gather = [&](const JoinNode& node) {
-    if (!node.left) return;
-    gather(*node.left);
-    gather(*node.right);
-    if (node.on) {
-      const auto more = node.on->warnings();
-      warnings.insert(warnings.end(), more.begin(), more.end());
-    }
-  };
-  gather(*root);
+  const auto more = from->warnings();
+  warnings.insert(warnings.end(), more.begin(), more.end());
   _warnings = std::move(warnings);
   Outcome out;
   out.result = std::move(result);
@@ -2397,15 +2628,20 @@ Outcome Session::select_joined(const sql::Select& select) {
 // an aggregate must be grouped, fixed by WHERE (column = constant), or
 // follow from a grouped key (1055, 1140); without it, it is the group's
 // first row's.
-Outcome Session::select_groups(const sql::Select& select, const catalog::Table* table, const std::string& database) {
+Outcome Session::select_groups(const sql::Select& select, const catalog::Table* table, const std::string& database, JoinFrom* join) {
   if (select.with_rollup) throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'WITH ROLLUP'");
   auto settings = eval_settings();
   std::optional<TableColumns> table_columns;
+  std::optional<JoinIndexed> join_columns;
+  const IndexedColumns* columns = nullptr;
   if (table) {
     table_columns.emplace(*table, database, select.from.front().alias, settings, _view, through_temporary_table(select));
-    settings.columns = &*table_columns;
+    columns = &*table_columns;
+  } else if (join) {
+    join_columns.emplace(*join, select);
+    columns = &*join_columns;
   }
-  const TableColumns* columns = table_columns ? &*table_columns : nullptr;
+  settings.columns = columns;
   // Reads each row: WHERE, the group's values, aggregates' arguments. An
   // aggregate here is 1111.
   Evaluator rows(settings);
@@ -2421,22 +2657,22 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
   std::vector<Output> outputs;
   for (const auto& item : select.items) {
     if (item.star) {
-      if (!table) throw SqlError(er_no_tables_used, "HY000", "No tables used");
-      const auto& p = item.star_path;
-      const auto& alias = select.from.front().alias;
-      const bool ours =
-          p.empty() || (p.size() == 1 && p[0] == columns->qualifier()) || (p.size() == 2 && alias.empty() && p[0] == database && p[1] == table->name);
-      if (!ours) throw SqlError(1051, "42S02", "Unknown table '" + p.back() + "'");
-      for (size_t i = 0; i < table->columns.size(); ++i) outputs.push_back({i, nullptr, table->columns[i].name, {}});
+      if (!columns) throw SqlError(er_no_tables_used, "HY000", "No tables used");
+      for (const auto i : columns->star(item.star_path)) outputs.push_back({i, nullptr, columns->name_of(i), {}});
       continue;
     }
     std::optional<size_t> column;
     if (item.expr->kind == sql::ExprKind::column && columns) column = columns->index(item.expr->path);
-    const auto column_named = [&] { return item.has_alias ? alias_name(item.alias) : _view ? table->columns[*column].name : item.expr->path.back(); };
+    const auto column_named = [&] { return item.has_alias ? alias_name(item.alias) : _view ? columns->name_of(*column) : item.expr->path.back(); };
     outputs.push_back({column, item.expr.get(), column ? column_named() : column_name(item), {}});
   }
 
   // GROUP BY: a table's column before an alias; a position.
+  const auto is_table_column = [&](const sql::Expr& x) {
+    std::optional<size_t> i;
+    in_clause("group statement", [&] { i = columns->index(x.path); });
+    return i.has_value();
+  };
   std::vector<const sql::Expr*> groups_by;
   for (const auto& g : select.group_by) {
     const sql::Expr* e = g.get();
@@ -2445,7 +2681,7 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
       if (position < 1 || position > select.items.size() || select.items[position - 1].star)
         throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + e->value + "' in 'group statement'");
       e = select.items[position - 1].expr.get();
-    } else if (e->kind == sql::ExprKind::column && e->path.size() == 1 && !(columns && columns->index(e->path))) {
+    } else if (e->kind == sql::ExprKind::column && e->path.size() == 1 && !(columns && is_table_column(*e))) {
       for (const auto& item : select.items)
         if (item.has_alias && sql::same_word(item.alias, e->path[0])) {
           e = item.expr.get();
@@ -2529,32 +2765,23 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
       if (g->kind == sql::ExprKind::column) grouped.push_back(*columns->index(g->path));
   }
   const auto has = [](const std::vector<size_t>& v, size_t i) { return std::find(v.begin(), v.end(), i) != v.end(); };
-  // Grouped by the leading columns of an index (in any order), MySQL reads
-  // the groups off the index with no temporary table (observed: expressions
-  // keep BINARY; GROUP BY c, k with k the primary key still uses one). A view
-  // has no index.
+  // Grouped by columns that lead an index, MySQL reads the groups off the
+  // index with no temporary table (observed: expressions keep BINARY).
   const auto grouped_by_index = [&](const std::vector<const sql::Expr*>& by) {
-    if (!table || _view) return false;
+    if (!columns) return false;
     for (const auto* g : by)
       if (g->kind != sql::ExprKind::column) return false;
-    std::vector<size_t> distinct;
-    for (const auto i : grouped)
-      if (!has(distinct, i)) distinct.push_back(i);
-    for (const auto& key : table->keys) {
-      bool leading = key.parts.size() >= distinct.size();
-      for (size_t p = 0; leading && p < distinct.size(); ++p) leading = !key.parts[p].prefix && has(distinct, key.parts[p].column);
-      if (leading) return true;
-    }
-    return false;
+    return columns->grouped_by_index(grouped);
   };
 
   if (columns && has_mode(_variables.text("sql_mode"), "ONLY_FULL_GROUP_BY") && !per_row) {
-    // A key every column of which is grouped or fixed fixes the row.
+    // What is grouped or fixed, and what follows from it (a key of a table
+    // fixes its row).
     auto known = grouped;
     known.insert(known.end(), fixed.begin(), fixed.end());
-    const bool whole_row = !groups_by.empty() && holds_a_key(*table, known);
-    const auto dependent = [&](size_t i) { return whole_row || has(grouped, i) || has(fixed, i); };
-    const auto named = [&](size_t i) { return database + "." + columns->qualifier() + "." + table->columns[i].name; };
+    const auto determined = groups_by.empty() ? known : columns->determined(known);
+    const auto dependent = [&](size_t i) { return has(determined, i); };
+    const auto named = [&](size_t i) { return columns->named(i); };
     const std::string incompatible = "; this is incompatible with sql_mode=only_full_group_by";
     const auto check = [&](const sql::Expr* e, std::optional<size_t> column, size_t number, const char* clause) {
       for (const auto* g : groups_by)
@@ -2614,6 +2841,8 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
       auto column = columns->column(*o.column, o.name);
       if (implicit) column.type.flags = static_cast<uint16_t>(column.type.flags & ~c::not_null);
       if (temporary && column.type.nullable() && has(grouped, *o.column)) column.type.flags = static_cast<uint16_t>(column.type.flags | group_flag);
+      // A join's temporary table holds no keys (observed).
+      if (temporary && join) column.type = without_keys(column.type);
       result.columns.push_back(std::move(column));
       continue;
     }
@@ -2642,25 +2871,45 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
   const uint64_t offset = select.offset ? limit_of(*select.offset) : 0;
   std::vector<uint16_t> key_collations;
   for (const auto* g : groups_by) key_collations.push_back(key_collation(*g, rows.type(*g), columns, settings.result_collation));
+  // A group's first row, by its number among the rows read; none for an
+  // implicit group of no rows.
+  constexpr size_t no_row = std::numeric_limits<size_t>::max();
   struct Group {
-    const txn::Row* row = nullptr;
+    size_t row = no_row;
     std::vector<Accumulator> sums;
   };
   std::vector<Group> groups;
   std::map<std::vector<Value>, size_t, ValuesLess> found(ValuesLess{&key_collations});
-  const auto new_group = [&](const txn::Row* row) {
+  const auto new_group = [&](size_t row) {
     Group g{row, {}};
     for (const auto& spec : specs) g.sums.emplace_back(spec);
     groups.push_back(std::move(g));
     return groups.size() - 1;
   };
-  if (implicit) new_group(nullptr);
+  if (implicit) new_group(no_row);
 
-  txn::Transaction* t = table && !_view ? &transaction() : nullptr;
-  const auto* clause = t ? locking_clause(select, table_columns->qualifier()) : nullptr;
+  txn::Transaction* t = (table && !_view) || join ? &transaction() : nullptr;
+  std::vector<txn::Row> table_rows;
+  std::vector<Joined> joined_rows;
+  const auto set_row = [&](size_t k) {
+    if (join) join->set(k == no_row ? nullptr : &joined_rows[k]);
+    if (table_columns) table_columns->set_row(k == no_row ? nullptr : &table_rows[k]);
+  };
+  const sql::Select::Locking* clause = nullptr;
   try {
-    std::vector<txn::Row> table_rows;
-    if (t && clause) {
+    if (join) {
+      // A read that would lock (INSERT ... SELECT's source, SERIALIZABLE)
+      // waits for locking reads over joins.
+      if (locking_clause(select, join->leaves.front()->columns->qualifier()))
+        throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'locking reads over joins'");
+    } else if (t) {
+      clause = locking_clause(select, table_columns->qualifier());
+    }
+    if (join) {
+      begin_reading(*t);
+      for (auto& leaf : join->leaves) leaf->rows = _rows.rows(*t, leaf->table.id);
+      joined_rows = join->rows();
+    } else if (t && clause) {
       // A locking read: the current rows, those WHERE keeps locked.
       begin_reading(*t);
       if (!_insert_source) _rows.begin_statement(*t);
@@ -2678,24 +2927,25 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
       // A SELECT without FROM reads one row of nothing.
       table_rows.emplace_back();
     }
-    for (const auto& row : table_rows) {
-      if (columns) table_columns->set_row(&row);
+    const size_t row_count = join ? joined_rows.size() : table_rows.size();
+    for (size_t k = 0; k < row_count; ++k) {
+      set_row(k);
       if (select.where && !(constant_where ? *constant_where : holds(rows, *select.where))) continue;
       size_t g = 0;
       if (per_row) {
-        g = new_group(&row);
+        g = new_group(k);
       } else if (!implicit) {
         std::vector<Value> keys;
         for (const auto* e : groups_by) keys.push_back(rows.value(*e));
         const auto at = found.find(keys);
         if (at == found.end()) {
-          g = new_group(&row);
+          g = new_group(k);
           found.emplace(std::move(keys), g);
         } else {
           g = at->second;
         }
-      } else if (!groups[0].row) {
-        groups[0].row = &row;
+      } else if (groups[0].row == no_row) {
+        groups[0].row = k;
       }
       for (size_t s = 0; s < specs.size(); ++s) {
         std::vector<Value> args;
@@ -2711,7 +2961,7 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
     };
     std::vector<Chosen> chosen;
     for (const auto& g : groups) {
-      if (columns) table_columns->set_row(g.row);
+      set_row(g.row);
       aggregates.set_group(&g.sums);
       if (select.having && !(constant_having ? *constant_having : holds(having, *select.having))) continue;
       Chosen ch;
@@ -2749,9 +2999,9 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
     }
     for (size_t i = 0; i < chosen.size(); ++i)
       if (i >= offset && i - offset < limit) result.rows.push_back(std::move(chosen[i].texts));
-    if (columns) table_columns->set_row(nullptr);
+    set_row(no_row);
   } catch (...) {
-    if (columns) table_columns->set_row(nullptr);
+    set_row(no_row);
     // A locking read that could not finish gives back what it locked (an
     // INSERT's source, with the INSERT).
     if (t && clause && !_insert_source) _rows.undo_statement(*t);
@@ -2761,6 +3011,10 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
   if (t) end_statement(false);
   _warnings = rows.warnings();
   for (const auto* e : {&items, &having}) _warnings.insert(_warnings.end(), e->warnings().begin(), e->warnings().end());
+  if (join) {
+    const auto more = join->warnings();
+    _warnings.insert(_warnings.end(), more.begin(), more.end());
+  }
   Outcome out;
   out.result = std::move(result);
   return out;

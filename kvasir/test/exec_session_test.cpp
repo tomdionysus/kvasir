@@ -2247,7 +2247,6 @@ TEST(ExecSessionGroups, Refusals) {
   b.expect_refused("SELECT k FROM v GROUP BY k WITH ROLLUP", 1235, "42000", "This version of Kvasir doesn't yet support 'WITH ROLLUP'");
   b.expect_refused("SELECT GROUP_CONCAT(c) FROM v", 1235, "42000", "This version of Kvasir doesn't yet support 'GROUP_CONCAT'");
   // What joins do not yet carry out.
-  b.expect_refused("SELECT COUNT(*) FROM v, v AS w", 1235, "42000", "This version of Kvasir doesn't yet support 'grouping over joins'");
   b.expect_refused("SELECT * FROM v JOIN v AS w ON 1 FOR UPDATE", 1235, "42000", "This version of Kvasir doesn't yet support 'locking reads over joins'");
   b.expect_refused("SELECT * FROM v JOIN information_schema.tables ON 1", 1235, "42000",
                    "This version of Kvasir doesn't yet support 'joins over information_schema'");
@@ -2400,6 +2399,49 @@ TEST(ExecSessionJoins, OuterJoinsAndUsing) {
   b.expect_refused("SELECT * FROM a JOIN b USING (zz)", 1054, "42S22", "Unknown column 'zz' in 'from clause'");
   b.expect_refused("SELECT * FROM a JOIN b USING (a_id)", 1054, "42S22", "Unknown column 'a_id' in 'from clause'");
   b.expect_refused("SELECT * FROM a, b JOIN c USING (id)", 1054, "42S22", "Unknown column 'id' in 'from clause'");
+}
+
+// Grouping over joins, as observed on MySQL 8.4.13 (2026-11-23): groups of
+// the joined rows; COUNT over an outer join's NULL side counts 0. Under
+// ONLY_FULL_GROUP_BY a column follows from the grouped ones through a key
+// of its table, and through an equality of the join (GROUP BY b.a_id reads
+// a.x when a.id = b.a_id). Grouping goes through a temporary table unless
+// the plan's first table is grouped by one of its indexes and each later
+// table is found through an index.
+TEST(ExecSessionJoins, Grouping) {
+  TableBed b;
+  run(b.s, "CREATE TABLE a (id INT PRIMARY KEY, x VARCHAR(10) NOT NULL, n INT)");
+  run(b.s, "CREATE TABLE b (id INT PRIMARY KEY, a_id INT NOT NULL, y VARCHAR(5))");
+  run(b.s, "INSERT INTO a VALUES (1,'one',10),(2,'two',NULL),(3,'three',30)");
+  run(b.s, "INSERT INTO b VALUES (10,1,'p'),(11,1,'q'),(12,3,NULL),(13,9,'z')");
+
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a.id, COUNT(b.id), COUNT(*), MAX(b.y), SUM(b.id) FROM a LEFT JOIN b ON a.id = b.a_id GROUP BY a.id ORDER BY a.id")),
+            (Rows{{"1", "2", "2", "q", "21"}, {"2", "0", "1", "NULL", "NULL"}, {"3", "1", "1", "NULL", "12"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a.x, COUNT(*) FROM a JOIN b ON a.id = b.a_id GROUP BY a.x ORDER BY a.x")), (Rows{{"one", "2"}, {"three", "1"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT COUNT(*), COUNT(b.y), MIN(a.x) FROM a, b")), (Rows{{"12", "9", "one"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT a.id, COUNT(*) FROM a JOIN b ON a.id = b.a_id GROUP BY a.id HAVING COUNT(*) > 1")), (Rows{{"1", "2"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT b.a_id, a.x FROM b JOIN a ON a.id = b.a_id GROUP BY b.a_id ORDER BY 1")), (Rows{{"1", "one"}, {"3", "three"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT b.id, a.x FROM b JOIN a ON a.id = b.a_id GROUP BY b.id ORDER BY 1")),
+            (Rows{{"10", "one"}, {"11", "one"}, {"12", "three"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT DISTINCT a.x FROM a JOIN b ON 1 GROUP BY a.x, b.y ORDER BY a.x")), (Rows{{"one"}, {"three"}, {"two"}}));
+
+  // A temporary table: key flags gone, COUNT without BINARY.
+  EXPECT_EQ(shapes(run(b.s, "SELECT a.id, COUNT(b.id) FROM a LEFT JOIN b ON a.id = b.a_id GROUP BY a.id")),
+            (std::vector<Shape>{{f::long_, bin, 11, 0, nn | nodef | num}, {f::longlong, bin, 21, 0, nn | num}}));
+  // Off b's primary key, with a found by its own: none.
+  EXPECT_EQ(shapes(run(b.s, "SELECT b.id, COUNT(*) FROM b JOIN a ON a.id = b.a_id GROUP BY b.id")),
+            (std::vector<Shape>{{f::long_, bin, 11, 0, nn | pri | nodef | num | part}, {f::longlong, bin, 21, 0, nn | c::binary | num}}));
+  // No GROUP BY: one group, no temporary table.
+  EXPECT_EQ(shapes(run(b.s, "SELECT COUNT(*) FROM a, b")), (std::vector<Shape>{{f::longlong, bin, 21, 0, nn | c::binary | num}}));
+
+  b.expect_refused("SELECT b.a_id, b.y FROM b JOIN a ON a.id = b.a_id GROUP BY b.a_id", 1055, "42000",
+                   "Expression #2 of SELECT list is not in GROUP BY clause and contains nonaggregated column 'pt.b.y' which is not functionally dependent on "
+                   "columns in GROUP BY clause; this is incompatible with sql_mode=only_full_group_by");
+  b.expect_refused("SELECT a.x, b.y FROM a JOIN b ON a.id = b.a_id GROUP BY a.x", 1055, "42000",
+                   "Expression #2 of SELECT list is not in GROUP BY clause and contains nonaggregated column 'pt.b.y' which is not functionally dependent on "
+                   "columns in GROUP BY clause; this is incompatible with sql_mode=only_full_group_by");
+  b.expect_refused("SELECT id, COUNT(*) FROM a JOIN b ON 1 GROUP BY id", 1052, "23000", "Column 'id' in field list is ambiguous");
+  b.expect_refused("SELECT COUNT(*) FROM a JOIN b ON 1 GROUP BY id", 1052, "23000", "Column 'id' in group statement is ambiguous");
 }
 
 TEST(ExecSessionFunctions, FlowControlOverColumns) {

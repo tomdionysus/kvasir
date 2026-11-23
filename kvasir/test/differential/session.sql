@@ -843,6 +843,17 @@ SELECT * FROM kv_join.a NATURAL LEFT JOIN kv_join.b ORDER BY id
 SELECT * FROM kv_join.a JOIN kv_join.b USING (zz)
 SELECT * FROM kv_join.a JOIN kv_join.b USING (a_id)
 SELECT * FROM kv_join.a, kv_join.b JOIN kv_join.c USING (id)
+SELECT a.id, COUNT(b.id), COUNT(*), MAX(b.y), SUM(b.id) FROM kv_join.a LEFT JOIN kv_join.b ON a.id = b.a_id GROUP BY a.id ORDER BY a.id
+SELECT a.x, COUNT(*) FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id GROUP BY a.x ORDER BY a.x
+SELECT COUNT(*), COUNT(b.y), MIN(a.x) FROM kv_join.a, kv_join.b
+SELECT a.id, COUNT(*) FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id GROUP BY a.id HAVING COUNT(*) > 1
+SELECT b.a_id, a.x FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id GROUP BY b.a_id ORDER BY 1
+SELECT b.id, a.x, COUNT(*) FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id GROUP BY b.id ORDER BY 1
+SELECT id, COUNT(*) FROM kv_join.a JOIN kv_join.b USING (id) GROUP BY id
+SELECT DISTINCT a.x FROM kv_join.a JOIN kv_join.b ON 1 GROUP BY a.x, b.y ORDER BY a.x
+SELECT b.a_id, b.y FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id GROUP BY b.a_id
+SELECT a.x, b.y FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id GROUP BY a.x
+SELECT id, COUNT(*) FROM kv_join.a JOIN kv_join.b ON 1 GROUP BY id
 DROP DATABASE kv_join
 SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 SELECT REPEAT('ab',3), REPEAT('ab',0), REPEAT('ab',-1), REPEAT(NULL,2), REPEAT(1,2), REVERSE('abc'), REVERSE('héllo'), REVERSE(NULL), REVERSE(123), REVERSE(_binary'ab')
