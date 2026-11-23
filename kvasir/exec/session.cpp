@@ -333,7 +333,7 @@ std::vector<ResultType> Session::infer_parameters(const sql::Statement& s) const
   if (s.kind == sql::Statement::Kind::select && s.select.from.size() == 1 && !s.select.from[0].is_join())
     table = _catalog.table({database_of(s.select.from[0].name), s.select.from[0].name.back()});
   if (s.kind == sql::Statement::Kind::insert) table = named_table(s.insert.table);
-  if (s.kind == sql::Statement::Kind::update || s.kind == sql::Statement::Kind::delete_) table = named_table(s.change.table.name);
+  if ((s.kind == sql::Statement::Kind::update || s.kind == sql::Statement::Kind::delete_) && !s.change.multiple()) table = named_table(s.change.table.name);
   const auto integer_column = [&](const std::string& name) {
     if (!table) return false;
     for (const auto& col : table->columns)
@@ -2005,7 +2005,8 @@ using DatabaseOf = std::function<std::string(const std::vector<std::string>&)>;
 // once (1066); USING's and NATURAL's columns paired and merged (1054 'from
 // clause'); each ON typed over its own join's tables (1054, 1052 'on
 // clause'); an outer join's inner side marked as possibly NULL.
-std::unique_ptr<JoinFrom> join_from(const sql::Select& select, const catalog::Catalog& catalog, const DatabaseOf& database_of, const EvalSettings& settings) {
+std::unique_ptr<JoinFrom> join_from(const std::vector<sql::TableRef>& references, const catalog::Catalog& catalog, const DatabaseOf& database_of,
+                                    const EvalSettings& settings) {
   using Join = sql::TableRef::Join;
   auto from = std::make_unique<JoinFrom>();
   auto& leaves = from->leaves;
@@ -2090,7 +2091,7 @@ std::unique_ptr<JoinFrom> join_from(const sql::Select& select, const catalog::Ca
       for (const auto& p : side->star)
         if (std::find(merged.begin(), merged.end(), scope.merged(p)) == merged.end()) node.star.push_back(p);
   };
-  for (const auto& ref : select.from) {
+  for (const auto& ref : references) {
     auto next = build(ref);
     if (!from->root) {
       from->root = std::move(next);
@@ -2472,7 +2473,7 @@ void Session::lock_join(JoinFrom& from, const std::vector<const sql::Select::Loc
 // optimizer's order decides; recorded where it differs).
 Outcome Session::select_joined(const sql::Select& select) {
   auto settings = eval_settings();
-  auto from = join_from(select, _catalog, [&](const std::vector<std::string>& name) { return database_of(name); }, settings);
+  auto from = join_from(select.from, _catalog, [&](const std::vector<std::string>& name) { return database_of(name); }, settings);
   if (is_grouped(select)) return select_groups(select, nullptr, "", from.get());
   auto& leaves = from->leaves;
   const auto& root = from->root;
@@ -3426,9 +3427,174 @@ Outcome Session::insert(const sql::Statement& statement) {
   return outcome;
 }
 
+void Session::assign(const catalog::Table& table, size_t index, const sql::Expr& value, txn::Row& row, Evaluator& evaluator, uint64_t number) {
+  const auto& column = table.columns[index];
+  if (value.kind == sql::ExprKind::default_value) {
+    if (column.default_kind == catalog::Column::Default::value) {
+      row[index] = column.default_value;
+    } else if (column.default_kind == catalog::Column::Default::none && !column.nullable) {
+      throw SqlError(1364, "HY000", "Field '" + column.name + "' doesn't have a default value");
+    } else {
+      row[index].reset();
+    }
+    return;
+  }
+  const auto from = evaluator.type(value);
+  const auto v = evaluator.value(value);
+  if (is_null(v)) {
+    if (!column.nullable) throw SqlError(1048, "23000", "Column '" + column.name + "' cannot be null");
+    row[index].reset();
+    return;
+  }
+  row[index] = stored_text(column, v, from, number, _warnings);
+  if (column.auto_increment && (*row[index])[0] != '-') _rows.saw_auto(table.id, table.auto_increment, std::stoull(*row[index]));
+}
+
+// Multiple-table UPDATE and DELETE (the manual's UPDATE and DELETE
+// statements; observed on MySQL 8.4.13): the tables joined as a SELECT joins
+// them; the tables changed (UPDATE's SET, DELETE's targets) read and locked
+// as UPDATE reads, the others with shared locks; each row of a changed
+// table that a joined row WHERE keeps holds is changed once, by the first
+// such joined row. UPDATE takes no ORDER BY or LIMIT (1221).
+Outcome Session::change_joined(const sql::Statement& statement) {
+  const bool deleting = statement.kind == sql::Statement::Kind::delete_;
+  const auto& c = statement.change;
+  auto settings = eval_settings();
+  auto from = join_from(c.from, _catalog, [&](const std::vector<std::string>& name) { return database_of(name); }, settings);
+  auto& leaves = from->leaves;
+  for (const auto& leaf : leaves) refuse_information_schema(leaf->database);
+  const JoinedColumns& columns = *from->columns;
+  settings.columns = &columns;
+  Evaluator evaluator(settings);
+  if (!deleting && !c.order.empty()) throw SqlError(1221, "HY000", "Incorrect usage of UPDATE and ORDER BY");
+  if (!deleting && c.limit) throw SqlError(1221, "HY000", "Incorrect usage of UPDATE and LIMIT");
+
+  // The tables changed, in the order first named; UPDATE's SET by table.
+  std::vector<size_t> changed;
+  struct Set {
+    JoinPlace column;
+    const sql::Expr* value;
+  };
+  std::vector<Set> sets;
+  if (deleting) {
+    for (const auto& target : c.targets) {
+      std::optional<size_t> found;
+      for (size_t l = 0; l < leaves.size() && !found; ++l) {
+        const auto& leaf = *leaves[l];
+        const bool bare = leaf.columns->qualifier() == leaf.table.name;
+        if ((target.size() == 1 && target[0] == leaf.columns->qualifier()) ||
+            (target.size() == 2 && bare && target[0] == leaf.database && target[1] == leaf.table.name))
+          found = l;
+      }
+      if (!found) throw SqlError(1109, "42S02", "Unknown table '" + target.back() + "' in MULTI DELETE");
+      if (std::find(changed.begin(), changed.end(), *found) == changed.end()) changed.push_back(*found);
+    }
+  } else {
+    for (const auto& [path, value] : c.set) {
+      const auto p = columns.place(path);
+      if (!p) {
+        std::string name;
+        for (size_t k = 0; k < path.size(); ++k) name += (k ? "." : "") + path[k];
+        throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + name + "' in 'field list'");
+      }
+      if (value->kind != sql::ExprKind::default_value) evaluator.type(*value);
+      sets.push_back({*p, value.get()});
+      if (std::find(changed.begin(), changed.end(), p->leaf) == changed.end()) changed.push_back(p->leaf);
+    }
+  }
+  if (c.where) in_clause("where clause", [&] { evaluator.type(*c.where); });
+
+  // Changed tables locked as UPDATE locks them, the others shared.
+  static const sql::Select::Locking exclusive{true, {}, sql::Select::Locking::Wait::wait};
+  static const sql::Select::Locking shared;
+  std::vector<const sql::Select::Locking*> clauses(leaves.size(), &shared);
+  for (const auto l : changed) clauses[l] = &exclusive;
+
+  auto& t = transaction();
+  Outcome outcome;
+  uint64_t matched = 0;
+  try {
+    read_join(*from, clauses, t);
+    const auto modes = _variables.text("sql_mode");
+    const bool strict = has_mode(modes, "STRICT_TRANS_TABLES") || has_mode(modes, "STRICT_ALL_TABLES");
+    const auto passes = [&] {
+      const size_t held = evaluator.warnings().size();
+      const bool b = holds(evaluator, *c.where);
+      if (strict)
+        for (size_t k = held; k < evaluator.warnings().size(); ++k)
+          if (evaluator.warnings()[k].code == er_truncated_wrong_value) throw SqlError(er_truncated_wrong_value, "22007", evaluator.warnings()[k].message);
+      return b;
+    };
+    std::optional<bool> constant_where;
+    if (c.where && !mentions_column(*c.where)) constant_where = passes();
+    auto joined = from->rows();
+    std::vector<const Joined*> kept;
+    for (const auto& j : joined) {
+      from->set(&j);
+      if (c.where && !(constant_where ? *constant_where : passes())) continue;
+      kept.push_back(&j);
+    }
+    lock_join(*from, clauses, t, kept, c.where.get());
+
+    // Each changed table's rows, each once, by the first joined row that
+    // holds it.
+    std::vector<std::set<const txn::Row*>> done(leaves.size());
+    for (const auto* j : kept) {
+      for (const auto l : changed) {
+        auto& leaf = *leaves[l];
+        const auto* old_row = (*j)[l];
+        if (!old_row || !done[l].insert(old_row).second) continue;
+        ++matched;
+        const auto& key = leaf.keys[static_cast<size_t>(old_row - leaf.rows.data())];
+        uint64_t holder = 0;
+        if (deleting) {
+          if (!_rows.remove(t, leaf.table.id, key, &holder)) throw LockWaitNeeded(t.id(), holder);
+          ++outcome.affected_rows;
+          continue;
+        }
+        // The joined row as read, but this table's row as SET has it so
+        // far: each value sees the columns set before it.
+        from->set(j);
+        txn::Row row = *old_row;
+        leaf.columns->set_row(&row);
+        for (const auto& set : sets)
+          if (set.column.leaf == l) assign(leaf.table, set.column.column, *set.value, row, evaluator, matched);
+        leaf.columns->set_row(old_row);
+        if (row != *old_row) ++outcome.affected_rows;
+        const auto primary = leaf.table.primary_key();
+        const std::string new_key = primary ? encode_key(leaf.table, leaf.table.keys[*primary], row) : key;
+        std::string duplicate;
+        switch (_rows.update(t, leaf.table.id, key, new_key, unique_names(leaf.table, primary, row), row, &duplicate, &holder)) {
+          case txn::Store::Inserted::inserted:
+            break;
+          case txn::Store::Inserted::locked:
+            throw LockWaitNeeded(t.id(), holder);
+          case txn::Store::Inserted::duplicate:
+            duplicate_entry(leaf.table, primary, duplicate, row);
+        }
+      }
+    }
+    from->set(nullptr);
+  } catch (...) {
+    from->set(nullptr);
+    _rows.undo_statement(t);
+    end_statement(true);
+    throw;
+  }
+  end_statement(false);
+  _warnings.insert(_warnings.end(), evaluator.warnings().begin(), evaluator.warnings().end());
+  const auto more = from->warnings();
+  _warnings.insert(_warnings.end(), more.begin(), more.end());
+  if (!deleting)
+    outcome.info =
+        "Rows matched: " + std::to_string(matched) + "  Changed: " + std::to_string(outcome.affected_rows) + "  Warnings: " + std::to_string(_warnings.size());
+  return outcome;
+}
+
 Outcome Session::change_rows(const sql::Statement& statement) {
   const bool deleting = statement.kind == sql::Statement::Kind::delete_;
   const auto& c = statement.change;
+  if (c.multiple()) return change_joined(statement);
   const auto database = database_of(c.table.name);
   refuse_information_schema(database);
   const auto table = _catalog.table({database, c.table.name.back()});
@@ -3524,28 +3690,7 @@ Outcome Session::change_rows(const sql::Statement& statement) {
       // Each value sees the columns set before it.
       txn::Row row = old_row;
       columns.set_row(&row);
-      for (const auto& set : sets) {
-        const auto& column = table->columns[set.column];
-        if (set.value->kind == sql::ExprKind::default_value) {
-          if (column.default_kind == catalog::Column::Default::value) {
-            row[set.column] = column.default_value;
-          } else if (column.default_kind == catalog::Column::Default::none && !column.nullable) {
-            throw SqlError(1364, "HY000", "Field '" + column.name + "' doesn't have a default value");
-          } else {
-            row[set.column].reset();
-          }
-          continue;
-        }
-        const auto from = evaluator.type(*set.value);
-        const auto value = evaluator.value(*set.value);
-        if (is_null(value)) {
-          if (!column.nullable) throw SqlError(1048, "23000", "Column '" + column.name + "' cannot be null");
-          row[set.column].reset();
-          continue;
-        }
-        row[set.column] = stored_text(column, value, from, matched, _warnings);
-        if (column.auto_increment && (*row[set.column])[0] != '-') _rows.saw_auto(table->id, table->auto_increment, std::stoull(*row[set.column]));
-      }
+      for (const auto& set : sets) assign(*table, set.column, *set.value, row, evaluator, matched);
       columns.set_row(nullptr);
       if (row != old_row) ++outcome.affected_rows;
       const std::string new_key = primary ? encode_key(*table, table->keys[*primary], row) : key;

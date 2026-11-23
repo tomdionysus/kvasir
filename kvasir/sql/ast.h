@@ -245,9 +245,16 @@ struct Insert {
 
 // UPDATE table [AS alias] SET column = value, ... and DELETE FROM table [AS
 // alias], each with [WHERE] [ORDER BY] [LIMIT n]. DEFAULT as a value is
-// ExprKind::default_value.
+// ExprKind::default_value. The multiple-table forms (UPDATE references SET
+// ..., DELETE targets FROM references, DELETE FROM targets USING
+// references) have `from` instead of `table`, and DELETE's targets.
 struct Change {
   TableRef table;
+  std::vector<TableRef> from;
+  // DELETE's tables to delete from: [schema.]name, as the references name
+  // them (`name.*` read as `name`).
+  std::vector<std::vector<std::string>> targets;
+  bool multiple() const noexcept { return !from.empty(); }
   // UPDATE's assignments: [table.]column and its value, in the order written.
   std::vector<std::pair<std::vector<std::string>, ExprPtr>> set;
   ExprPtr where;

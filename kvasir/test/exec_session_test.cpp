@@ -2493,6 +2493,62 @@ TEST(ExecSessionJoins, Grouping) {
   b.expect_refused("SELECT COUNT(*) FROM a JOIN b ON 1 GROUP BY id", 1052, "23000", "Column 'id' in group statement is ambiguous");
 }
 
+// Multiple-table UPDATE and DELETE, as observed on MySQL 8.4.13
+// (2026-11-23): each row of a table changed that a kept joined row holds is
+// changed once, by the first; ROW_COUNT counts the rows changed in every
+// table. A DELETE names its targets as the references name them (1109
+// else). UPDATE takes no ORDER BY or LIMIT (1221); a bare SET column two
+// tables hold is 1052. The tables changed are locked as UPDATE locks them,
+// the others shared.
+TEST(ExecSessionJoins, MultipleTableChanges) {
+  TableBed b;
+  run(b.s, "CREATE TABLE a (id INT PRIMARY KEY, x VARCHAR(10) NOT NULL, n INT)");
+  run(b.s, "CREATE TABLE b (id INT PRIMARY KEY, a_id INT NOT NULL, y VARCHAR(5))");
+  run(b.s, "INSERT INTO a VALUES (1,'one',10),(2,'two',NULL),(3,'three',30)");
+  run(b.s, "INSERT INTO b VALUES (10,1,'p'),(11,1,'q'),(12,3,NULL),(13,9,'z')");
+
+  auto changed = run(b.s, "UPDATE a JOIN b ON a.id = b.a_id SET a.n = a.n + 1, b.y = 'u'");
+  EXPECT_EQ(changed.affected_rows, 5u);
+  EXPECT_EQ(changed.info, "Rows matched: 5  Changed: 5  Warnings: 0");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT id, n FROM a ORDER BY id")), (Rows{{"1", "11"}, {"2", "NULL"}, {"3", "31"}}));
+  EXPECT_EQ(rows_of(run(b.s, "SELECT id, y FROM b ORDER BY id")), (Rows{{"10", "u"}, {"11", "u"}, {"12", "u"}, {"13", "z"}}));
+  EXPECT_EQ(run(b.s, "UPDATE a, b SET a.n = b.id WHERE a.id = b.a_id AND b.id = 12").affected_rows, 1u);
+  EXPECT_EQ(run(b.s, "UPDATE a LEFT JOIN b ON a.id = b.a_id SET a.x = CONCAT(a.x, '!') WHERE b.id IS NULL").affected_rows, 1u);
+  EXPECT_EQ(rows_of(run(b.s, "SELECT x, n FROM a ORDER BY id")), (Rows{{"one", "11"}, {"two!", "NULL"}, {"three", "12"}}));
+  // A column only one table holds needs no qualifier; each SET sees those
+  // of its table before it.
+  run(b.s, "UPDATE a JOIN b ON a.id = b.a_id SET n = 1, a.x = CONCAT(n, '')");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT x, n FROM a ORDER BY id")), (Rows{{"1", "1"}, {"two!", "NULL"}, {"1", "1"}}));
+
+  b.expect_refused("UPDATE a JOIN b ON a.id = b.a_id SET id = 1", 1052, "23000", "Column 'id' in field list is ambiguous");
+  b.expect_refused("UPDATE a JOIN b ON a.id = b.a_id SET a.n = 1 ORDER BY a.id", 1221, "HY000", "Incorrect usage of UPDATE and ORDER BY");
+  b.expect_refused("UPDATE a JOIN b ON a.id = b.a_id SET a.n = 1 LIMIT 1", 1221, "HY000", "Incorrect usage of UPDATE and LIMIT");
+  b.expect_refused("UPDATE a JOIN b ON a.id = b.a_id SET zz.n = 1", 1054, "42S22", "Unknown column 'zz.n' in 'field list'");
+  b.expect_refused("DELETE zz FROM a JOIN b ON 1", 1109, "42S02", "Unknown table 'zz' in MULTI DELETE");
+  b.expect_refused("DELETE a FROM a AS t JOIN b ON 1 WHERE 0", 1109, "42S02", "Unknown table 'a' in MULTI DELETE");
+  // A change that fails leaves nothing behind.
+  b.expect_refused("UPDATE a JOIN b ON a.id = b.a_id SET b.id = 13", 1062, "23000", "Duplicate entry '13' for key 'b.PRIMARY'");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT id FROM b ORDER BY id")), (Rows{{"10"}, {"11"}, {"12"}, {"13"}}));
+
+  EXPECT_EQ(run(b.s, "DELETE t FROM a AS t JOIN b ON 1 WHERE 0").affected_rows, 0u);
+  EXPECT_EQ(run(b.s, "DELETE a, b FROM a JOIN b ON a.id = b.a_id WHERE a.id = 3").affected_rows, 2u);
+  EXPECT_EQ(run(b.s, "DELETE FROM b USING a JOIN b ON a.id = b.a_id WHERE a.id = 1").affected_rows, 2u);
+  EXPECT_EQ(run(b.s, "DELETE pt.b.* FROM b LEFT JOIN a ON a.id = b.a_id WHERE a.id IS NULL").affected_rows, 1u);
+  EXPECT_EQ(rows_of(run(b.s, "SELECT id FROM a ORDER BY id")), (Rows{{"1"}, {"2"}}));
+  EXPECT_TRUE(rows_of(run(b.s, "SELECT id FROM b")).empty());
+
+  // The rows changed are locked; the other tables' rows read are shared.
+  run(b.s, "INSERT INTO b VALUES (20, 1, 'r')");
+  auto other = b.other();
+  run(b.s, "BEGIN");
+  run(b.s, "UPDATE b JOIN a ON a.id = b.a_id SET b.y = a.x");
+  EXPECT_THROW(run(other, "UPDATE b SET y = 'w' WHERE id = 20"), LockWaitNeeded);
+  EXPECT_THROW(run(other, "UPDATE a SET x = 'w' WHERE id = 1"), LockWaitNeeded);
+  run(other, "UPDATE a SET x = 'w' WHERE id = 2");
+  run(b.s, "COMMIT");
+  EXPECT_EQ(rows_of(run(b.s, "SELECT y FROM b")), (Rows{{"1"}}));
+}
+
 TEST(ExecSessionFunctions, FlowControlOverColumns) {
   TableBed b;
   run(b.s,

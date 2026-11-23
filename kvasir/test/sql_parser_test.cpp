@@ -829,17 +829,48 @@ TEST(SqlParser, UpdateAndDelete) {
   EXPECT_EQ(s.change.table.name, (std::vector<std::string>{"d", "t"}));
   EXPECT_EQ(s.change.order.size(), 1u);
   EXPECT_EQ(one("UPDATE IGNORE t SET a = 1").unsupported, "UPDATE IGNORE");
-  EXPECT_EQ(one("UPDATE t, u SET t.a = 1").unsupported, "multiple-table UPDATE");
-  EXPECT_EQ(one("UPDATE t JOIN u ON t.a = u.a SET t.a = 1").unsupported, "multiple-table UPDATE");
   EXPECT_EQ(one("DELETE IGNORE FROM t").unsupported, "DELETE IGNORE");
-  EXPECT_EQ(one("DELETE t FROM t JOIN u").unsupported, "multiple-table DELETE");
-  EXPECT_EQ(one("DELETE FROM t USING t JOIN u").unsupported, "multiple-table DELETE");
-  EXPECT_EQ(one("DELETE FROM t, u USING t").unsupported, "multiple-table DELETE");
   EXPECT_EQ(error_at("UPDATE t"), 8u);
   EXPECT_EQ(error_at("UPDATE t SET"), 12u);
   EXPECT_EQ(error_at("UPDATE t SET a"), 14u);
-  EXPECT_EQ(error_at("DELETE t"), 7u);
   EXPECT_EQ(error_at("DELETE FROM"), 11u);
+}
+
+// The multiple-table forms (the manual's UPDATE and DELETE statements):
+// UPDATE over table references; DELETE targets FROM references and DELETE
+// FROM targets USING references, a target `name` or `name.*`, with WHERE
+// and neither ORDER BY nor LIMIT (observed: 1064 at them, and at the end of
+// `DELETE t`).
+TEST(SqlParser, MultipleTableChanges) {
+  const auto refs = [](const Change& c) {
+    std::string out;
+    for (const auto& ref : c.from) out += (out.empty() ? "" : " , ") + to_string(ref);
+    return out;
+  };
+  auto s = one("UPDATE t, u SET t.a = 1");
+  EXPECT_EQ(refs(s.change), "t , u");
+  EXPECT_TRUE(s.change.multiple());
+  s = one("UPDATE t JOIN u ON t.a = u.a SET t.a = 1, b = 2 WHERE u.c = 3");
+  EXPECT_EQ(refs(s.change), "(JOIN t u ON (= t.a u.a))");
+  EXPECT_EQ(s.change.set.size(), 2u);
+  EXPECT_EQ(to_string(*s.change.where), "(= u.c 3)");
+  EXPECT_FALSE(one("UPDATE t AS x SET a = 1").change.multiple());
+
+  s = one("DELETE t, d.u.* FROM t JOIN d.u ON 1 WHERE t.a = 1");
+  EXPECT_EQ(s.change.targets, (std::vector<std::vector<std::string>>{{"t"}, {"d", "u"}}));
+  EXPECT_EQ(refs(s.change), "(JOIN t d.u ON 1)");
+  EXPECT_EQ(to_string(*s.change.where), "(= t.a 1)");
+  s = one("DELETE QUICK FROM t.*, u USING t LEFT JOIN u ON t.a = u.a");
+  EXPECT_EQ(s.change.targets, (std::vector<std::vector<std::string>>{{"t"}, {"u"}}));
+  EXPECT_EQ(refs(s.change), "(LEFT t u ON (= t.a u.a))");
+  s = one("DELETE FROM d.t USING d.t, u");
+  EXPECT_EQ(s.change.targets, (std::vector<std::vector<std::string>>{{"d", "t"}}));
+  EXPECT_FALSE(one("DELETE FROM d.t AS x WHERE 1").change.multiple());
+
+  EXPECT_EQ(error_at("DELETE t"), 8u);
+  EXPECT_EQ(error_at("DELETE FROM t.* WHERE 1"), 16u);
+  EXPECT_EQ(error_at("DELETE a FROM a JOIN b ON 1 ORDER BY 1"), 28u);
+  EXPECT_EQ(error_at("DELETE a FROM a JOIN b ON 1 LIMIT 1"), 28u);
 }
 
 // DROP TABLE and SHOW TABLES.

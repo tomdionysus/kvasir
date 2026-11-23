@@ -1246,3 +1246,10 @@ The record, newest first. Each entry says what landed, with its gate counts.
   (1bd90fd). Joins J1 to J5 done; multi-table UPDATE and DELETE left.
 - Gate (node-c): release, ASan and TSan each **425 tests, 1224 of 1224**
   statements, TSan with no reports.
+- Multiple-table UPDATE and DELETE (the last join stage): both forms of
+  DELETE, UPDATE over references; each changed row once; changed tables
+  locked exclusive, the others shared; 1109, 1221, 1052 as MySQL answers.
+  CI green on J5 (512dd2e), but coverage fell to 98.7% of lines with the
+  join code: the next step covers it.
+- Gate (node-c): release, ASan and TSan each **427 tests, 1250 of 1250**
+  statements, TSan with no reports.

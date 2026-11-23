@@ -860,6 +860,32 @@ SELECT a.id, b.id FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id FOR UPDATE OF a
 SELECT a.id, b.id FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY b.id FOR UPDATE OF a FOR SHARE OF b
 SELECT t.id FROM kv_join.a AS t JOIN kv_join.b ON t.id = b.a_id FOR UPDATE OF a
 SELECT a.id, COUNT(*) FROM kv_join.a LEFT JOIN kv_join.b ON a.id = b.a_id GROUP BY a.id ORDER BY a.id FOR SHARE
+UPDATE kv_join.a JOIN kv_join.b ON a.id = b.a_id SET a.n = a.n + 1, b.y = 'u'
+SELECT ROW_COUNT()
+SELECT * FROM kv_join.a ORDER BY id
+SELECT * FROM kv_join.b ORDER BY id
+UPDATE kv_join.a, kv_join.b SET a.n = b.id WHERE a.id = b.a_id AND b.id = 12
+SELECT ROW_COUNT()
+UPDATE kv_join.a LEFT JOIN kv_join.b ON a.id = b.a_id SET a.x = CONCAT(a.x, '!') WHERE b.id IS NULL
+SELECT ROW_COUNT()
+UPDATE kv_join.a JOIN kv_join.b ON a.id = b.a_id SET n = 1, a.x = CONCAT(n, '')
+SELECT * FROM kv_join.a ORDER BY id
+UPDATE kv_join.a JOIN kv_join.b ON a.id = b.a_id SET id = 1
+UPDATE kv_join.a JOIN kv_join.b ON a.id = b.a_id SET a.n = 1 ORDER BY a.id
+UPDATE kv_join.a JOIN kv_join.b ON a.id = b.a_id SET a.n = 1 LIMIT 1
+UPDATE kv_join.a JOIN kv_join.b ON a.id = b.a_id SET zz.n = 1
+UPDATE kv_join.a JOIN kv_join.b ON a.id = b.a_id SET b.id = 13
+SELECT * FROM kv_join.b ORDER BY id
+DELETE kv_join.a, kv_join.b FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id WHERE a.id = 3
+SELECT ROW_COUNT()
+DELETE FROM kv_join.b USING kv_join.a JOIN kv_join.b ON a.id = b.a_id WHERE a.id = 1
+SELECT ROW_COUNT()
+DELETE kv_join.b.* FROM kv_join.b LEFT JOIN kv_join.a ON a.id = b.a_id WHERE a.id IS NULL
+SELECT ROW_COUNT()
+DELETE kv_join.zz FROM kv_join.a JOIN kv_join.b ON 1
+DELETE a FROM kv_join.a JOIN kv_join.b ON 1 ORDER BY a.id
+SELECT * FROM kv_join.a ORDER BY id
+SELECT * FROM kv_join.b ORDER BY id
 DROP DATABASE kv_join
 SELECT LPAD('ab',5,'xy'), RPAD('ab',5,'xy'), LPAD('abcdef',3,'x'), LPAD('ab',5,''), LPAD(NULL,3,'x'), LPAD('a',3,NULL), RPAD(1,3,0), LPAD('ab', 0, 'x'), RPAD('é',3,'ü'), LPAD('ab',-1,'x')
 SELECT REPEAT('ab',3), REPEAT('ab',0), REPEAT('ab',-1), REPEAT(NULL,2), REPEAT(1,2), REVERSE('abc'), REVERSE('héllo'), REVERSE(NULL), REVERSE(123), REVERSE(_binary'ab')

@@ -450,9 +450,14 @@ class Parser {
     auto& c = s.change;
     accept_word("LOW_PRIORITY");
     if (word("IGNORE")) return unsupported(s, "UPDATE IGNORE");
-    c.table = parse_table();
-    if (symbol(",") || word("JOIN") || word("INNER") || word("LEFT") || word("RIGHT") || word("CROSS") || word("STRAIGHT_JOIN") || word("NATURAL"))
-      return unsupported(s, "multiple-table UPDATE");
+    // One table, or table references (multiple-table UPDATE).
+    std::vector<TableRef> refs;
+    do refs.push_back(parse_reference());
+    while (symbol(",") && (take(), true));
+    if (refs.size() == 1 && !refs[0].is_join())
+      c.table = std::move(refs[0]);
+    else
+      c.from = std::move(refs);
     expect_word("SET");
     do {
       std::vector<std::string> column{name()};
@@ -473,13 +478,51 @@ class Parser {
     auto& c = s.change;
     for (bool more = true; more;) more = accept_word("LOW_PRIORITY") || accept_word("QUICK");
     if (word("IGNORE")) return unsupported(s, "DELETE IGNORE");
-    // DELETE t FROM ... names the tables to delete from before FROM.
-    if (name_token() && (word("FROM", 1) || symbol(",", 1) || symbol(".", 1))) return unsupported(s, "multiple-table DELETE");
-    expect_word("FROM");
+    // DELETE targets FROM references [WHERE]: the tables to delete from
+    // named before FROM.
+    if (!word("FROM")) {
+      do c.targets.push_back(parse_target());
+      while (symbol(",") && (take(), true));
+      expect_word("FROM");
+      parse_multiple_delete(c);
+      return;
+    }
+    take();  // FROM
+    // DELETE FROM targets USING references [WHERE]: a target list, or one
+    // target with `.*`, before USING.
+    size_t k = 1;
+    while (symbol(".", k) && !symbol("*", k + 1)) k += 2;
+    if (symbol(",", k) || word("USING", k) || symbol(".", k)) {
+      do c.targets.push_back(parse_target());
+      while (symbol(",") && (take(), true));
+      expect_word("USING");
+      parse_multiple_delete(c);
+      return;
+    }
     c.table = parse_table();
-    if (symbol(",") || word("USING") || word("JOIN") || word("INNER") || word("LEFT") || word("RIGHT") || word("CROSS"))
-      return unsupported(s, "multiple-table DELETE");
     parse_change_tail(c);
+  }
+
+  // A table a multiple-table DELETE deletes from: [schema.]name[.*].
+  std::vector<std::string> parse_target() {
+    std::vector<std::string> target{name()};
+    while (symbol(".")) {
+      take();
+      if (symbol("*")) {
+        take();
+        break;
+      }
+      target.push_back(name_after_dot());
+    }
+    return target;
+  }
+
+  // A multiple-table DELETE's references and WHERE; it takes no ORDER BY or
+  // LIMIT (observed: 1064).
+  void parse_multiple_delete(Change& c) {
+    do c.from.push_back(parse_reference());
+    while (symbol(",") && (take(), true));
+    if (accept_word("WHERE")) c.where = expression();
   }
 
   void parse_change_tail(Change& c) {

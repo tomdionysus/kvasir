@@ -203,6 +203,12 @@ class Session : private VariableSource {
   Outcome insert(const sql::Statement& statement);
   // UPDATE and DELETE.
   Outcome change_rows(const sql::Statement& statement);
+  // Multiple-table UPDATE and DELETE.
+  Outcome change_joined(const sql::Statement& statement);
+  // A SET's value stored in `row`'s column `index` (DEFAULT, NULL, the
+  // value as the column stores it, AUTO_INCREMENT noted); `number` is the
+  // row's, for warnings.
+  void assign(const catalog::Table& table, size_t index, const sql::Expr& value, txn::Row& row, Evaluator& evaluator, uint64_t number);
   // The transaction a statement runs in: the open one, else a new one, which
   // autocommit commits when the statement ends.
   txn::Transaction& transaction();
