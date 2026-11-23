@@ -330,7 +330,7 @@ std::vector<ResultType> Session::infer_parameters(const sql::Statement& s) const
     if (x && x->kind == K::placeholder) out.at(std::stoul(x->value)) = t;
   };
   std::optional<catalog::Table> table;
-  if (s.kind == sql::Statement::Kind::select && s.select.from.size() == 1)
+  if (s.kind == sql::Statement::Kind::select && s.select.from.size() == 1 && !s.select.from[0].is_join())
     table = _catalog.table({database_of(s.select.from[0].name), s.select.from[0].name.back()});
   if (s.kind == sql::Statement::Kind::insert) table = named_table(s.insert.table);
   if (s.kind == sql::Statement::Kind::update || s.kind == sql::Statement::Kind::delete_) table = named_table(s.change.table.name);
@@ -1471,7 +1471,8 @@ std::string Session::database_of(const std::vector<std::string>& name) const {
 }
 
 Outcome Session::select_from_table(const sql::Select& select) {
-  if (select.from.size() > 1) throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'joins'");
+  if (select.from.size() > 1 || select.from.front().is_join())
+    throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'joins'");
   const auto& from = select.from.front();
   const auto database = database_of(from.name);
   // information_schema's views are built now, read with no transaction.

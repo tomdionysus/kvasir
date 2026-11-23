@@ -66,6 +66,15 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
   surviving any one lost with a majority left.
 - **Next while the store and cluster wait** (2026-11-22): the SQL writes,
   INSERT IGNORE, REPLACE, ON DUPLICATE KEY UPDATE and INSERT ... SELECT.
+- **Joins next** (2026-11-23): after the SQL writes, SERIALIZABLE and
+  version folding, joins come before subqueries, UNION and temporal types.
+- **Joins run a fixed plan** (2026-11-23: "Fixed plan, record gaps"): tables
+  in written order, outer joins as written, nothing reordered; the
+  temporary-table flags follow from that plan. Rows, values, types,
+  nullability and errors match MySQL exactly; where MySQL's cost-based
+  optimizer picks another order (row order with no ORDER BY, key flags
+  dropped by a temporary table), the difference is recorded, and the
+  gate's join statements carry ORDER BY.
 - **Hosted CI** (2026-11-20): keep it green; check after each push; it runs
   only on `develop`, `main` and pull requests, never for TODO, docs or
   Markdown alone, a newer push cancelling the older run, CodeQL on `main`
@@ -147,6 +156,31 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    reference server first and put in
    the gate, each ACID as every statement is (a REPLACE's delete and insert,
    an upsert's read and write, one statement's whole effect or none).
+1b. **Joins** (the maintainer's choice, 2026-11-23), each stage on its own
+   branch, gated and merged:
+   - J1, the parser: JOIN, INNER JOIN, CROSS JOIN, STRAIGHT_JOIN, LEFT and
+     RIGHT [OUTER] JOIN, NATURAL [LEFT | RIGHT] JOIN, ON, USING, comma
+     lists and parentheses, as a tree (a comma binds looser than JOIN, so
+     `a, b JOIN c ON a.x = c.x` is 1054 in the on clause). The executor
+     still refuses (1235).
+   - J2, inner joins: nested loops in written order over each table's rows;
+     names resolve across the tables in scope (1052 ambiguous, 1054 with
+     the clause named, 1066 a repeated table or alias, 1051 for an unknown
+     `t.*`); `*` and `t.*` expand in written order; WHERE, ORDER BY,
+     DISTINCT and LIMIT over the joined rows; each column's metadata from
+     its own table.
+   - J3, outer joins and USING / NATURAL: NULL-extended rows; the outer
+     side's columns lose NOT_NULL; USING and NATURAL's columns once, first,
+     coalesced (RIGHT's from the right table), 1054 'from clause' for an
+     unknown USING column.
+   - J4, grouping over joins (COUNT over the NULL-extended side counts 0).
+   - J5, locking reads and SERIALIZABLE over joins: each table's rows locked
+     by its own clause (OF names a table or alias).
+   - Later: multi-table UPDATE and DELETE.
+   Observed on MySQL 8.4.13 (2026-11-23, the probes in this session): the
+   rows above; a temporary table (sorting on a table the plan does not read
+   first, grouping, DISTINCT) drops key flags; with no ORDER BY the order is
+   the plan's.
 2. **Step 2b: each node's state in Dagda**, in the cluster's shape. Waits on
    Dagda's durable AcceptorStore (after its 0.4.0, which carries the
    register map; 0.4.0 waits on the maintainer's word to tag). Dagda's

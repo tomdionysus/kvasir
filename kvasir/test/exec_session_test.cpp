@@ -2246,6 +2246,9 @@ TEST(ExecSessionGroups, Refusals) {
   b.expect_refused("SELECT k FROM v GROUP BY nope", 1054, "42S22", "Unknown column 'nope' in 'group statement'");
   b.expect_refused("SELECT k FROM v GROUP BY k WITH ROLLUP", 1235, "42000", "This version of Kvasir doesn't yet support 'WITH ROLLUP'");
   b.expect_refused("SELECT GROUP_CONCAT(c) FROM v", 1235, "42000", "This version of Kvasir doesn't yet support 'GROUP_CONCAT'");
+  // Joins are read (sql_parser_test) and not yet carried out.
+  for (const auto* join : {"SELECT * FROM v, v AS w", "SELECT * FROM v JOIN v AS w ON 1", "SELECT * FROM (v, v AS w)"})
+    b.expect_refused(join, 1235, "42000", "This version of Kvasir doesn't yet support 'joins'");
   run(b.s, "SET SESSION sql_mode = ''");
   EXPECT_EQ(b.rows("SELECT k, n FROM v GROUP BY k ORDER BY k"), (Rows{{"1", "1"}, {"2", "3"}}));
   auto o = run(b.s, "SELECT id, COUNT(*) FROM v");

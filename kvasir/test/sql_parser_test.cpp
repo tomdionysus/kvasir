@@ -224,6 +224,42 @@ TEST(SqlParser, SelectItemsAndAliases) {
   EXPECT_EQ(s.select.items[5].alias, "y");
 }
 
+// Joins as the manual's "JOIN Clause" writes them: left to right, tighter
+// than a comma; LEFT and RIGHT need ON or USING; NATURAL takes neither; an
+// outer join's right side may be a join waiting on its ON; parentheses
+// group, and a comma list in them is comma joins.
+TEST(SqlParser, Joins) {
+  const auto from = [](const std::string& sql) {
+    const auto s = one("SELECT * FROM " + sql);
+    std::string out;
+    for (const auto& ref : s.select.from) out += (out.empty() ? "" : " , ") + to_string(ref);
+    return out;
+  };
+  EXPECT_EQ(from("a JOIN b ON a.id = b.a_id"), "(JOIN a b ON (= a.id b.a_id))");
+  EXPECT_EQ(from("a INNER JOIN db.b AS x USING (id, k)"), "(JOIN a db.b AS x USING (id k))");
+  EXPECT_EQ(from("a CROSS JOIN b"), "(CROSS a b)");
+  EXPECT_EQ(from("a JOIN b"), "(JOIN a b)");
+  EXPECT_EQ(from("a STRAIGHT_JOIN b ON 1"), "(STRAIGHT_JOIN a b ON 1)");
+  EXPECT_EQ(from("a LEFT JOIN b ON 1"), "(LEFT a b ON 1)");
+  EXPECT_EQ(from("a LEFT OUTER JOIN b USING (id)"), "(LEFT a b USING (id))");
+  EXPECT_EQ(from("a RIGHT JOIN b ON 1"), "(RIGHT a b ON 1)");
+  EXPECT_EQ(from("a NATURAL JOIN b"), "(NATURAL_JOIN a b)");
+  EXPECT_EQ(from("a NATURAL LEFT OUTER JOIN b"), "(NATURAL_LEFT a b)");
+  EXPECT_EQ(from("a NATURAL RIGHT JOIN b"), "(NATURAL_RIGHT a b)");
+  EXPECT_EQ(from("a JOIN b ON 1 LEFT JOIN c ON 2"), "(LEFT (JOIN a b ON 1) c ON 2)");
+  EXPECT_EQ(from("a, b JOIN c ON 1"), "a , (JOIN b c ON 1)");
+  EXPECT_EQ(from("a LEFT JOIN b JOIN c ON 1 ON 2"), "(LEFT a (JOIN b c ON 1) ON 2)");
+  EXPECT_EQ(from("a JOIN (b JOIN c ON 1) ON 2"), "(JOIN a (JOIN b c ON 1) ON 2)");
+  EXPECT_EQ(from("(a, b) JOIN c ON 1"), "(JOIN (COMMA a b) c ON 1)");
+  EXPECT_EQ(from("(a)"), "a");
+  EXPECT_EQ(from("a t JOIN b u ON t.x = u.x"), "(JOIN a AS t b AS u ON (= t.x u.x))");
+
+  // Observed on MySQL 8.4.13: LEFT JOIN without ON is 1064.
+  for (const auto* bad : {"SELECT * FROM a LEFT JOIN b", "SELECT * FROM a RIGHT JOIN b WHERE 1", "SELECT * FROM a NATURAL JOIN b ON 1",
+                          "SELECT * FROM a JOIN b USING ()", "SELECT * FROM (a, b", "SELECT * FROM a JOIN"})
+    EXPECT_THROW(one(bad), SyntaxError) << bad;
+}
+
 TEST(SqlParser, SelectFromWhereOrderLimit) {
   const auto s = one("SELECT t.*, a FROM db.t AS x, u WHERE a = 1 ORDER BY a DESC, b ASC, c LIMIT 10 OFFSET 5");
   ASSERT_EQ(s.select.items.size(), 2u);

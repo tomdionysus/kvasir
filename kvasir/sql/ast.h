@@ -90,10 +90,28 @@ struct SelectItem {
   std::string text;
 };
 
+// A table, or a join of two references. A comma list in parentheses is a
+// chain of `comma` joins; the FROM clause's own comma list is Select::from.
 struct TableRef {
-  std::vector<std::string> name;  // [schema.]table
+  std::vector<std::string> name;  // [schema.]table; empty for a join
   std::string alias;
+  enum class Join : uint8_t { none, comma, inner, cross, straight, left, right };
+  Join join = Join::none;
+  // NATURAL: USING every column the two sides share.
+  bool natural = false;
+  std::unique_ptr<TableRef> left;
+  std::unique_ptr<TableRef> right;
+  ExprPtr on;
+  bool has_using = false;
+  std::vector<std::string> using_columns;
+
+  bool is_join() const noexcept { return join != Join::none; }
 };
+
+// The join tree as an S-expression, for tests: a table is its path and
+// alias (db.t AS a), a join (LEFT a b ON (= a.id b.id)) or (JOIN a b USING
+// (id)).
+std::string to_string(const TableRef& ref);
 
 struct OrderItem {
   ExprPtr expr;

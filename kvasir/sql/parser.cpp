@@ -972,7 +972,7 @@ class Parser {
       if (accept_word("DUAL")) {
         select.from_dual = true;
       } else {
-        do select.from.push_back(parse_table());
+        do select.from.push_back(parse_reference());
         while (symbol(",") && (take(), true));
       }
     }
@@ -1092,6 +1092,91 @@ class Parser {
       item.alias = take().value;
     }
     return item;
+  }
+
+  // A table reference, joins and all (the manual's "JOIN Clause"): joins
+  // bind left to right and tighter than a comma; INNER and CROSS JOIN and
+  // STRAIGHT_JOIN may go without ON; LEFT and RIGHT [OUTER] JOIN need ON or
+  // USING, and their right side may itself be a join waiting on it; NATURAL
+  // takes neither.
+  TableRef parse_reference() {
+    auto ref = parse_factor();
+    while (joins_next()) ref = parse_join(std::move(ref));
+    return ref;
+  }
+
+  bool joins_next() { return word("JOIN") || word("INNER") || word("CROSS") || word("STRAIGHT_JOIN") || word("LEFT") || word("RIGHT") || word("NATURAL"); }
+
+  TableRef parse_join(TableRef left) {
+    using Join = TableRef::Join;
+    TableRef join;
+    if (accept_word("NATURAL")) {
+      join.natural = true;
+      join.join = Join::inner;
+      if (accept_word("LEFT")) {
+        join.join = Join::left;
+        accept_word("OUTER");
+      } else if (accept_word("RIGHT")) {
+        join.join = Join::right;
+        accept_word("OUTER");
+      } else {
+        accept_word("INNER");
+      }
+      expect_word("JOIN");
+    } else if (accept_word("STRAIGHT_JOIN")) {
+      join.join = Join::straight;
+    } else if (word("LEFT") || word("RIGHT")) {
+      join.join = word("LEFT") ? Join::left : Join::right;
+      take();
+      accept_word("OUTER");
+      expect_word("JOIN");
+    } else {
+      join.join = Join::inner;
+      if (accept_word("CROSS")) {
+        join.join = Join::cross;
+      } else {
+        accept_word("INNER");
+      }
+      expect_word("JOIN");
+    }
+    join.left = std::make_unique<TableRef>(std::move(left));
+    auto right = parse_factor();
+    const bool outer = join.join == Join::left || join.join == Join::right;
+    // An outer join's right side runs on through joins until its own ON.
+    if (outer && !join.natural)
+      while (joins_next()) right = parse_join(std::move(right));
+    join.right = std::make_unique<TableRef>(std::move(right));
+    if (join.natural) return join;
+    if (accept_word("ON")) {
+      join.on = expression();
+    } else if (accept_word("USING")) {
+      join.has_using = true;
+      expect_symbol("(");
+      do join.using_columns.push_back(name());
+      while (symbol(",") && (take(), true));
+      expect_symbol(")");
+    } else if (outer) {
+      fail(peek());
+    }
+    return join;
+  }
+
+  // A table, or table references in parentheses (a comma list in them is a
+  // chain of comma joins).
+  TableRef parse_factor() {
+    if (!symbol("(")) return parse_table();
+    take();
+    auto ref = parse_reference();
+    while (symbol(",")) {
+      take();
+      TableRef comma;
+      comma.join = TableRef::Join::comma;
+      comma.left = std::make_unique<TableRef>(std::move(ref));
+      comma.right = std::make_unique<TableRef>(parse_reference());
+      ref = std::move(comma);
+    }
+    expect_symbol(")");
+    return ref;
   }
 
   TableRef parse_table() {
@@ -1679,6 +1764,24 @@ std::string hex_text(std::string_view bytes) {
 }
 
 }  // namespace
+
+std::string to_string(const TableRef& ref) {
+  if (!ref.is_join()) {
+    std::string out;
+    for (size_t i = 0; i < ref.name.size(); ++i) out += (i ? "." : "") + ref.name[i];
+    return ref.alias.empty() ? out : out + " AS " + ref.alias;
+  }
+  static constexpr const char* names[] = {"", "COMMA", "JOIN", "CROSS", "STRAIGHT_JOIN", "LEFT", "RIGHT"};
+  std::string out =
+      "(" + std::string(ref.natural ? "NATURAL_" : "") + names[static_cast<size_t>(ref.join)] + " " + to_string(*ref.left) + " " + to_string(*ref.right);
+  if (ref.on) out += " ON " + to_string(*ref.on);
+  if (ref.has_using) {
+    out += " USING (";
+    for (size_t i = 0; i < ref.using_columns.size(); ++i) out += (i ? " " : "") + ref.using_columns[i];
+    out += ")";
+  }
+  return out + ")";
+}
 
 std::string to_string(const Expr& e) {
   const auto args = [&](size_t from) {

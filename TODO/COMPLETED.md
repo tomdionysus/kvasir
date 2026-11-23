@@ -1209,3 +1209,9 @@ The record, newest first. Each entry says what landed, with its gate counts.
 - Handoff: `TODO/ACTIVE.md`, "Waiting on the maintainer". The acknowledgement-level
   questions were put to the maintainer interactively and he wished to clarify them
   first; his comment did not reach the session.
+- Joins, J1 (the maintainer's choice, 2026-11-23): the FROM clause read
+  into a join tree (JOIN, INNER, CROSS, STRAIGHT_JOIN, LEFT and RIGHT
+  [OUTER], NATURAL, ON, USING, parentheses); the executor still refused
+  joins (1235).
+- Gate (node-c): release, ASan and TSan each **421 tests, 1165 of 1165**
+  statements, TSan with no reports.
