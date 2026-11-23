@@ -174,8 +174,6 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
 Waiting on nothing, to take when the above is blocked:
 - Dannan's pin to its latest 0.10.x patch (0.10.2, tag f36d697; none of
   0.10.1's or 0.10.2's changes reaches Kvasir), at the next release gate.
-- Folding old row versions away in the node's store (memory grows with
-  every change).
 - SQL: SERIALIZABLE (range read marks), INSERT IGNORE, REPLACE, ON
   DUPLICATE KEY UPDATE, INSERT ... SELECT; joins, subqueries, unions;
   utf8mb4_unicode_ci and other character sets; temporal types.

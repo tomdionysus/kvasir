@@ -107,6 +107,13 @@ The record, newest first. Each entry says what landed, with its gate counts.
   types; a temporary table otherwise, and always under SELECT DISTINCT.
 - Gate (node-c): release, ASan and TSan each **419 tests, 1151 of 1151**
   statements, TSan with no reports.
+- Old row versions folded away (the plan's "waiting on nothing" item): live
+  snapshots registered with the store; a row keeps its newest version and
+  each live snapshot's; a deleted row goes once no snapshot sees it; rows a
+  snapshot held fold when it ends. The gate caught a version moved onto
+  itself (emptied) before it merged.
+- Gate (node-c): release, ASan and TSan each **420 tests, 1151 of 1151**
+  statements, TSan with no reports.
 
 ## 2026-11-22: A real MySQL client library drives a node in the tests (step 1, most of it)
 

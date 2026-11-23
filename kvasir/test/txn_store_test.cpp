@@ -400,6 +400,80 @@ TEST(TxnStore, RangeLocks) {
   s.commit(d);
 }
 
+// Old versions fold away, so memory does not grow with every change: a row
+// keeps its newest version and the one each live snapshot reads; a deleted
+// row goes once no snapshot sees it; what a snapshot held folds when it ends.
+TEST(TxnStore, OldVersionsFoldAway) {
+  Store s;
+  const auto update = [&](const std::string& key, const std::string& value) {
+    auto u = s.begin();
+    ASSERT_EQ(s.update(u, 1, key, key, {}, row(value), nullptr), Store::Inserted::inserted);
+    s.commit(u);
+  };
+  auto w = s.begin();
+  s.insert(w, 1, "a", {}, row("1"), nullptr);
+  s.commit(w);
+  for (int i = 2; i <= 5; ++i) update("a", std::to_string(i));
+  // No snapshot is live: only the newest is kept.
+  EXPECT_EQ(s.versions(1), 1u);
+
+  auto early = s.begin();
+  EXPECT_EQ(values(s, early, 1), (std::vector<std::string>{"5"}));
+  update("a", "6");
+  auto middle = s.begin();
+  EXPECT_EQ(values(s, middle, 1), (std::vector<std::string>{"6"}));
+  for (int i = 7; i <= 9; ++i) update("a", std::to_string(i));
+  // 5 for early, 6 for middle, 9 the newest; 7 and 8 nobody reads.
+  EXPECT_EQ(s.versions(1), 3u);
+  EXPECT_EQ(values(s, early, 1), (std::vector<std::string>{"5"}));
+  EXPECT_EQ(values(s, middle, 1), (std::vector<std::string>{"6"}));
+  s.commit(early);
+  EXPECT_EQ(s.versions(1), 2u);
+  s.rollback(middle);
+  EXPECT_EQ(s.versions(1), 1u);
+
+  // A delete nobody needs the row for goes whole.
+  auto d = s.begin();
+  EXPECT_TRUE(s.remove(d, 1, "a"));
+  s.commit(d);
+  EXPECT_EQ(s.keys(1), 0u);
+
+  // A reader that saw the row keeps it, and the delete, until it ends.
+  auto b = s.begin();
+  s.insert(b, 1, "b", {}, row("b"), nullptr);
+  s.commit(b);
+  auto reader = s.begin();
+  EXPECT_EQ(values(s, reader, 1), (std::vector<std::string>{"b"}));
+  auto e = s.begin();
+  EXPECT_TRUE(s.remove(e, 1, "b"));
+  s.commit(e);
+  EXPECT_EQ(s.keys(1), 1u);
+  EXPECT_EQ(values(s, reader, 1), (std::vector<std::string>{"b"}));
+  auto later = s.begin();
+  EXPECT_TRUE(values(s, later, 1).empty());
+  s.commit(reader);
+  EXPECT_EQ(s.keys(1), 0u);
+  s.commit(later);
+
+  // READ COMMITTED's fresh snapshot each statement lets go of the old one.
+  auto c = s.begin();
+  s.insert(c, 1, "c", {}, row("1"), nullptr);
+  s.commit(c);
+  auto rc = s.begin();
+  EXPECT_EQ(values(s, rc, 1), (std::vector<std::string>{"1"}));
+  update("c", "2");
+  EXPECT_EQ(s.versions(1), 2u);
+  s.take_snapshot(rc, true);
+  update("c", "3");
+  EXPECT_EQ(s.versions(1), 2u);
+  EXPECT_EQ(values(s, rc, 1), (std::vector<std::string>{"2"}));
+  s.rollback(rc);
+  EXPECT_EQ(s.versions(1), 1u);
+  // A dropped table's waiting rows go with it.
+  s.drop_table(1);
+  EXPECT_EQ(s.versions(1), 0u);
+}
+
 // A statement undone gives back the locks it took, and a lock it took
 // exclusively that the transaction held shared goes back to shared.
 TEST(TxnStore, AnUndoneStatementGivesBackItsReadLocks) {

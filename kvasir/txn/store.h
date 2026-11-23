@@ -179,6 +179,13 @@ class Store {
   // A table is gone: its rows, versions and counters with it.
   void drop_table(uint64_t table);
 
+  // Old versions are folded away: a row keeps only the newest version the
+  // oldest live snapshot sees, and those after it; a deleted row goes once no
+  // snapshot sees it. Folding runs as commits land and snapshots end. The
+  // versions a table holds now, and its keys, for tests and statistics.
+  size_t versions(uint64_t table) const;
+  size_t keys(uint64_t table) const;
+
  private:
   // A committed row as of a commit: nothing when deleted then.
   struct Version {
@@ -209,6 +216,15 @@ class Store {
     KeyRange range;
   };
   static std::string lock_name(uint64_t table, const std::string& name);
+  // Sets `t`'s snapshot and registers it as live.
+  void set_snapshot(Transaction& t, uint64_t at) DANNAN_REQUIRES(_mutex);
+  // The commits the live snapshots read at.
+  std::vector<uint64_t> live_snapshots() const DANNAN_REQUIRES(_mutex);
+  // Folds one row's versions to the newest and those `live` snapshots see:
+  // true when nothing is left to fold later.
+  bool fold(uint64_t table, const std::string& key, const std::vector<uint64_t>& live) DANNAN_REQUIRES(_mutex);
+  // Folds the rows a commit wrote, and those still waiting on a snapshot.
+  void fold_written(const std::vector<std::pair<uint64_t, std::string>>& written) DANNAN_REQUIRES(_mutex);
   // Another transaction holding a range lock over `key`, if any.
   std::optional<uint64_t> range_holder(const Transaction& t, uint64_t table, const std::string& key) const DANNAN_REQUIRES(_mutex);
   // Whether `holder` holds any lock or range now.
@@ -245,6 +261,10 @@ class Store {
   std::vector<RangeLock> _ranges DANNAN_GUARDED_BY(_mutex);
   uint64_t _next_range DANNAN_GUARDED_BY(_mutex) = 1;
   uint64_t _last_commit DANNAN_GUARDED_BY(_mutex) = 0;
+  // Live snapshots, by transaction id.
+  std::map<uint64_t, uint64_t> _snapshots DANNAN_GUARDED_BY(_mutex);
+  // Rows with versions a live snapshot still needed when last folded.
+  std::set<std::pair<uint64_t, std::string>> _unfolded DANNAN_GUARDED_BY(_mutex);
   uint64_t _next_transaction DANNAN_GUARDED_BY(_mutex) = 1;
 };
 

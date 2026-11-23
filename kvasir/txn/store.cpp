@@ -23,7 +23,78 @@ Transaction Store::begin() {
 
 void Store::take_snapshot(Transaction& t, bool fresh) {
   dannan::contract::Lock lock(_mutex);
-  if (fresh || !t._snapshot) t._snapshot = _last_commit;
+  if (fresh || !t._snapshot) set_snapshot(t, _last_commit);
+}
+
+void Store::set_snapshot(Transaction& t, uint64_t at) {
+  t._snapshot = at;
+  _snapshots[t._id] = at;
+}
+
+std::vector<uint64_t> Store::live_snapshots() const {
+  std::vector<uint64_t> live;
+  for (const auto& [id, at] : _snapshots) live.push_back(at);
+  return live;
+}
+
+bool Store::fold(uint64_t table, const std::string& key, const std::vector<uint64_t>& live) {
+  const auto found = _tables.find(table);
+  if (found == _tables.end()) return true;
+  auto& by_key = found->second.by_key;
+  const auto it = by_key.find(key);
+  if (it == by_key.end()) return true;
+  auto& versions = it->second;
+  // The newest version, and the one each live snapshot sees; no snapshot
+  // sees the rest.
+  std::vector<bool> needed(versions.size(), false);
+  needed.back() = true;
+  for (const auto at : live) {
+    for (size_t i = versions.size(); i-- > 0;)
+      if (versions[i].commit <= at) {
+        needed[i] = true;
+        break;
+      }
+  }
+  // Compacted in place; a version that stays where it is is not moved onto
+  // itself.
+  size_t kept = 0;
+  for (size_t i = 0; i < versions.size(); ++i) {
+    if (!needed[i]) continue;
+    if (kept != i) versions[kept] = std::move(versions[i]);
+    ++kept;
+  }
+  versions.resize(kept);
+  if (versions.size() > 1) return false;
+  // A deleted row every live snapshot sees deleted, or none saw, goes whole.
+  if (!versions.front().row) by_key.erase(it);
+  return true;
+}
+
+void Store::fold_written(const std::vector<std::pair<uint64_t, std::string>>& written) {
+  const auto live = live_snapshots();
+  for (const auto& [table, key] : written)
+    if (!fold(table, key, live)) _unfolded.insert({table, key});
+  for (auto it = _unfolded.begin(); it != _unfolded.end();) {
+    if (fold(it->first, it->second, live)) {
+      it = _unfolded.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
+size_t Store::versions(uint64_t table) const {
+  dannan::contract::Lock lock(_mutex);
+  size_t n = 0;
+  if (const auto found = _tables.find(table); found != _tables.end())
+    for (const auto& [key, versions] : found->second.by_key) n += versions.size();
+  return n;
+}
+
+size_t Store::keys(uint64_t table) const {
+  dannan::contract::Lock lock(_mutex);
+  const auto found = _tables.find(table);
+  return found == _tables.end() ? 0 : found->second.by_key.size();
 }
 
 bool Store::KeyRange::contains(const std::string& key) const {
@@ -47,6 +118,7 @@ void Store::release(Transaction& t) {
   t._statement_locks.clear();
   t._statement_ranges.clear();
   t._snapshot.reset();
+  _snapshots.erase(t._id);
 }
 
 bool Store::holds_anything(uint64_t holder) const {
@@ -129,6 +201,7 @@ void Store::commit(Transaction& t) {
 }
 
 void Store::commit_locked(Transaction& t) {
+  std::vector<std::pair<uint64_t, std::string>> written;
   if (!t._writes.empty()) {
     const uint64_t at = ++_last_commit;
     for (auto& [table, writes] : t._writes) {
@@ -137,6 +210,7 @@ void Store::commit_locked(Transaction& t) {
       if (found == _tables.end()) continue;
       auto& rows = found->second;
       for (auto& [key, pending] : writes) {
+        written.emplace_back(table, key);
         auto& versions = rows.by_key[key];
         // The unique values the row held go; those it holds now come.
         if (!versions.empty())
@@ -150,6 +224,8 @@ void Store::commit_locked(Transaction& t) {
     }
   }
   release(t);
+  // What the commit wrote, and what waited on its snapshot, folded.
+  fold_written(written);
 }
 
 void Store::rollback(Transaction& t) {
@@ -157,6 +233,8 @@ void Store::rollback(Transaction& t) {
   {
     dannan::contract::Lock lock(_mutex);
     release(t);
+    // Its snapshot gone, what waited on it may fold.
+    fold_written({});
     wakes = waking(t._id);
     _waits.erase(t._id);
   }
@@ -359,7 +437,7 @@ bool Store::remove(Transaction& t, uint64_t table, const std::string& key, uint6
 
 std::vector<Row> Store::rows(Transaction& t, uint64_t table) {
   dannan::contract::Lock lock(_mutex);
-  if (!t._snapshot) t._snapshot = _last_commit;
+  if (!t._snapshot) set_snapshot(t, _last_commit);
   std::map<std::string, const std::optional<Row>*> seen;
   if (const auto found = _tables.find(table); found != _tables.end()) {
     for (const auto& [key, versions] : found->second.by_key) {
@@ -418,6 +496,7 @@ uint64_t Store::next_row_id(uint64_t table) {
 void Store::drop_table(uint64_t table) {
   dannan::contract::Lock lock(_mutex);
   _tables.erase(table);
+  std::erase_if(_unfolded, [&](const auto& waiting) { return waiting.first == table; });
 }
 
 }  // namespace kvasir::txn
