@@ -1253,3 +1253,13 @@ The record, newest first. Each entry says what landed, with its gate counts.
   join code: the next step covers it.
 - Gate (node-c): release, ASan and TSan each **427 tests, 1250 of 1250**
   statements, TSan with no reports.
+- Join coverage: statements over what the join code left untested go into
+  the gate (out-of-range naming joined columns, 3065, ORDER BY alias,
+  position and unknown name, stars beside aggregates, an unknown database,
+  an ambiguous grouped WHERE, a strict multi-table UPDATE); unit tests for
+  a locking read over a join that must wait. Found: ORDER BY
+  99999999999999999999 crashed over a join and was 1054 over one table; an
+  integer literal past 64 bits is now a constant, not a position. Coverage
+  99.2% of lines again.
+- Gate (node-c): release, ASan and TSan each **427 tests, 1268 of 1268**
+  statements, TSan with no reports.

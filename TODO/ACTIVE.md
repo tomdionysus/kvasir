@@ -357,6 +357,11 @@ Each to be closed, or kept by a decision.
   root, React 19, react-dom and react-router 7 as peers; AdminShell, NavBar,
   Messages, Confirm, ApiClient, useApi/useLoad/useAct, SignIn (password,
   Lugh with PKCE, or both), DataTable with useCursorPages.
+- **Lugh**: 0.6.0 (2026-11-23, tagged on main) is on Dannan 0.11.0 (Boost.JSON's
+  compiled part is Dannan's, none in lugh_client), handles Fault::cancelled
+  (a switch over Fault needs it), and is the tag @lugh/admin-ui is depended
+  on by file path at; its CHANGELOG has the rest. Nothing of Kvasir links it
+  yet: the Lugh plugin and the dashboard take 0.6.0 when they start.
 - **Lugh**: 0.5.0 (2026-11-22) is the lugh_client the Lugh plugin starts
   on: its Fault, Outcome and Completion are dannan::contract's, with
   unavailable, timed_out and invalid (an unreadable reply); lugh::undecided

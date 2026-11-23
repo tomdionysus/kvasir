@@ -3776,6 +3776,96 @@ row 1	2
 row 2	1
 row 3	1
 end
+statement SELECT a.n * 9223372036854775807 FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id
+error 1690|22003|BIGINT value is out of range in '(`kv_join`.`a`.`n` * 9223372036854775807)'
+end
+statement SELECT a.id, a.n * 9223372036854775807 FROM kv_join.a AS a JOIN kv_join.b ON a.id = b.a_id GROUP BY a.id
+error 1690|22003|BIGINT value is out of range in '(`kv_join`.`a`.`n` * 9223372036854775807)'
+end
+statement SELECT DISTINCT a.x FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id ORDER BY b.y
+error 3065|HY000|Expression #1 of ORDER BY clause is not in SELECT list, references column 'kv_join.b.y' which is not in SELECT list; this is incompatible with DISTINCT
+end
+statement SELECT a.x AS w FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY w
+column w|VAR_STRING|255|40|0|NOT_NULL NO_DEFAULT_VALUE
+row one
+row one
+row three
+end
+statement SELECT a.x FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY 7
+error 1054|42S22|Unknown column '7' in 'order clause'
+end
+statement SELECT a.x FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY nope
+error 1054|42S22|Unknown column 'nope' in 'order clause'
+end
+statement SELECT b.*, COUNT(*) FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id GROUP BY b.id ORDER BY b.id
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column a_id|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+column y|VAR_STRING|255|20|0|
+column COUNT(*)|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+row 10	1	p	1
+row 11	1	q	1
+row 12	3	\N	1
+end
+statement SELECT kv_join.b.*, a.x FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY 1
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column a_id|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+column y|VAR_STRING|255|20|0|
+column x|VAR_STRING|255|40|0|NOT_NULL NO_DEFAULT_VALUE
+row 10	1	p	one
+row 11	1	q	one
+row 12	3	\N	three
+end
+statement SELECT zz.*, COUNT(*) FROM kv_join.b JOIN kv_join.a ON 1 GROUP BY b.id
+error 1051|42S02|Unknown table 'zz'
+end
+statement SELECT * FROM kv_join.b JOIN kv_nodb.a ON 1
+error 1049|42000|Unknown database 'kv_nodb'
+end
+statement SELECT DISTINCT a.x, a.n + 1 FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id ORDER BY a.x
+column x|VAR_STRING|255|40|0|NOT_NULL NO_DEFAULT_VALUE
+column a.n + 1|LONGLONG|63|12|0|NUM
+row one	11
+row three	31
+end
+statement SELECT a.x FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY 99999999999999999999
+column x|VAR_STRING|255|40|0|NOT_NULL NO_DEFAULT_VALUE
+row one
+row one
+row three
+end
+statement SELECT x FROM kv_join.a ORDER BY 99999999999999999999
+column x|VAR_STRING|255|40|0|NOT_NULL NO_DEFAULT_VALUE
+row one
+row two
+row three
+end
+statement SELECT 18446744073709551615, 18446744073709551616, 99999999999999999999
+column 18446744073709551615|LONGLONG|63|20|0|NOT_NULL UNSIGNED BINARY NUM
+column 18446744073709551616|NEWDECIMAL|63|21|0|NOT_NULL BINARY NUM
+column 99999999999999999999|NEWDECIMAL|63|21|0|NOT_NULL BINARY NUM
+row 18446744073709551615	18446744073709551616	99999999999999999999
+end
+statement SELECT *, COUNT(*) FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id GROUP BY b.id ORDER BY b.id
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column a_id|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+column y|VAR_STRING|255|20|0|
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column x|VAR_STRING|255|40|0|NOT_NULL NO_DEFAULT_VALUE
+column n|LONG|63|11|0|NUM
+column COUNT(*)|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+row 10	1	p	1	one	10	1
+row 11	1	q	1	one	10	1
+row 12	3	\N	3	three	30	1
+end
+statement SELECT DISTINCT a.x FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id ORDER BY CONCAT(a.x, b.y)
+error 3065|HY000|Expression #1 of ORDER BY clause is not in SELECT list, references column 'kv_join.b.y' which is not in SELECT list; this is incompatible with DISTINCT
+end
+statement SELECT COUNT(*) FROM kv_join.a JOIN kv_join.b ON 1 WHERE id = 1
+error 1052|23000|Column 'id' in where clause is ambiguous
+end
+statement UPDATE kv_join.a JOIN kv_join.b ON a.id = b.a_id SET a.n = 1 WHERE a.x = 0
+error 1292|22007|Truncated incorrect DOUBLE value: 'one'
+end
 statement UPDATE kv_join.a JOIN kv_join.b ON a.id = b.a_id SET a.n = a.n + 1, b.y = 'u'
 end
 statement SELECT ROW_COUNT()

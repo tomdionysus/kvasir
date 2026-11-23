@@ -860,6 +860,24 @@ SELECT a.id, b.id FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id FOR UPDATE OF a
 SELECT a.id, b.id FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY b.id FOR UPDATE OF a FOR SHARE OF b
 SELECT t.id FROM kv_join.a AS t JOIN kv_join.b ON t.id = b.a_id FOR UPDATE OF a
 SELECT a.id, COUNT(*) FROM kv_join.a LEFT JOIN kv_join.b ON a.id = b.a_id GROUP BY a.id ORDER BY a.id FOR SHARE
+SELECT a.n * 9223372036854775807 FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id
+SELECT a.id, a.n * 9223372036854775807 FROM kv_join.a AS a JOIN kv_join.b ON a.id = b.a_id GROUP BY a.id
+SELECT DISTINCT a.x FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id ORDER BY b.y
+SELECT a.x AS w FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY w
+SELECT a.x FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY 7
+SELECT a.x FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY nope
+SELECT b.*, COUNT(*) FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id GROUP BY b.id ORDER BY b.id
+SELECT kv_join.b.*, a.x FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY 1
+SELECT zz.*, COUNT(*) FROM kv_join.b JOIN kv_join.a ON 1 GROUP BY b.id
+SELECT * FROM kv_join.b JOIN kv_nodb.a ON 1
+SELECT DISTINCT a.x, a.n + 1 FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id ORDER BY a.x
+SELECT a.x FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id ORDER BY 99999999999999999999
+SELECT x FROM kv_join.a ORDER BY 99999999999999999999
+SELECT 18446744073709551615, 18446744073709551616, 99999999999999999999
+SELECT *, COUNT(*) FROM kv_join.b JOIN kv_join.a ON a.id = b.a_id GROUP BY b.id ORDER BY b.id
+SELECT DISTINCT a.x FROM kv_join.a JOIN kv_join.b ON a.id = b.a_id ORDER BY CONCAT(a.x, b.y)
+SELECT COUNT(*) FROM kv_join.a JOIN kv_join.b ON 1 WHERE id = 1
+UPDATE kv_join.a JOIN kv_join.b ON a.id = b.a_id SET a.n = 1 WHERE a.x = 0
 UPDATE kv_join.a JOIN kv_join.b ON a.id = b.a_id SET a.n = a.n + 1, b.y = 'u'
 SELECT ROW_COUNT()
 SELECT * FROM kv_join.a ORDER BY id

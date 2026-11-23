@@ -2359,6 +2359,9 @@ TEST(ExecSessionJoins, LockingReads) {
                    "Statement aborted because lock(s) could not be acquired immediately and NOWAIT is set.");
   run(b.s, "BEGIN");
   EXPECT_EQ(rows_of(run(b.s, "SELECT b.id FROM a JOIN b ON a.id = b.a_id ORDER BY b.id FOR UPDATE OF b SKIP LOCKED")), (Rows{{"11"}, {"12"}}));
+  // Without either, the statement waits, holding nothing meanwhile.
+  EXPECT_THROW(run(b.s, "SELECT a.id FROM a JOIN b ON a.id = b.a_id WHERE b.id = 10 FOR SHARE OF b"), LockWaitNeeded);
+  EXPECT_THROW(run(b.s, "SELECT a.id, COUNT(*) FROM a JOIN b ON a.id = b.a_id GROUP BY a.id FOR UPDATE"), LockWaitNeeded);
   run(b.s, "ROLLBACK");
   run(other, "ROLLBACK");
 

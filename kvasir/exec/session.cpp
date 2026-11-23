@@ -108,6 +108,15 @@ uint64_t integer_text(const sql::Expr& e) {
   return v;
 }
 
+// An ORDER BY or GROUP BY item that names a select item by its position: an
+// integer literal that fits 64 bits. A longer one is a constant, as MySQL
+// reads it as a DECIMAL (observed on 8.4.13: ORDER BY 99999999999999999999
+// sorts nothing).
+bool is_position(const sql::Expr& e) {
+  uint64_t v = 0;
+  return e.kind == sql::ExprKind::integer && std::from_chars(e.value.data(), e.value.data() + e.value.size(), v).ec == std::errc();
+}
+
 // A string parameter as MySQL types it: 16383 characters of the
 // connection's character set (observed: 65532 under utf8mb4).
 ResultType string_parameter(const EvalSettings& e) {
@@ -1751,7 +1760,7 @@ Outcome Session::select_from_table(const sql::Select& select) {
   std::vector<std::unique_ptr<sql::Expr>> star_columns;
   for (const auto& order : select.order) {
     const sql::Expr* e = order.expr.get();
-    if (e->kind == sql::ExprKind::integer) {
+    if (is_position(*e)) {
       const uint64_t position = limit_of(*e);
       if (position < 1 || position > outputs.size()) throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + e->value + "' in 'order clause'");
       const auto& o = outputs[position - 1];
@@ -2256,13 +2265,8 @@ bool sorts_through_temporary(const sql::Select& select, const JoinNode& root, co
   for (const auto& order : select.order) {
     const sql::Expr* e = order.expr.get();
     std::optional<JoinPlace> star_column;
-    if (e->kind == sql::ExprKind::integer) {
-      uint64_t n = 0;
-      try {
-        n = std::stoull(e->value);
-      } catch (const std::exception&) {
-        return true;
-      }
+    if (is_position(*e)) {
+      const uint64_t n = integer_text(*e);
       size_t at = 0;
       e = nullptr;
       for (size_t k = 0; k < select.items.size() && !e && !star_column; ++k) {
@@ -2572,7 +2576,7 @@ Outcome Session::select_joined(const sql::Select& select) {
   std::vector<std::unique_ptr<sql::Expr>> star_columns;
   for (const auto& order : select.order) {
     const sql::Expr* e = order.expr.get();
-    if (e->kind == sql::ExprKind::integer) {
+    if (is_position(*e)) {
       const uint64_t position = limit_of(*e);
       if (position < 1 || position > outputs.size()) throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + e->value + "' in 'order clause'");
       const auto& o = outputs[position - 1];
@@ -2749,7 +2753,7 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
   std::vector<const sql::Expr*> groups_by;
   for (const auto& g : select.group_by) {
     const sql::Expr* e = g.get();
-    if (e->kind == sql::ExprKind::integer) {
+    if (is_position(*e)) {
       const uint64_t position = limit_of(*e);
       if (position < 1 || position > select.items.size() || select.items[position - 1].star)
         throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + e->value + "' in 'group statement'");
@@ -2771,7 +2775,7 @@ Outcome Session::select_groups(const sql::Select& select, const catalog::Table* 
   std::vector<const sql::Expr*> order_exprs;
   for (const auto& order : select.order) {
     const sql::Expr* e = order.expr.get();
-    if (e->kind == sql::ExprKind::integer) {
+    if (is_position(*e)) {
       const uint64_t position = limit_of(*e);
       if (position < 1 || position > select.items.size() || select.items[position - 1].star)
         throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + e->value + "' in 'order clause'");
