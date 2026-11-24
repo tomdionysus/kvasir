@@ -42,7 +42,9 @@ SIGINT or SIGTERM stops the node.
 .TP
 .B hash-password
 Reads one line, a password, from standard input and prints a credential for
-.BR \-\-users .
+.BR \-\-users :
+an Argon2id hash in the PHC string form,
+.BR $argon2id$v=19$m= KiB ,t= passes ,p= lanes $ salt $ hash .
 .SH OPTIONS
 Every option is also a key in the settings file, in
 .B secrets.yaml

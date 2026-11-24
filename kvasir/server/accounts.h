@@ -14,37 +14,31 @@
 #include <vector>
 
 #include "dannan/identity/argon2.h"
-#include "dannan/identity/secure_memory.h"
+#include "dannan/identity/password.h"
 
 // The accounts a node signs clients in against, until the Lugh plugin: built
 // in, read from the `users` setting (secrets.yaml), each item
 // "<name>:<credential>". A name is compared as bytes and may hold anything
 // but is never empty; it ends at the item's last ':'. A credential is
+// Dannan's stored password (rule 3: the stack's one copy) in its PHC form,
 //
-//   argon2id$m=<KiB>,t=<passes>,p=<lanes>$<salt, hex>$<tag, hex>
+//   $argon2id$v=19$m=<KiB>,t=<passes>,p=<lanes>$<salt>$<hash>
 //
-// Argon2id through Dannan's primitive, a 32-byte tag over a salt of at least
-// 16 bytes. Only the full path of caching_sha2_password checks a password
-// here; the fast path's verifier is made from the password at that moment and
-// kept in memory only (VerifierCache). A refusal names the item by its
-// position, never its credential.
+// a 16-byte salt and a 32-byte hash in unpadded base64. Only the full path of
+// caching_sha2_password checks a password here; the fast path's verifier is
+// made from the password at that moment and kept in memory only
+// (VerifierCache). A refusal names the item by its position, never its
+// credential.
 namespace kvasir::server {
 
-struct Credential {
-  dannan::identity::Argon2Costs costs;
-  std::vector<uint8_t> salt;
-  dannan::identity::Secret tag;
-};
-
-inline constexpr size_t credential_salt_bytes = 16;
-inline constexpr size_t credential_tag_bytes = 32;
+using Credential = dannan::identity::PasswordHash;
 
 // A new credential for `password` under a fresh random salt. Throws
 // std::invalid_argument for costs that are not valid(). Spends the costs.
 std::string make_credential(std::span<const uint8_t> password, const dannan::identity::Argon2Costs& costs = {});
-// Throws std::invalid_argument for text that is not a credential, a salt
-// shorter than credential_salt_bytes, a tag that is not credential_tag_bytes,
-// or costs that are not valid().
+// Throws std::invalid_argument for text that is not a credential Dannan's
+// from_phc reads (another algorithm or version, costs out of bounds, a salt
+// or hash of another length, anything after the hash).
 Credential parse_credential(const std::string& text);
 
 class Accounts {
@@ -64,10 +58,10 @@ class Accounts {
 
  private:
   std::map<std::string, Credential> _accounts;
-  // Checked against for a name with no account: a random tag under the
-  // first item's costs (the defaults when there are none), since accounts
-  // made together share their costs.
-  Credential _absent;
+  // The costs a name with no account spends (verify_decoy): the first
+  // item's (the defaults when there are none), since accounts made together
+  // share their costs.
+  dannan::identity::Argon2Costs _absent;
 };
 
 }  // namespace kvasir::server

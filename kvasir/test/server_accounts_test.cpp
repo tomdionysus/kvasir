@@ -7,9 +7,9 @@
 
 // The built-in accounts (the design, "Compatibility and authentication": the
 // user list built in, from YAML, until the Lugh plugin; names compared as
-// bytes; nothing of authentication data in a refusal). The credential's
-// format is Kvasir's, stated in accounts.h. Costs here are Argon2id's least,
-// so the tests are quick; the defaults are RFC 9106's.
+// bytes; nothing of authentication data in a refusal). The credential is
+// Dannan's stored password in its PHC form, stated in accounts.h. Costs here
+// are Argon2id's least, so the tests are quick; the defaults are RFC 9106's.
 
 #include <gtest/gtest.h>
 
@@ -48,11 +48,12 @@ std::string refusal(F make) {
 
 TEST(ServerAccounts, ACredentialStatesItsCostsAndParsesBack) {
   const auto text = make_credential(as_bytes("secret"), cheap());
-  EXPECT_EQ(text.rfind("argon2id$m=8,t=1,p=1$", 0), 0u) << text;
+  EXPECT_EQ(text.rfind("$argon2id$v=19$m=8,t=1,p=1$", 0), 0u) << text;
   const auto credential = parse_credential(text);
   EXPECT_EQ(credential.costs, cheap());
-  EXPECT_EQ(credential.salt.size(), credential_salt_bytes);
-  EXPECT_EQ(credential.tag.size(), credential_tag_bytes);
+  EXPECT_EQ(credential.salt.size(), dannan::identity::password_salt_bytes);
+  EXPECT_EQ(credential.hash.size(), dannan::identity::password_hash_bytes);
+  EXPECT_TRUE(dannan::identity::verify_password(as_bytes("secret"), credential));
 }
 
 TEST(ServerAccounts, EachCredentialHasItsOwnSalt) { EXPECT_NE(make_credential(as_bytes("secret"), cheap()), make_credential(as_bytes("secret"), cheap())); }
@@ -107,34 +108,39 @@ TEST(ServerAccounts, BadItemsAreRefusedByPositionAndNeverQuoted) {
   EXPECT_FALSE(message.empty());
   EXPECT_EQ(message.find(credential), std::string::npos) << message;
 
-  message = refusal([&] { Accounts({"root:argon2id$m=8,t=1,p=1$zz$00"}); });
+  message = refusal([&] { Accounts({"root:$argon2id$v=19$m=8,t=1,p=1$zz$00"}); });
   EXPECT_FALSE(message.empty());
   EXPECT_EQ(message.find("zz"), std::string::npos) << message;
 }
 
 TEST(ServerAccounts, MalformedCredentialsAreRefused) {
   const auto good = make_credential(as_bytes("secret"), cheap());
-  const auto salt_at = good.find('$', good.find('$') + 1) + 1;
   const auto tag_at = good.rfind('$') + 1;
+  const auto salt_at = good.rfind('$', tag_at - 2) + 1;
   const auto salt = good.substr(salt_at, tag_at - 1 - salt_at);
   const auto tag = good.substr(tag_at);
+  const std::string head = "$argon2id$v=19$";
+  ASSERT_NO_THROW(parse_credential(head + "m=8,t=1,p=1$" + salt + "$" + tag));
 
   EXPECT_THROW(parse_credential(""), std::invalid_argument);
-  EXPECT_THROW(parse_credential("argon2i$m=8,t=1,p=1$" + salt + "$" + tag), std::invalid_argument);
-  EXPECT_THROW(parse_credential("argon2id$m=8,t=1$" + salt + "$" + tag), std::invalid_argument);
-  EXPECT_THROW(parse_credential("argon2id$t=1,m=8,p=1$" + salt + "$" + tag), std::invalid_argument);
-  EXPECT_THROW(parse_credential("argon2id$m=8,t=1,p=1$" + salt + "$" + tag + "$"), std::invalid_argument);
-  EXPECT_THROW(parse_credential("argon2id$m=8,t=1,p=1$" + salt), std::invalid_argument);
-  EXPECT_THROW(parse_credential("argon2id$m=x,t=1,p=1$" + salt + "$" + tag), std::invalid_argument);
-  EXPECT_THROW(parse_credential("argon2id$m=99999999999999999999,t=1,p=1$" + salt + "$" + tag), std::invalid_argument);
+  // Another algorithm or version; Kvasir's own earlier form.
+  EXPECT_THROW(parse_credential("$argon2i$v=19$m=8,t=1,p=1$" + salt + "$" + tag), std::invalid_argument);
+  EXPECT_THROW(parse_credential("$argon2id$v=16$m=8,t=1,p=1$" + salt + "$" + tag), std::invalid_argument);
+  EXPECT_THROW(parse_credential("argon2id$m=8,t=1,p=1$" + salt + "$" + tag), std::invalid_argument);
+  EXPECT_THROW(parse_credential(head + "m=8,t=1$" + salt + "$" + tag), std::invalid_argument);
+  EXPECT_THROW(parse_credential(head + "t=1,m=8,p=1$" + salt + "$" + tag), std::invalid_argument);
+  EXPECT_THROW(parse_credential(head + "m=8,t=1,p=1$" + salt + "$" + tag + "$"), std::invalid_argument);
+  EXPECT_THROW(parse_credential(head + "m=8,t=1,p=1$" + salt), std::invalid_argument);
+  EXPECT_THROW(parse_credential(head + "m=x,t=1,p=1$" + salt + "$" + tag), std::invalid_argument);
+  EXPECT_THROW(parse_credential(head + "m=99999999999999999999,t=1,p=1$" + salt + "$" + tag), std::invalid_argument);
   // Costs Argon2 refuses: no passes, and past Dannan's ceiling.
-  EXPECT_THROW(parse_credential("argon2id$m=8,t=0,p=1$" + salt + "$" + tag), std::invalid_argument);
-  EXPECT_THROW(parse_credential("argon2id$m=8,t=65,p=1$" + salt + "$" + tag), std::invalid_argument);
-  // A short salt, a tag of the wrong length, and text that is not hex.
-  EXPECT_THROW(parse_credential("argon2id$m=8,t=1,p=1$" + salt.substr(2) + "$" + tag), std::invalid_argument);
-  EXPECT_THROW(parse_credential("argon2id$m=8,t=1,p=1$" + salt + "$" + tag.substr(2)), std::invalid_argument);
-  EXPECT_THROW(parse_credential("argon2id$m=8,t=1,p=1$" + salt + "$" + tag + "00"), std::invalid_argument);
-  EXPECT_THROW(parse_credential("argon2id$m=8,t=1,p=1$" + salt + "$" + tag.substr(1) + "g"), std::invalid_argument);
+  EXPECT_THROW(parse_credential(head + "m=8,t=0,p=1$" + salt + "$" + tag), std::invalid_argument);
+  EXPECT_THROW(parse_credential(head + "m=8,t=65,p=1$" + salt + "$" + tag), std::invalid_argument);
+  // A short salt, a hash of the wrong length, and text that is not base64.
+  EXPECT_THROW(parse_credential(head + "m=8,t=1,p=1$" + salt.substr(2) + "$" + tag), std::invalid_argument);
+  EXPECT_THROW(parse_credential(head + "m=8,t=1,p=1$" + salt + "$" + tag.substr(2)), std::invalid_argument);
+  EXPECT_THROW(parse_credential(head + "m=8,t=1,p=1$" + salt + "$" + tag + "AAAA"), std::invalid_argument);
+  EXPECT_THROW(parse_credential(head + "m=8,t=1,p=1$" + salt + "$" + tag.substr(1) + "!"), std::invalid_argument);
 }
 
 TEST(ServerAccounts, MakingACredentialRefusesInvalidCosts) {
