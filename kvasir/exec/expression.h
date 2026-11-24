@@ -170,6 +170,12 @@ class Evaluator {
   // it.
   std::optional<bool> truth(const Value& v, const ResultType& t);
 
+  // Strings' collations and coercibilities aggregated as MySQL does for
+  // `operation` (a set operation's columns), or 1267 or 1270.
+  std::pair<uint16_t, int> aggregated_collation(const std::vector<std::pair<uint16_t, int>>& strings, const std::string& operation) const {
+    return aggregate_collations(strings, operation);
+  }
+
   const std::vector<Warning>& warnings() const noexcept { return _warnings; }
   void clear_warnings() { _warnings.clear(); }
   void add_warnings(const std::vector<Warning>& more) { _warnings.insert(_warnings.end(), more.begin(), more.end()); }
@@ -326,6 +332,12 @@ bool is_temporal_type(const ResultType& t);
 // Which a temporal type is; and such a result as MySQL reports it.
 temporal::Kind temporal_kind_of(const ResultType& t);
 ResultType temporal_result_type(temporal::Kind kind, int fsp, bool not_null);
+// A set operation's result column (joined_type.cpp): its parts' types
+// joined as a temporary table's field (observed:
+// TODO/2026-11-24-set-operations-notes.md), a string result under
+// `collation`.
+ResultType joined_type(const std::vector<ResultType>& parts, uint16_t collation);
+
 // The fraction digits an argument brings to a temporal result: a temporal
 // type's own, a string constant's written ones (observed: TIME('...56.5')
 // has 1), a number's decimals, at most 6; none for NULL.

@@ -3806,7 +3806,268 @@ Outcome Session::change_rows(const sql::Statement& statement) {
   return outcome;
 }
 
+namespace {
+
+// A set operation's result as the columns its ORDER BY reads: each by the
+// first part's name, unqualified.
+class SetColumns : public ColumnSource {
+ public:
+  SetColumns(const ResultSet& result, const std::vector<uint16_t>& collations) : _result(result), _collations(collations) {}
+  std::optional<Found> find_column(const std::vector<std::string>& path) const override {
+    const auto i = index(path);
+    if (!i) return std::nullopt;
+    return Found{_result.columns[*i].type, _collations[*i]};
+  }
+  Value column_value(const std::vector<std::string>& path) const override { return value_from_text((*_row)[*index(path)], _result.columns[*index(path)].type); }
+  void set_row(const std::vector<std::optional<std::string>>* row) { _row = row; }
+
+ private:
+  std::optional<size_t> index(const std::vector<std::string>& path) const {
+    if (path.size() != 1) return std::nullopt;
+    for (size_t i = 0; i < _result.columns.size(); ++i)
+      if (sql::same_word(_result.columns[i].name, path[0])) return i;
+    return std::nullopt;
+  }
+  const ResultSet& _result;
+  const std::vector<uint16_t>& _collations;
+  const std::vector<std::optional<std::string>>* _row = nullptr;
+};
+
+}  // namespace
+
+Session::SetPart Session::set_part(const sql::Select& query, std::vector<Warning>& warnings) {
+  SetPart part;
+  if (query.set) {
+    part.result = *select_set(query).result;
+    warnings.insert(warnings.end(), _warnings.begin(), _warnings.end());
+    // A set operation's column holds its joined collation, as a column does.
+    for (const auto& column : part.result.columns) part.derivations.emplace_back(column.type.collation, implicit_coercibility);
+    return part;
+  }
+  part.result = *select(query).result;
+  warnings.insert(warnings.end(), _warnings.begin(), _warnings.end());
+  for (size_t i = 0; i < part.result.columns.size(); ++i) {
+    const sql::Expr* e = i < query.items.size() && !query.items[i].star ? query.items[i].expr.get() : nullptr;
+    // COLLATE is explicit, a string literal coercible, anything else as a
+    // column holds its collation.
+    const int coercibility = e && e->kind == sql::ExprKind::collate  ? explicit_coercibility
+                             : e && e->kind == sql::ExprKind::string ? coercible_coercibility
+                                                                     : implicit_coercibility;
+    part.derivations.emplace_back(part.result.columns[i].type.collation, coercibility);
+  }
+  return part;
+}
+
+Outcome Session::select_set(const sql::Select& query) {
+  using Op = sql::Select::SetOperation::Op;
+  const auto& set = *query.set;
+  std::vector<Warning> warnings;
+  std::vector<SetPart> parts;
+  parts.push_back(set_part(set.left, warnings));
+  if (set.op != Op::none) {
+    parts.push_back(set_part(set.right, warnings));
+    if (parts[0].result.columns.size() != parts[1].result.columns.size())
+      throw SqlError(1222, "21000", "The used SELECT statements have a different number of columns");
+  }
+  const auto settings = eval_settings();
+  Evaluator evaluator(settings);
+  // Each column: the first part's name, the parts' types joined, strings
+  // under their collations aggregated.
+  ResultSet result;
+  std::vector<std::pair<uint16_t, int>> derivations;
+  std::vector<uint16_t> collations;
+  for (size_t i = 0; i < parts[0].result.columns.size(); ++i) {
+    std::vector<ResultType> types;
+    std::vector<std::pair<uint16_t, int>> strings;
+    for (const auto& part : parts) {
+      const auto& type = part.result.columns[i].type;
+      types.push_back(type);
+      if (is_string_type(type) && type.field_type != f::null) strings.push_back(part.derivations[i]);
+    }
+    const auto derivation = strings.empty() ? std::pair<uint16_t, int>{settings.result_collation, implicit_coercibility}
+                                            : evaluator.aggregated_collation(strings, set.op == Op::intersect ? "INTERSECT"
+                                                                                      : set.op == Op::except  ? "EXCEPT"
+                                                                                                              : "UNION");
+    auto column = parts[0].result.columns[i];
+    // A parenthesised query alone keeps its columns (no temporary table).
+    if (set.op != Op::none) column.type = joined_type(types, derivation.first);
+    column.schema.clear();
+    column.table.clear();
+    column.original_table.clear();
+    column.original_name.clear();
+    result.columns.push_back(std::move(column));
+    derivations.push_back(derivation);
+    collations.push_back(is_string_type(result.columns.back().type) ? result.columns.back().type.collation : 0);
+  }
+
+  // The parts' rows in the joined types, compared under its collations.
+  const auto today = [&] {
+    auto m = temporal::from_unix_us(settings.statement_us + static_cast<int64_t>(settings.zone_seconds) * 1000000);
+    m.hour = m.minute = m.second = m.micro = 0;
+    return m;
+  };
+  const auto as_joined = [&](const std::optional<std::string>& text, const ResultType& from, const ResultType& to) -> std::optional<std::string> {
+    if (!text || (from.field_type == to.field_type && from.decimals == to.decimals)) return text;
+    switch (to.field_type) {
+      case f::tiny:
+      case f::short_:
+      case f::int24:
+      case f::long_:
+      case f::longlong: {
+        // Within the field's range, as the temporary table stores it
+        // (observed: YEAR 2024 in a TINYINT is 127).
+        const auto ft = from.field_type;
+        const bool integral = ft == f::tiny || ft == f::short_ || ft == f::int24 || ft == f::long_ || ft == f::longlong || ft == f::year;
+        if (to.field_type == f::longlong || !integral) return text;
+        const int bits = to.field_type == f::tiny ? 8 : to.field_type == f::short_ ? 16 : to.field_type == f::int24 ? 24 : 32;
+        const int64_t most = to.is_unsigned() ? (int64_t{1} << bits) - 1 : (int64_t{1} << (bits - 1)) - 1;
+        const int64_t least = to.is_unsigned() ? 0 : -(int64_t{1} << (bits - 1));
+        const auto v = std::strtoll(text->c_str(), nullptr, 10);
+        return std::to_string(std::clamp<int64_t>(v, least, most));
+      }
+      case f::newdecimal:
+        if (const auto d = Decimal::parse(*text)) return d->rounded(to.decimals).to_string();
+        return text;
+      case f::float_:
+      case f::double_:
+        return to_text(Value{std::strtod(text->c_str(), nullptr)}, to);
+      case f::date:
+      case f::time:
+      case f::datetime:
+      case f::timestamp: {
+        if (!is_temporal_type(from)) return text;
+        const auto from_kind = temporal_kind_of(from), to_kind = temporal_kind_of(to);
+        auto m = temporal::parse_text(*text, from_kind);
+        if (from_kind == temporal::Kind::time && to_kind != temporal::Kind::time) {
+          const int64_t into = ((static_cast<int64_t>(m.hour) * 60 + m.minute) * 60 + m.second) * 1000000 + m.micro;
+          m = temporal::from_unix_us(temporal::to_unix_us(today()) + (m.negative ? -into : into));
+        }
+        return temporal::text(m, to_kind, to.decimals);
+      }
+      default:
+        return text;
+    }
+  };
+  using Row = std::vector<std::optional<std::string>>;
+  const auto rows_of = [&](const SetPart& part) {
+    std::vector<Row> out;
+    for (const auto& row : part.result.rows) {
+      Row converted;
+      for (size_t i = 0; i < row.size(); ++i) converted.push_back(as_joined(row[i], part.result.columns[i].type, result.columns[i].type));
+      out.push_back(std::move(converted));
+    }
+    return out;
+  };
+  const auto values_of = [&](const Row& row) {
+    std::vector<Value> out;
+    for (size_t i = 0; i < row.size(); ++i) out.push_back(value_from_text(row[i], result.columns[i].type));
+    return out;
+  };
+  const ValuesLess less{&collations};
+  // Each row once, the first met kept.
+  const auto distinct = [&](std::vector<Row> rows) {
+    std::set<std::vector<Value>, ValuesLess> seen(less);
+    std::vector<Row> kept;
+    for (auto& row : rows)
+      if (seen.insert(values_of(row)).second) kept.push_back(std::move(row));
+    return kept;
+  };
+
+  if (!_describing) {
+    auto left = rows_of(parts[0]);
+    if (set.op == Op::none) {
+      result.rows = std::move(left);
+    } else {
+      auto right = rows_of(parts[1]);
+      if (set.op == Op::union_) {
+        left.insert(left.end(), std::make_move_iterator(right.begin()), std::make_move_iterator(right.end()));
+        result.rows = set.all ? std::move(left) : distinct(std::move(left));
+      } else {
+        // INTERSECT keeps a left row the right side has, EXCEPT one it has
+        // not; ALL counts each copy.
+        std::map<std::vector<Value>, size_t, ValuesLess> counts(less);
+        for (const auto& row : right) ++counts[values_of(row)];
+        std::vector<Row> kept;
+        for (auto& row : left) {
+          auto it = counts.find(values_of(row));
+          const bool found = it != counts.end() && it->second > 0;
+          if (found && set.all) --it->second;
+          if (found == (set.op == Op::intersect)) kept.push_back(std::move(row));
+        }
+        result.rows = set.all ? std::move(kept) : distinct(std::move(kept));
+      }
+    }
+  }
+
+  // The whole result's ORDER BY, over its columns by name or position, and
+  // its LIMIT.
+  SetColumns columns(result, collations);
+  auto sort_settings = settings;
+  sort_settings.columns = &columns;
+  Evaluator sorter(sort_settings);
+  struct Sort {
+    const sql::Expr* expr = nullptr;
+    std::optional<size_t> position;
+    bool descending = false;
+    uint16_t collation = 0;
+  };
+  std::vector<Sort> sorts;
+  for (const auto& order : query.order) {
+    Sort sort;
+    sort.descending = order.descending;
+    if (is_position(*order.expr)) {
+      const auto n = std::stoull(order.expr->value);
+      if (n < 1 || n > result.columns.size()) throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + order.expr->value + "' in 'order clause'");
+      sort.position = n - 1;
+      sort.collation = collations[n - 1];
+    } else {
+      sort.expr = order.expr.get();
+      ResultType type;
+      in_clause("order clause", [&] { type = sorter.type(*sort.expr); });
+      sort.collation = order_collation(*sort.expr, type, columns, settings.result_collation);
+    }
+    sorts.push_back(sort);
+  }
+  _warnings = std::move(warnings);
+  if (_describing) return described(std::move(result));
+  const uint64_t limit = query.limit ? limit_of(*query.limit) : _variables.number("sql_select_limit");
+  const uint64_t offset = query.offset ? limit_of(*query.offset) : 0;
+  if (!sorts.empty()) {
+    struct Keyed {
+      Row row;
+      std::vector<Value> keys;
+    };
+    std::vector<Keyed> keyed;
+    for (auto& row : result.rows) {
+      Keyed k{std::move(row), {}};
+      columns.set_row(&k.row);
+      for (const auto& sort : sorts)
+        k.keys.push_back(sort.position ? value_from_text(k.row[*sort.position], result.columns[*sort.position].type) : sorter.value(*sort.expr));
+      keyed.push_back(std::move(k));
+    }
+    columns.set_row(nullptr);
+    std::stable_sort(keyed.begin(), keyed.end(), [&](const Keyed& a, const Keyed& b) {
+      for (size_t i = 0; i < sorts.size(); ++i) {
+        const int order = compare_for_order(a.keys[i], b.keys[i], sorts[i].collation);
+        if (order != 0) return sorts[i].descending ? order > 0 : order < 0;
+      }
+      return false;
+    });
+    result.rows.clear();
+    for (auto& k : keyed) result.rows.push_back(std::move(k.row));
+    _warnings.insert(_warnings.end(), sorter.warnings().begin(), sorter.warnings().end());
+  }
+  std::vector<Row> limited;
+  for (size_t i = 0; i < result.rows.size(); ++i)
+    if (i >= offset && i - offset < limit) limited.push_back(std::move(result.rows[i]));
+  result.rows = std::move(limited);
+  Outcome out;
+  out.result = std::move(result);
+  return out;
+}
+
 Outcome Session::select(const sql::Select& select) {
+  if (select.set) return select_set(select);
   if (!select.from.empty()) return select_from_table(select);
   if (is_grouped(select)) return select_groups(select, nullptr, "");
   Evaluator evaluator(eval_settings());
@@ -3816,6 +4077,12 @@ Outcome Session::select(const sql::Select& select) {
     result.columns.push_back({column_name(item), evaluator.type(*item.expr)});
   }
   for (const auto& order : select.order) {
+    // An item's alias names that item (observed: SELECT 3 a ORDER BY a).
+    const auto& x = *order.expr;
+    const bool alias = x.kind == sql::ExprKind::column && x.path.size() == 1 &&
+                       std::any_of(select.items.begin(), select.items.end(),
+                                   [&](const sql::SelectItem& item) { return item.has_alias && sql::same_word(item.alias, x.path[0]); });
+    if (alias) continue;
     try {
       evaluator.type(*order.expr);
     } catch (const SqlError& e) {

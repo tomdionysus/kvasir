@@ -1359,3 +1359,11 @@ The record, newest first. Each entry says what landed, with its gate counts.
   subqueries.
 - Gate (node-c): release, ASan and TSan each **439 tests, 1454 of 1454**
   statements, TSan with no reports; coverage 99.1% of lines.
+- Set operations: UNION, INTERSECT and EXCEPT, DISTINCT and ALL,
+  parenthesised queries with their own ORDER BY and LIMIT, INSERT ...
+  SELECT over them; each column's type joined as MySQL's temporary table
+  field (all 399 pairs of the observed matrix in the gate, over a table
+  with values). Recorded besides: the maintainer's reprioritisation of the
+  store and cluster steps.
+- Gate (node-c): release, ASan and TSan each **440 tests, 1912 of 1912**
+  statements, TSan with no reports; coverage 99.1% of lines.

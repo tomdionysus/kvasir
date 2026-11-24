@@ -889,6 +889,50 @@ TEST(SqlParser, Intervals) {
   EXPECT_EQ(error_at("SELECT WEEK(d, 0, 1)"), 16u);
 }
 
+// Set operations (the manual's "Set Operations", as observed on MySQL
+// 8.4.13): INTERSECT binds first, UNION and EXCEPT left to right; the last
+// SELECT's ORDER BY and LIMIT are the whole query's, an earlier one's a
+// syntax error at the operator after it; a parenthesised query keeps its
+// own, and one with ORDER BY or LIMIT outside it is a query alone.
+TEST(SqlParser, SetOperations) {
+  using Op = Select::SetOperation::Op;
+  auto s = one("SELECT 1 UNION SELECT 2 INTERSECT ALL SELECT 3 EXCEPT DISTINCT SELECT 4 ORDER BY 1 LIMIT 2");
+  ASSERT_TRUE(s.select.set);
+  EXPECT_EQ(s.select.set->op, Op::except);
+  EXPECT_FALSE(s.select.set->all);
+  EXPECT_EQ(s.select.order.size(), 1u);
+  ASSERT_TRUE(s.select.limit);
+  EXPECT_TRUE(s.select.set->right.order.empty());
+  EXPECT_FALSE(s.select.set->right.limit);
+  const auto& left = s.select.set->left;
+  ASSERT_TRUE(left.set);
+  EXPECT_EQ(left.set->op, Op::union_);
+  ASSERT_TRUE(left.set->right.set);
+  EXPECT_EQ(left.set->right.set->op, Op::intersect);
+  EXPECT_TRUE(left.set->right.set->all);
+
+  s = one("(SELECT 3 a ORDER BY a LIMIT 1) UNION ALL (SELECT 1 UNION SELECT 2 ORDER BY 1 DESC LIMIT 1)");
+  ASSERT_TRUE(s.select.set);
+  EXPECT_TRUE(s.select.set->all);
+  EXPECT_TRUE(s.select.order.empty());
+  EXPECT_EQ(s.select.set->left.order.size(), 1u);
+  ASSERT_TRUE(s.select.set->right.set);
+  EXPECT_EQ(s.select.set->right.order.size(), 1u);
+
+  s = one("(SELECT 2 a) ORDER BY a");
+  ASSERT_TRUE(s.select.set);
+  EXPECT_EQ(s.select.set->op, Op::none);
+  EXPECT_EQ(s.select.order.size(), 1u);
+  s = one("((SELECT 2 a))");
+  EXPECT_FALSE(s.select.set);
+  EXPECT_EQ(s.select.items.size(), 1u);
+
+  EXPECT_EQ(error_at("SELECT 3 a LIMIT 1 UNION SELECT 1"), 19u);
+  EXPECT_EQ(error_at("SELECT 3 a ORDER BY a UNION SELECT 1"), 22u);
+  EXPECT_EQ(error_at("SELECT 1 UNION"), 14u);
+  EXPECT_EQ(error_at("SELECT 1 UNION ALL ALL SELECT 2"), 19u);
+}
+
 // The multiple-table forms (the manual's UPDATE and DELETE statements):
 // UPDATE over table references; DELETE targets FROM references and DELETE
 // FROM targets USING references, a target `name` or `name.*`, with WHERE

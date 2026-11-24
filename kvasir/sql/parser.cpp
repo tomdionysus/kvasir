@@ -164,9 +164,9 @@ class Parser {
 
   Statement parse_statement() {
     Statement s;
-    if (word("SELECT")) {
+    if (word("SELECT") || symbol("(")) {
       s.kind = Statement::Kind::select;
-      s.select = parse_select();
+      s.select = parse_query();
     } else if (word("SET")) {
       s.kind = Statement::Kind::set;
       take();
@@ -388,7 +388,7 @@ class Parser {
         in.rows.back().push_back(insert_value());
       } while (symbol(",") && (take(), true));
     } else {
-      if (symbol("(") && !word("SELECT", 1)) {
+      if (symbol("(") && !word("SELECT", 1) && !symbol("(", 1)) {
         take();
         in.has_columns = true;
         if (!symbol(")")) {
@@ -398,12 +398,8 @@ class Parser {
         expect_symbol(")");
       }
       if (word("TABLE")) return unsupported(s, verb + " ... TABLE");
-      if (word("SELECT")) {
-        in.select = std::make_unique<Select>(parse_select());
-      } else if (symbol("(") && word("SELECT", 1)) {
-        take();
-        in.select = std::make_unique<Select>(parse_select());
-        expect_symbol(")");
+      if (word("SELECT") || symbol("(")) {
+        in.select = std::make_unique<Select>(parse_query());
       } else {
         if (!accept_word("VALUES")) expect_word("VALUE");
         do {
@@ -1039,30 +1035,7 @@ class Parser {
       }
     }
     if (accept_word("HAVING")) select.having = expression();
-    if (accept_word("ORDER")) {
-      expect_word("BY");
-      do {
-        OrderItem item;
-        item.expr = expression();
-        if (accept_word("DESC")) {
-          item.descending = true;
-        } else {
-          accept_word("ASC");
-        }
-        select.order.push_back(std::move(item));
-      } while (symbol(",") && (take(), true));
-    }
-    if (accept_word("LIMIT")) {
-      auto first = limit_value();
-      if (symbol(",")) {
-        take();
-        select.offset = std::move(first);
-        select.limit = limit_value();
-      } else {
-        select.limit = std::move(first);
-        if (accept_word("OFFSET")) select.offset = limit_value();
-      }
-    }
+    order_and_limit(select);
     // FOR UPDATE | FOR SHARE [OF table, ...] [NOWAIT | SKIP LOCKED], any
     // number; LOCK IN SHARE MODE takes neither.
     for (;;) {
@@ -1093,6 +1066,124 @@ class Parser {
       select.locking.push_back(std::move(l));
     }
     return select;
+  }
+
+  // [ORDER BY item [ASC | DESC], ...] [LIMIT [offset,] count | LIMIT count
+  // OFFSET offset].
+  void order_and_limit(Select& select) {
+    if (accept_word("ORDER")) {
+      expect_word("BY");
+      do {
+        OrderItem item;
+        item.expr = expression();
+        if (accept_word("DESC")) {
+          item.descending = true;
+        } else {
+          accept_word("ASC");
+        }
+        select.order.push_back(std::move(item));
+      } while (symbol(",") && (take(), true));
+    }
+    if (accept_word("LIMIT")) {
+      auto first = limit_value();
+      if (symbol(",")) {
+        take();
+        select.offset = std::move(first);
+        select.limit = limit_value();
+      } else {
+        select.limit = std::move(first);
+        if (accept_word("OFFSET")) select.offset = limit_value();
+      }
+    }
+  }
+
+  // A query (the manual's "Set Operations"): SELECTs and parenthesised
+  // queries joined by UNION, EXCEPT and INTERSECT (INTERSECT binding first,
+  // the rest left to right), then ORDER BY and LIMIT over the whole. A
+  // SELECT that is not the last may have neither (observed: 1064 at the
+  // operator after it); the last one's are the whole query's.
+  Select parse_query() {
+    struct Part {
+      Select select;
+      bool parenthesised = false;
+    };
+    using Op = Select::SetOperation::Op;
+    std::vector<Part> parts;
+    std::vector<std::pair<Op, bool>> ops;
+    const auto primary = [&] {
+      Part p;
+      if (symbol("(")) {
+        take();
+        p.select = parse_query();
+        expect_symbol(")");
+        p.parenthesised = true;
+      } else if (word("SELECT")) {
+        p.select = parse_select();
+      } else {
+        fail(peek());
+      }
+      parts.push_back(std::move(p));
+    };
+    primary();
+    while (word("UNION") || word("EXCEPT") || word("INTERSECT")) {
+      const auto& last = parts.back();
+      if (!last.parenthesised && (!last.select.order.empty() || last.select.limit)) fail(peek());
+      const auto op = upper(take().value);
+      bool all = false;
+      if (accept_word("ALL")) {
+        all = true;
+      } else {
+        accept_word("DISTINCT");
+      }
+      ops.emplace_back(op == "UNION" ? Op::union_ : op == "EXCEPT" ? Op::except : Op::intersect, all);
+      primary();
+    }
+    if (ops.empty()) {
+      auto only = std::move(parts.front());
+      if (!only.parenthesised || !(word("ORDER") || word("LIMIT"))) return std::move(only.select);
+      Select whole;
+      whole.set = std::make_shared<Select::SetOperation>();
+      whole.set->left = std::move(only.select);
+      order_and_limit(whole);
+      return whole;
+    }
+    // The whole query's ORDER BY and LIMIT: the last SELECT's, or written
+    // after the last parenthesised part.
+    Select whole;
+    if (!parts.back().parenthesised) {
+      auto& last = parts.back().select;
+      whole.order = std::move(last.order);
+      whole.limit = std::move(last.limit);
+      whole.offset = std::move(last.offset);
+      last.order.clear();
+    } else {
+      order_and_limit(whole);
+    }
+    const auto joined = [](Op op, bool all, Select left, Select right) {
+      Select s;
+      s.set = std::make_shared<Select::SetOperation>();
+      s.set->op = op;
+      s.set->all = all;
+      s.set->left = std::move(left);
+      s.set->right = std::move(right);
+      return s;
+    };
+    // INTERSECT first, then UNION and EXCEPT left to right.
+    std::vector<Select> terms;
+    std::vector<std::pair<Op, bool>> term_ops;
+    terms.push_back(std::move(parts[0].select));
+    for (size_t i = 0; i < ops.size(); ++i) {
+      if (ops[i].first == Op::intersect) {
+        terms.back() = joined(Op::intersect, ops[i].second, std::move(terms.back()), std::move(parts[i + 1].select));
+      } else {
+        term_ops.push_back(ops[i]);
+        terms.push_back(std::move(parts[i + 1].select));
+      }
+    }
+    Select tree = std::move(terms[0]);
+    for (size_t i = 0; i < term_ops.size(); ++i) tree = joined(term_ops[i].first, term_ops[i].second, std::move(tree), std::move(terms[i + 1]));
+    whole.set = std::move(tree.set);
+    return whole;
   }
 
   ExprPtr limit_value() {

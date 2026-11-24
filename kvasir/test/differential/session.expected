@@ -6938,3 +6938,2655 @@ statement SET NAMES DEFAULT
 end
 statement DROP DATABASE kv_parse
 end
+statement CREATE DATABASE kv_union
+end
+statement CREATE TABLE kv_union.t (id INT PRIMARY KEY, ti TINYINT, si SMALLINT, i INT NOT NULL, bi BIGINT, ub BIGINT UNSIGNED, dc DECIMAL(10,3), dbl DOUBLE, fl FLOAT, vc VARCHAR(10), ch CHAR(5), tx TEXT, vb VARBINARY(8), d DATE, t TIME(2), dt DATETIME(3), ts TIMESTAMP NULL, y YEAR)
+end
+statement INSERT INTO kv_union.t VALUES (1, 1, 2, 3, 4, 5, 6.5, 7.5e0, 8.5, 'nine', 'ten', 'eleven', X'0c', '2024-02-29', NULL, '2024-02-29 12:34:56.789', '2024-02-29 12:34:56', 2024), (2, -1, NULL, 0, NULL, 18446744073709551615, -0.125, NULL, NULL, 'Nine', 'ten ', NULL, NULL, NULL, NULL, '2024-02-29 00:00:00', NULL, NULL)
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+column x|TINY|63|4|0|NUM
+row 1
+row -1
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+column x|SHORT|63|6|0|NUM
+row 1
+row -1
+row 2
+row \N
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+column x|LONG|63|11|0|NUM
+row 1
+row -1
+row 3
+row 0
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+column x|LONGLONG|63|20|0|NUM
+row 1
+row -1
+row 4
+row \N
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+column x|NEWDECIMAL|63|21|0|NUM
+row 1
+row -1
+row 5
+row 18446744073709551615
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+column x|NEWDECIMAL|63|12|3|NUM
+row 1.000
+row -1.000
+row 6.500
+row -0.125
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 1
+row -1
+row 7.5
+row \N
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+column x|FLOAT|63|23|31|NUM
+row 1
+row -1
+row 8.5
+row \N
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row 1
+row -1
+row nine
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+column x|STRING|255|20|0|
+row 1
+row -1
+row ten
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row 1
+row -1
+row eleven
+row \N
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+column x|VAR_STRING|63|8|0|BINARY
+row 1
+row -1
+row 
+row \N
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row 1
+row -1
+row 2024-02-29
+row \N
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+column x|VAR_STRING|255|52|0|
+row 1
+row -1
+row \N
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 1
+row -1
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+column x|VAR_STRING|255|76|0|
+row 1
+row -1
+row 2024-02-29 12:34:56
+row \N
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+column x|TINY|63|4|0|NUM
+row 1
+row -1
+row 127
+row \N
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+column x|SHORT|63|6|0|NUM
+row 2
+row \N
+row 1
+row -1
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+column x|SHORT|63|6|0|NUM
+row 2
+row \N
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+column x|LONG|63|11|0|NUM
+row 2
+row \N
+row 3
+row 0
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+column x|LONGLONG|63|20|0|NUM
+row 2
+row \N
+row 4
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+column x|NEWDECIMAL|63|21|0|NUM
+row 2
+row \N
+row 5
+row 18446744073709551615
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+column x|NEWDECIMAL|63|12|3|NUM
+row 2.000
+row \N
+row 6.500
+row -0.125
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 2
+row \N
+row 7.5
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+column x|FLOAT|63|23|31|NUM
+row 2
+row \N
+row 8.5
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row 2
+row \N
+row nine
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+column x|STRING|255|24|0|
+row 2
+row \N
+row ten
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row 2
+row \N
+row eleven
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+column x|VAR_STRING|63|8|0|BINARY
+row 2
+row \N
+row 
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row 2
+row \N
+row 2024-02-29
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+column x|VAR_STRING|255|52|0|
+row 2
+row \N
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 2
+row \N
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+column x|VAR_STRING|255|76|0|
+row 2
+row \N
+row 2024-02-29 12:34:56
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+column x|SHORT|63|6|0|NUM
+row 2
+row \N
+row 2024
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+column x|LONG|63|11|0|NUM
+row 3
+row 0
+row 1
+row -1
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+column x|LONG|63|11|0|NUM
+row 3
+row 0
+row 2
+row \N
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+column x|LONG|63|11|0|NOT_NULL NUM
+row 3
+row 0
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+column x|LONGLONG|63|20|0|NUM
+row 3
+row 0
+row 4
+row \N
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+column x|NEWDECIMAL|63|21|0|NUM
+row 3
+row 0
+row 5
+row 18446744073709551615
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+column x|NEWDECIMAL|63|15|3|NUM
+row 3.000
+row 0.000
+row 6.500
+row -0.125
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 3
+row 0
+row 7.5
+row \N
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 3
+row 0
+row 8.5
+row \N
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+column x|VAR_STRING|255|44|0|
+row 3
+row 0
+row nine
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+column x|STRING|255|44|0|
+row 3
+row 0
+row ten
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row 3
+row 0
+row eleven
+row \N
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+column x|VAR_STRING|63|11|0|BINARY
+row 3
+row 0
+row 
+row \N
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+column x|VAR_STRING|255|44|0|
+row 3
+row 0
+row 2024-02-29
+row \N
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+column x|VAR_STRING|255|52|0|
+row 3
+row 0
+row \N
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 3
+row 0
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+column x|VAR_STRING|255|76|0|
+row 3
+row 0
+row 2024-02-29 12:34:56
+row \N
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+column x|LONG|63|11|0|NUM
+row 3
+row 0
+row 2024
+row \N
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+column x|LONGLONG|63|20|0|NUM
+row 4
+row \N
+row 1
+row -1
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+column x|LONGLONG|63|20|0|NUM
+row 4
+row \N
+row 2
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+column x|LONGLONG|63|20|0|NUM
+row 4
+row \N
+row 3
+row 0
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+column x|LONGLONG|63|20|0|NUM
+row 4
+row \N
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+column x|NEWDECIMAL|63|21|0|NUM
+row 4
+row \N
+row 5
+row 18446744073709551615
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+column x|NEWDECIMAL|63|24|3|NUM
+row 4.000
+row \N
+row 6.500
+row -0.125
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 4
+row \N
+row 7.5
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 4
+row \N
+row 8.5
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row 4
+row \N
+row nine
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+column x|STRING|255|80|0|
+row 4
+row \N
+row ten
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row 4
+row \N
+row eleven
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+column x|VAR_STRING|63|20|0|BINARY
+row 4
+row \N
+row 
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row 4
+row \N
+row 2024-02-29
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row 4
+row \N
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 4
+row \N
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row 4
+row \N
+row 2024-02-29 12:34:56
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+column x|LONGLONG|63|20|0|NUM
+row 4
+row \N
+row 2024
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+column x|NEWDECIMAL|63|21|0|NUM
+row 5
+row 18446744073709551615
+row 1
+row -1
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+column x|NEWDECIMAL|63|21|0|NUM
+row 5
+row 18446744073709551615
+row 2
+row \N
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+column x|NEWDECIMAL|63|21|0|NUM
+row 5
+row 18446744073709551615
+row 3
+row 0
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+column x|NEWDECIMAL|63|21|0|NUM
+row 5
+row 18446744073709551615
+row 4
+row \N
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+column x|LONGLONG|63|20|0|UNSIGNED NUM
+row 5
+row 18446744073709551615
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+column x|NEWDECIMAL|63|25|3|NUM
+row 5.000
+row 18446744073709551615.000
+row 6.500
+row -0.125
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 5
+row 1.8446744073709552e19
+row 7.5
+row \N
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 5
+row 1.8446744073709552e19
+row 8.5
+row \N
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row 5
+row 18446744073709551615
+row nine
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+column x|STRING|255|80|0|
+row 5
+row 18446744073709551615
+row ten
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row 5
+row 18446744073709551615
+row eleven
+row \N
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+column x|VAR_STRING|63|20|0|BINARY
+row 5
+row 18446744073709551615
+row 
+row \N
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row 5
+row 18446744073709551615
+row 2024-02-29
+row \N
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row 5
+row 18446744073709551615
+row \N
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 5
+row 18446744073709551615
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row 5
+row 18446744073709551615
+row 2024-02-29 12:34:56
+row \N
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+column x|LONGLONG|63|20|0|UNSIGNED NUM
+row 5
+row 18446744073709551615
+row 2024
+row \N
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+column x|NEWDECIMAL|63|12|3|NUM
+row 6.500
+row -0.125
+row 1.000
+row -1.000
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+column x|NEWDECIMAL|63|12|3|NUM
+row 6.500
+row -0.125
+row 2.000
+row \N
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+column x|NEWDECIMAL|63|15|3|NUM
+row 6.500
+row -0.125
+row 3.000
+row 0.000
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+column x|NEWDECIMAL|63|24|3|NUM
+row 6.500
+row -0.125
+row 4.000
+row \N
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+column x|NEWDECIMAL|63|25|3|NUM
+row 6.500
+row -0.125
+row 5.000
+row 18446744073709551615.000
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+column x|NEWDECIMAL|63|12|3|NUM
+row 6.500
+row -0.125
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 6.5
+row -0.125
+row 7.5
+row \N
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 6.5
+row -0.125
+row 8.5
+row \N
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+column x|VAR_STRING|255|48|0|
+row 6.500
+row -0.125
+row nine
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+column x|STRING|255|48|0|
+row 6.500
+row -0.125
+row ten
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row 6.500
+row -0.125
+row eleven
+row \N
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+column x|VAR_STRING|63|12|0|BINARY
+row 6.500
+row -0.125
+row 
+row \N
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+column x|VAR_STRING|255|48|0|
+row 6.500
+row -0.125
+row 2024-02-29
+row \N
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+column x|VAR_STRING|255|52|0|
+row 6.500
+row -0.125
+row \N
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 6.500
+row -0.125
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+column x|VAR_STRING|255|76|0|
+row 6.500
+row -0.125
+row 2024-02-29 12:34:56
+row \N
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+column x|NEWDECIMAL|63|12|3|NUM
+row 6.500
+row -0.125
+row 2024.000
+row \N
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 7.5
+row \N
+row 1
+row -1
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 7.5
+row \N
+row 2
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 7.5
+row \N
+row 3
+row 0
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 7.5
+row \N
+row 4
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 7.5
+row \N
+row 5
+row 1.8446744073709552e19
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 7.5
+row \N
+row 6.5
+row -0.125
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 7.5
+row \N
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 7.5
+row \N
+row 8.5
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+column x|VAR_STRING|255|88|0|
+row 7.5
+row \N
+row nine
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+column x|STRING|255|88|0|
+row 7.5
+row \N
+row ten
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row 7.5
+row \N
+row eleven
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+column x|VAR_STRING|63|22|0|BINARY
+row 7.5
+row \N
+row 
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+column x|VAR_STRING|255|88|0|
+row 7.5
+row \N
+row 2024-02-29
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+column x|VAR_STRING|255|88|0|
+row 7.5
+row \N
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 7.5
+row \N
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+column x|VAR_STRING|255|88|0|
+row 7.5
+row \N
+row 2024-02-29 12:34:56
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 7.5
+row \N
+row 2024
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+column x|FLOAT|63|23|31|NUM
+row 8.5
+row \N
+row 1
+row -1
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+column x|FLOAT|63|23|31|NUM
+row 8.5
+row \N
+row 2
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 8.5
+row \N
+row 3
+row 0
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+column x|FLOAT|63|23|31|NUM
+row 8.5
+row \N
+row 4
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+column x|FLOAT|63|23|31|NUM
+row 8.5
+row \N
+row 5
+row 1.84467e19
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 8.5
+row \N
+row 6.5
+row -0.125
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 8.5
+row \N
+row 7.5
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+column x|FLOAT|63|23|31|NUM
+row 8.5
+row \N
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+column x|VAR_STRING|255|48|0|
+row 8.5
+row \N
+row nine
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+column x|STRING|255|48|0|
+row 8.5
+row \N
+row ten
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row 8.5
+row \N
+row eleven
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+column x|VAR_STRING|63|12|0|BINARY
+row 8.5
+row \N
+row 
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+column x|VAR_STRING|255|48|0|
+row 8.5
+row \N
+row 2024-02-29
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+column x|VAR_STRING|255|52|0|
+row 8.5
+row \N
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 8.5
+row \N
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+column x|VAR_STRING|255|76|0|
+row 8.5
+row \N
+row 2024-02-29 12:34:56
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+column x|FLOAT|63|23|31|NUM
+row 8.5
+row \N
+row 2024
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row nine
+row 1
+row -1
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row nine
+row 2
+row \N
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+column x|VAR_STRING|255|44|0|
+row nine
+row 3
+row 0
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row nine
+row 4
+row \N
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row nine
+row 5
+row 18446744073709551615
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+column x|VAR_STRING|255|48|0|
+row nine
+row 6.500
+row -0.125
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+column x|VAR_STRING|255|88|0|
+row nine
+row 7.5
+row \N
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+column x|VAR_STRING|255|48|0|
+row nine
+row 8.5
+row \N
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row nine
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row nine
+row ten
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row nine
+row eleven
+row \N
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+column x|VAR_STRING|63|40|0|BINARY
+row nine
+row Nine
+row 
+row \N
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row nine
+row 2024-02-29
+row \N
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+column x|VAR_STRING|255|52|0|
+row nine
+row \N
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row nine
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+column x|VAR_STRING|255|76|0|
+row nine
+row 2024-02-29 12:34:56
+row \N
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row nine
+row 2024
+row \N
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+column x|STRING|255|20|0|
+row ten
+row 1
+row -1
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+column x|STRING|255|24|0|
+row ten
+row 2
+row \N
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+column x|STRING|255|44|0|
+row ten
+row 3
+row 0
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+column x|STRING|255|80|0|
+row ten
+row 4
+row \N
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+column x|STRING|255|80|0|
+row ten
+row 5
+row 18446744073709551615
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+column x|STRING|255|48|0|
+row ten
+row 6.500
+row -0.125
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+column x|STRING|255|88|0|
+row ten
+row 7.5
+row \N
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+column x|STRING|255|48|0|
+row ten
+row 8.5
+row \N
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row ten
+row nine
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+column x|STRING|255|20|0|
+row ten
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row ten
+row eleven
+row \N
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+column x|VAR_STRING|63|20|0|BINARY
+row ten
+row 
+row \N
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+column x|STRING|255|40|0|
+row ten
+row 2024-02-29
+row \N
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+column x|STRING|255|52|0|
+row ten
+row \N
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+column x|STRING|255|92|0|
+row ten
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+column x|STRING|255|76|0|
+row ten
+row 2024-02-29 12:34:56
+row \N
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+column x|STRING|255|20|0|
+row ten
+row 2024
+row \N
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row 1
+row -1
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row 2
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row 3
+row 0
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row 4
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row 5
+row 18446744073709551615
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row 6.500
+row -0.125
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row 7.5
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row 8.5
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row nine
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row ten
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+column x|BLOB|63|262140|0|BLOB BINARY
+row eleven
+row \N
+row 
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row 2024-02-29
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row 2024-02-29 12:34:56
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row 2024
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+column x|VAR_STRING|63|8|0|BINARY
+row 
+row \N
+row 1
+row -1
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+column x|VAR_STRING|63|8|0|BINARY
+row 
+row \N
+row 2
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+column x|VAR_STRING|63|11|0|BINARY
+row 
+row \N
+row 3
+row 0
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+column x|VAR_STRING|63|20|0|BINARY
+row 
+row \N
+row 4
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+column x|VAR_STRING|63|20|0|BINARY
+row 
+row \N
+row 5
+row 18446744073709551615
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+column x|VAR_STRING|63|12|0|BINARY
+row 
+row \N
+row 6.500
+row -0.125
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+column x|VAR_STRING|63|22|0|BINARY
+row 
+row \N
+row 7.5
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+column x|VAR_STRING|63|12|0|BINARY
+row 
+row \N
+row 8.5
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+column x|VAR_STRING|63|40|0|BINARY
+row 
+row \N
+row nine
+row Nine
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+column x|VAR_STRING|63|20|0|BINARY
+row 
+row \N
+row ten
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+column x|BLOB|63|262140|0|BLOB BINARY
+row 
+row \N
+row eleven
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+column x|VAR_STRING|63|8|0|BINARY
+row 
+row \N
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+column x|VAR_STRING|63|10|0|BINARY
+row 
+row \N
+row 2024-02-29
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+column x|VAR_STRING|63|13|0|BINARY
+row 
+row \N
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+column x|VAR_STRING|63|23|0|BINARY
+row 
+row \N
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+column x|VAR_STRING|63|19|0|BINARY
+row 
+row \N
+row 2024-02-29 12:34:56
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+column x|VAR_STRING|63|8|0|BINARY
+row 
+row \N
+row 2024
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row 2024-02-29
+row \N
+row 1
+row -1
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row 2024-02-29
+row \N
+row 2
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+column x|VAR_STRING|255|44|0|
+row 2024-02-29
+row \N
+row 3
+row 0
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row 2024-02-29
+row \N
+row 4
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row 2024-02-29
+row \N
+row 5
+row 18446744073709551615
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+column x|VAR_STRING|255|48|0|
+row 2024-02-29
+row \N
+row 6.500
+row -0.125
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+column x|VAR_STRING|255|88|0|
+row 2024-02-29
+row \N
+row 7.5
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+column x|VAR_STRING|255|48|0|
+row 2024-02-29
+row \N
+row 8.5
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row 2024-02-29
+row \N
+row nine
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+column x|STRING|255|40|0|
+row 2024-02-29
+row \N
+row ten
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row 2024-02-29
+row \N
+row eleven
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+column x|VAR_STRING|63|10|0|BINARY
+row 2024-02-29
+row \N
+row 
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+column x|DATE|63|10|0|BINARY
+row 2024-02-29
+row \N
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+column x|DATETIME|63|22|2|BINARY
+row 2024-02-29 00:00:00.00
+row \N
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+column x|DATETIME|63|23|3|BINARY
+row 2024-02-29 00:00:00.000
+row \N
+row 2024-02-29 12:34:56.789
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+column x|DATETIME|63|19|0|BINARY
+row 2024-02-29 00:00:00
+row \N
+row 2024-02-29 12:34:56
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row 2024-02-29
+row \N
+row 2024
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+column x|VAR_STRING|255|52|0|
+row \N
+row 1
+row -1
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+column x|VAR_STRING|255|52|0|
+row \N
+row 2
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+column x|VAR_STRING|255|52|0|
+row \N
+row 3
+row 0
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row \N
+row 4
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row \N
+row 5
+row 18446744073709551615
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+column x|VAR_STRING|255|52|0|
+row \N
+row 6.500
+row -0.125
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+column x|VAR_STRING|255|88|0|
+row \N
+row 7.5
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+column x|VAR_STRING|255|52|0|
+row \N
+row 8.5
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+column x|VAR_STRING|255|52|0|
+row \N
+row nine
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+column x|STRING|255|52|0|
+row \N
+row ten
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row \N
+row eleven
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+column x|VAR_STRING|63|13|0|BINARY
+row \N
+row 
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+column x|DATETIME|63|22|2|BINARY
+row \N
+row 2024-02-29 00:00:00.00
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+column x|TIME|63|13|2|BINARY
+row \N
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+column x|DATETIME|63|23|3|BINARY
+row \N
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+column x|DATETIME|63|22|2|BINARY
+row \N
+row 2024-02-29 12:34:56.00
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+column x|VAR_STRING|255|52|0|
+row \N
+row 2024
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row 1
+row -1
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row 2
+row \N
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row 3
+row 0
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row 4
+row \N
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row 5
+row 18446744073709551615
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row 6.500
+row -0.125
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row 7.5
+row \N
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row 8.5
+row \N
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row nine
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+column x|STRING|255|92|0|
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row ten
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row eleven
+row \N
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+column x|VAR_STRING|63|23|0|BINARY
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row 
+row \N
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+column x|DATETIME|63|23|3|BINARY
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row \N
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+column x|DATETIME|63|23|3|BINARY
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row \N
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+column x|DATETIME|63|23|3|BINARY
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+column x|DATETIME|63|23|3|BINARY
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row 2024-02-29 12:34:56.000
+row \N
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row 2024
+row \N
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+column x|VAR_STRING|255|76|0|
+row 2024-02-29 12:34:56
+row \N
+row 1
+row -1
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+column x|VAR_STRING|255|76|0|
+row 2024-02-29 12:34:56
+row \N
+row 2
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+column x|VAR_STRING|255|76|0|
+row 2024-02-29 12:34:56
+row \N
+row 3
+row 0
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row 2024-02-29 12:34:56
+row \N
+row 4
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row 2024-02-29 12:34:56
+row \N
+row 5
+row 18446744073709551615
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+column x|VAR_STRING|255|76|0|
+row 2024-02-29 12:34:56
+row \N
+row 6.500
+row -0.125
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+column x|VAR_STRING|255|88|0|
+row 2024-02-29 12:34:56
+row \N
+row 7.5
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+column x|VAR_STRING|255|76|0|
+row 2024-02-29 12:34:56
+row \N
+row 8.5
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+column x|VAR_STRING|255|76|0|
+row 2024-02-29 12:34:56
+row \N
+row nine
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+column x|STRING|255|76|0|
+row 2024-02-29 12:34:56
+row \N
+row ten
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row 2024-02-29 12:34:56
+row \N
+row eleven
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+column x|VAR_STRING|63|19|0|BINARY
+row 2024-02-29 12:34:56
+row \N
+row 
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+column x|DATETIME|63|19|0|BINARY
+row 2024-02-29 12:34:56
+row \N
+row 2024-02-29 00:00:00
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+column x|DATETIME|63|22|2|BINARY
+row 2024-02-29 12:34:56.00
+row \N
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+column x|DATETIME|63|23|3|BINARY
+row 2024-02-29 12:34:56.000
+row \N
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+column x|TIMESTAMP|63|19|0|BINARY
+row 2024-02-29 12:34:56
+row \N
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+column x|VAR_STRING|255|76|0|
+row 2024-02-29 12:34:56
+row \N
+row 2024
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+column x|TINY|63|4|0|NUM
+row 127
+row \N
+row 1
+row -1
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+column x|SHORT|63|6|0|NUM
+row 2024
+row \N
+row 2
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+column x|LONG|63|11|0|NUM
+row 2024
+row \N
+row 3
+row 0
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+column x|LONGLONG|63|20|0|NUM
+row 2024
+row \N
+row 4
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+column x|LONGLONG|63|20|0|UNSIGNED NUM
+row 2024
+row \N
+row 5
+row 18446744073709551615
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+column x|NEWDECIMAL|63|12|3|NUM
+row 2024.000
+row \N
+row 6.500
+row -0.125
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 2024
+row \N
+row 7.5
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+column x|FLOAT|63|23|31|NUM
+row 2024
+row \N
+row 8.5
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row 2024
+row \N
+row nine
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+column x|STRING|255|20|0|
+row 2024
+row \N
+row ten
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row 2024
+row \N
+row eleven
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+column x|VAR_STRING|63|8|0|BINARY
+row 2024
+row \N
+row 
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row 2024
+row \N
+row 2024-02-29
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+column x|VAR_STRING|255|52|0|
+row 2024
+row \N
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 2024
+row \N
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+column x|VAR_STRING|255|76|0|
+row 2024
+row \N
+row 2024-02-29 12:34:56
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+column x|YEAR|63|4|0|UNSIGNED ZEROFILL NUM
+row 2024
+row \N
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|LONGLONG|63|4|0|NUM
+row 1
+row -1
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|NEWDECIMAL|63|6|1|NUM
+row 1.0
+row -1.0
+row 2.5
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|16|0|
+row 1
+row -1
+row xy
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|TINY|63|4|0|NUM
+row 1
+row -1
+row \N
+end
+statement SELECT ti AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 1
+row -1
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|LONGLONG|63|6|0|NUM
+row 2
+row \N
+row 1
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|NEWDECIMAL|63|8|1|NUM
+row 2.0
+row \N
+row 2.5
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|24|0|
+row 2
+row \N
+row xy
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|SHORT|63|6|0|NUM
+row 2
+row \N
+end
+statement SELECT si AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 2
+row \N
+row 1
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|LONGLONG|63|11|0|NOT_NULL NUM
+row 3
+row 0
+row 1
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|NEWDECIMAL|63|13|1|NOT_NULL NUM
+row 3.0
+row 0.0
+row 2.5
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|44|0|NOT_NULL
+row 3
+row 0
+row xy
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|LONG|63|11|0|NUM
+row 3
+row 0
+row \N
+end
+statement SELECT i AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|DOUBLE|63|23|31|NOT_NULL NUM
+row 3
+row 0
+row 1
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|LONGLONG|63|20|0|NUM
+row 4
+row \N
+row 1
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|NEWDECIMAL|63|22|1|NUM
+row 4.0
+row \N
+row 2.5
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row 4
+row \N
+row xy
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|LONGLONG|63|20|0|NUM
+row 4
+row \N
+end
+statement SELECT bi AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 4
+row \N
+row 1
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|NEWDECIMAL|63|21|0|NUM
+row 5
+row 18446744073709551615
+row 1
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|NEWDECIMAL|63|23|1|NUM
+row 5.0
+row 18446744073709551615.0
+row 2.5
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|80|0|
+row 5
+row 18446744073709551615
+row xy
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|LONGLONG|63|20|0|UNSIGNED NUM
+row 5
+row 18446744073709551615
+row \N
+end
+statement SELECT ub AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 5
+row 1.8446744073709552e19
+row 1
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|NEWDECIMAL|63|12|3|NUM
+row 6.500
+row -0.125
+row 1.000
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|NEWDECIMAL|63|12|3|NUM
+row 6.500
+row -0.125
+row 2.500
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|48|0|
+row 6.500
+row -0.125
+row xy
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|NEWDECIMAL|63|12|3|NUM
+row 6.500
+row -0.125
+row \N
+end
+statement SELECT dc AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 6.5
+row -0.125
+row 1
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 7.5
+row \N
+row 1
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 7.5
+row \N
+row 2.5
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|88|0|
+row 7.5
+row \N
+row xy
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 7.5
+row \N
+end
+statement SELECT dbl AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 7.5
+row \N
+row 1
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|FLOAT|63|23|31|NUM
+row 8.5
+row \N
+row 1
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 8.5
+row \N
+row 2.5
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|48|0|
+row 8.5
+row \N
+row xy
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|FLOAT|63|23|31|NUM
+row 8.5
+row \N
+end
+statement SELECT fl AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 8.5
+row \N
+row 1
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row nine
+row 1
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row nine
+row 2.5
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row nine
+row xy
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row nine
+row \N
+end
+statement SELECT vc AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|VAR_STRING|255|88|0|
+row nine
+row 1
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|STRING|255|20|0|
+row ten
+row 1
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|STRING|255|20|0|
+row ten
+row 2.5
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|20|0|
+row ten
+row xy
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|STRING|255|20|0|
+row ten
+row \N
+end
+statement SELECT ch AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|STRING|255|88|0|
+row ten
+row 1
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row 1
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row 2.5
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row xy
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+end
+statement SELECT tx AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|BLOB|255|1048560|0|BLOB
+row eleven
+row \N
+row 1
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|VAR_STRING|63|8|0|BINARY
+row 
+row \N
+row 1
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|VAR_STRING|63|8|0|BINARY
+row 
+row \N
+row 2.5
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|63|8|0|BINARY
+row 
+row \N
+row xy
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|VAR_STRING|63|8|0|BINARY
+row 
+row \N
+end
+statement SELECT vb AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|VAR_STRING|63|8|0|BINARY
+row 
+row \N
+row 1
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row 2024-02-29
+row \N
+row 1
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row 2024-02-29
+row \N
+row 2.5
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|40|0|
+row 2024-02-29
+row \N
+row xy
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|DATE|63|10|0|BINARY
+row 2024-02-29
+row \N
+end
+statement SELECT d AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|VAR_STRING|255|88|0|
+row 2024-02-29
+row \N
+row 1
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|VAR_STRING|255|52|0|
+row \N
+row 1
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|VAR_STRING|255|52|0|
+row \N
+row 2.5
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|52|0|
+row \N
+row xy
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|TIME|63|13|2|BINARY
+row \N
+end
+statement SELECT t AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|VAR_STRING|255|88|0|
+row \N
+row 1
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row 1
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row 2.5
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row xy
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|DATETIME|63|23|3|BINARY
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row \N
+end
+statement SELECT dt AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|VAR_STRING|255|92|0|
+row 2024-02-29 12:34:56.789
+row 2024-02-29 00:00:00.000
+row 1
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|VAR_STRING|255|76|0|
+row 2024-02-29 12:34:56
+row \N
+row 1
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|VAR_STRING|255|76|0|
+row 2024-02-29 12:34:56
+row \N
+row 2.5
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|76|0|
+row 2024-02-29 12:34:56
+row \N
+row xy
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|TIMESTAMP|63|19|0|BINARY
+row 2024-02-29 12:34:56
+row \N
+end
+statement SELECT ts AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|VAR_STRING|255|88|0|
+row 2024-02-29 12:34:56
+row \N
+row 1
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|LONGLONG|63|4|0|NUM
+row 2024
+row \N
+row 1
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|NEWDECIMAL|63|7|1|NUM
+row 2024.0
+row \N
+row 2.5
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|16|0|
+row 2024
+row \N
+row xy
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|YEAR|63|4|0|UNSIGNED ZEROFILL NUM
+row 2024
+row \N
+end
+statement SELECT y AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 2024
+row \N
+row 1
+end
+statement SELECT 1 AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+end
+statement SELECT 1 AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|NEWDECIMAL|63|4|1|NOT_NULL NUM
+row 1.0
+row 2.5
+end
+statement SELECT 1 AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|8|0|NOT_NULL
+row 1
+row xy
+end
+statement SELECT 1 AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|LONGLONG|63|2|0|NUM
+row 1
+row \N
+end
+statement SELECT 1 AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|DOUBLE|63|23|31|NOT_NULL NUM
+row 1
+end
+statement SELECT 2.5 AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|NEWDECIMAL|63|4|1|NOT_NULL NUM
+row 2.5
+row 1.0
+end
+statement SELECT 2.5 AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|NEWDECIMAL|63|4|1|NOT_NULL NUM
+row 2.5
+end
+statement SELECT 2.5 AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|16|0|NOT_NULL
+row 2.5
+row xy
+end
+statement SELECT 2.5 AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|NEWDECIMAL|63|4|1|NUM
+row 2.5
+row \N
+end
+statement SELECT 2.5 AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|DOUBLE|63|23|31|NOT_NULL NUM
+row 2.5
+row 1
+end
+statement SELECT 'xy' AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|VAR_STRING|255|8|0|NOT_NULL
+row xy
+row 1
+end
+statement SELECT 'xy' AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|VAR_STRING|255|16|0|NOT_NULL
+row xy
+row 2.5
+end
+statement SELECT 'xy' AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|8|0|NOT_NULL
+row xy
+end
+statement SELECT 'xy' AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|VAR_STRING|255|8|0|
+row xy
+row \N
+end
+statement SELECT 'xy' AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|VAR_STRING|255|88|0|NOT_NULL
+row xy
+row 1
+end
+statement SELECT NULL AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|LONGLONG|63|2|0|NUM
+row \N
+row 1
+end
+statement SELECT NULL AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|NEWDECIMAL|63|4|1|NUM
+row \N
+row 2.5
+end
+statement SELECT NULL AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|8|0|
+row \N
+row xy
+end
+statement SELECT NULL AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|VAR_STRING|63|0|0|BINARY
+row \N
+end
+statement SELECT NULL AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row \N
+row 1
+end
+statement SELECT 1e0 AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+column x|DOUBLE|63|23|31|NOT_NULL NUM
+row 1
+end
+statement SELECT 1e0 AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+column x|DOUBLE|63|23|31|NOT_NULL NUM
+row 1
+row 2.5
+end
+statement SELECT 1e0 AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+column x|VAR_STRING|255|88|0|NOT_NULL
+row 1
+row xy
+end
+statement SELECT 1e0 AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+column x|DOUBLE|63|23|31|NUM
+row 1
+row \N
+end
+statement SELECT 1e0 AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+column x|DOUBLE|63|23|31|NOT_NULL NUM
+row 1
+end
+statement SELECT 1 AS a UNION SELECT 2 UNION SELECT 1
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+row 2
+end
+statement SELECT 1 AS a UNION ALL SELECT 2 UNION ALL SELECT 1
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+row 2
+row 1
+end
+statement SELECT 1 a, 'x' b UNION SELECT 2.5, 'yy'
+column a|NEWDECIMAL|63|4|1|NOT_NULL NUM
+column b|VAR_STRING|255|8|0|NOT_NULL
+row 1.0	x
+row 2.5	yy
+end
+statement SELECT NULL UNION SELECT NULL
+column NULL|VAR_STRING|63|0|0|BINARY
+row \N
+end
+statement SELECT DATE '2024-01-01' UNION SELECT TIMESTAMP '2024-01-01 10:00:00'
+column DATE '2024-01-01'|DATETIME|63|19|0|NOT_NULL BINARY NO_DEFAULT_VALUE
+row 2024-01-01 00:00:00
+row 2024-01-01 10:00:00
+end
+statement SELECT TIME '10:00:00' a UNION SELECT TIME '-01:00:00.5' UNION SELECT TIME '100:00:00'
+column a|TIME|63|12|1|NOT_NULL BINARY
+row 10:00:00.0
+row -01:00:00.5
+row 100:00:00.0
+end
+statement SELECT 1 INTERSECT SELECT 1
+column 1|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+end
+statement SELECT 1 EXCEPT SELECT 2
+column 1|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+end
+statement (SELECT 3 a) UNION (SELECT 1) ORDER BY a DESC LIMIT 2
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 3
+row 1
+end
+statement SELECT 1 UNION SELECT 1, 2
+error 1222|21000|The used SELECT statements have a different number of columns
+end
+statement SELECT 3 a UNION SELECT 1 ORDER BY 1
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+row 3
+end
+statement SELECT 3 a UNION SELECT 1 ORDER BY b
+error 1054|42S22|Unknown column 'b' in 'order clause'
+end
+statement SELECT 3 a UNION SELECT 1 ORDER BY 2
+error 1054|42S22|Unknown column '2' in 'order clause'
+end
+statement SELECT 1 a UNION SELECT 2 INTERSECT SELECT 3
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+end
+statement SELECT 1 a UNION ALL SELECT 1 UNION SELECT 1
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+end
+statement SELECT 1 a UNION SELECT 1 UNION ALL SELECT 1
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+row 1
+end
+statement SELECT 1 a UNION ALL SELECT 1 INTERSECT ALL SELECT 1
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+row 1
+end
+statement SELECT 1 a UNION ALL SELECT 1 EXCEPT ALL SELECT 1
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+end
+statement SELECT 1 a UNION ALL SELECT 1 EXCEPT SELECT 2
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+end
+statement (SELECT 3 a ORDER BY a LIMIT 1) UNION ALL (SELECT 1 UNION SELECT 2 ORDER BY 1 DESC LIMIT 1)
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 3
+row 2
+end
+statement SELECT 3 a LIMIT 1 UNION SELECT 1
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'UNION SELECT 1' at line 1
+end
+statement SELECT 3 a ORDER BY a UNION SELECT 1
+error 1064|42000|You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'UNION SELECT 1' at line 1
+end
+statement SELECT 3 a UNION SELECT 1 ORDER BY a + 1
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+row 3
+end
+statement SELECT 3 a UNION SELECT 1 LIMIT 1, 1
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+end
+statement SELECT 3 a UNION SELECT 1 LIMIT 1 OFFSET 1
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+end
+statement ((SELECT 1 a)) UNION ((SELECT 2))
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+row 2
+end
+statement (SELECT 2 a) ORDER BY a
+column a|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+row 2
+end
+statement (SELECT 2 a UNION SELECT 1) ORDER BY a LIMIT 1
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+end
+statement SELECT 1 a UNION DISTINCT SELECT 1
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+end
+statement SELECT 'a' a UNION SELECT 'A'
+column a|VAR_STRING|255|4|0|NOT_NULL
+row a
+end
+statement SELECT 'a ' a UNION SELECT 'a'
+column a|VAR_STRING|255|8|0|NOT_NULL
+row a
+row a
+end
+statement SELECT 'a' COLLATE utf8mb4_bin a UNION SELECT 'A' COLLATE utf8mb4_0900_ai_ci
+error 1267|HY000|Illegal mix of collations (utf8mb4_bin,EXPLICIT) and (utf8mb4_0900_ai_ci,EXPLICIT) for operation 'UNION'
+end
+statement SELECT 'a' COLLATE utf8mb4_bin a UNION SELECT 'A'
+column a|VAR_STRING|255|4|0|BINARY
+row a
+row A
+end
+statement SELECT 1 a FROM DUAL WHERE FALSE UNION SELECT 2
+column a|LONGLONG|63|2|0|NOT_NULL NUM
+row 2
+end
+statement SELECT 1 AS x UNION SELECT 2.5 UNION SELECT 1e0
+column x|DOUBLE|63|23|31|NOT_NULL NUM
+row 1
+row 2.5
+end
+statement SELECT 1 AS x UNION SELECT 2.25
+column x|NEWDECIMAL|63|5|2|NOT_NULL NUM
+row 1.00
+row 2.25
+end
+statement SELECT 0.1e0 + 0.2e0 AS x UNION SELECT 'x'
+column x|VAR_STRING|255|88|0|NOT_NULL
+row 0.30000000000000004
+row x
+end
+statement SELECT DATE '2024-01-01' AS x UNION SELECT CAST('2024-01-01 10:00:00.5' AS DATETIME(1))
+column x|DATETIME|63|21|1|BINARY
+row 2024-01-01 00:00:00.0
+row 2024-01-01 10:00:00.5
+end
+statement SELECT CAST('a' AS CHAR(3)) AS x UNION SELECT 'b'
+column x|VAR_STRING|255|12|0|
+row a
+row b
+end
+statement SELECT 1 + 1 AS x UNION SELECT 2
+column x|LONGLONG|63|3|0|NOT_NULL NUM
+row 2
+end
+statement SELECT CONCAT('a', 'b') AS x UNION SELECT 1
+column x|VAR_STRING|255|8|0|
+row ab
+row 1
+end
+statement SELECT 18446744073709551615 AS x UNION SELECT -1
+column x|NEWDECIMAL|63|21|0|NOT_NULL NUM
+row 18446744073709551615
+row -1
+end
+statement SELECT 1 x UNION SELECT 2 INTERSECT SELECT 2 EXCEPT SELECT 1
+column x|LONGLONG|63|2|0|NOT_NULL NUM
+row 2
+end
+statement SELECT 1 x UNION ALL SELECT 1 UNION ALL SELECT 2 INTERSECT ALL SELECT 2 INTERSECT ALL SELECT 2
+column x|LONGLONG|63|2|0|NOT_NULL NUM
+row 1
+row 1
+row 2
+end
+statement SELECT vc FROM kv_union.t UNION SELECT ch FROM kv_union.t ORDER BY vc DESC
+column vc|VAR_STRING|255|40|0|
+row ten
+row nine
+end
+statement SELECT vc, ch FROM kv_union.t UNION ALL SELECT ch, vc FROM kv_union.t ORDER BY 2, 1
+column vc|VAR_STRING|255|40|0|
+column ch|VAR_STRING|255|40|0|
+row ten	nine
+row ten	Nine
+row nine	ten
+row Nine	ten
+end
+statement SELECT id, vc FROM kv_union.t INTERSECT SELECT id, vc FROM kv_union.t WHERE id = 2
+column id|LONG|63|11|0|NOT_NULL NUM
+column vc|VAR_STRING|255|40|0|
+row 2	Nine
+end
+statement SELECT id FROM kv_union.t EXCEPT SELECT 2
+column id|LONGLONG|63|11|0|NOT_NULL NUM
+row 1
+end
+statement SELECT i FROM kv_union.t UNION SELECT i + 1 FROM kv_union.t ORDER BY i DESC LIMIT 2
+column i|LONGLONG|63|12|0|NOT_NULL NUM
+row 4
+row 3
+end
+statement SELECT COUNT(*) FROM kv_union.t UNION SELECT SUM(i) FROM kv_union.t
+column COUNT(*)|NEWDECIMAL|63|33|0|NUM
+row 2
+row 3
+end
+statement SELECT 1 UNION SELECT * FROM kv_union.t
+error 1222|21000|The used SELECT statements have a different number of columns
+end
+statement CREATE TABLE kv_union.u (a INT PRIMARY KEY)
+end
+statement INSERT INTO kv_union.u SELECT 1 UNION SELECT 2
+end
+statement INSERT INTO kv_union.u (SELECT 3 UNION SELECT 4 ORDER BY 1 DESC LIMIT 1)
+end
+statement SELECT a FROM kv_union.u ORDER BY a
+column a|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+row 1
+row 2
+row 4
+end
+statement DROP DATABASE kv_union
+end

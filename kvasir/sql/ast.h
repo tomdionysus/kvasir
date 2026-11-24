@@ -141,6 +141,24 @@ struct Select {
     Wait wait = Wait::wait;
   };
   std::vector<Locking> locking;
+  // A set operation (UNION, INTERSECT, EXCEPT) or a parenthesised query:
+  // when set, this Select is the whole query, its `order`, `limit` and
+  // `offset` the whole result's and the rest of it unused.
+  struct SetOperation;
+  std::shared_ptr<SetOperation> set;
+};
+
+struct Select::SetOperation {
+  // `none` for a parenthesised query with ORDER BY or LIMIT outside it:
+  // `left` alone.
+  enum class Op : uint8_t { none, union_, intersect, except };
+  Op op = Op::none;
+  // UNION ALL, INTERSECT ALL, EXCEPT ALL: duplicates kept.
+  bool all = false;
+  // Each a plain SELECT, a parenthesised query (its own ORDER BY and
+  // LIMIT), or another set operation.
+  Select left;
+  Select right;
 };
 
 struct Assignment {

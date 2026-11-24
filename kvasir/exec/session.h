@@ -199,6 +199,16 @@ class Session : private VariableSource {
   Outcome drop_table(const sql::Statement& statement);
   Outcome show_tables(const sql::Statement& statement);
   Outcome select_from_table(const sql::Select& select);
+  // A set operation (UNION, INTERSECT, EXCEPT) or a parenthesised query with
+  // its own ORDER BY or LIMIT outside it.
+  Outcome select_set(const sql::Select& query);
+  // A query's result and each column's collation and coercibility, as a
+  // set operation's part (the warnings it raised added to `warnings`).
+  struct SetPart {
+    ResultSet result;
+    std::vector<std::pair<uint16_t, int>> derivations;
+  };
+  SetPart set_part(const sql::Select& query, std::vector<Warning>& warnings);
   // A SELECT over a join of tables.
   Outcome select_joined(const sql::Select& select);
   // A SELECT with GROUP BY, HAVING or an aggregate, over `table`, or over

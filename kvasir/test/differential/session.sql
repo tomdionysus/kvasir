@@ -1494,3 +1494,461 @@ SET character_set_connection = utf8mb4
 SELECT @@collation_connection
 SET NAMES DEFAULT
 DROP DATABASE kv_parse
+CREATE DATABASE kv_union
+CREATE TABLE kv_union.t (id INT PRIMARY KEY, ti TINYINT, si SMALLINT, i INT NOT NULL, bi BIGINT, ub BIGINT UNSIGNED, dc DECIMAL(10,3), dbl DOUBLE, fl FLOAT, vc VARCHAR(10), ch CHAR(5), tx TEXT, vb VARBINARY(8), d DATE, t TIME(2), dt DATETIME(3), ts TIMESTAMP NULL, y YEAR)
+INSERT INTO kv_union.t VALUES (1, 1, 2, 3, 4, 5, 6.5, 7.5e0, 8.5, 'nine', 'ten', 'eleven', X'0c', '2024-02-29', NULL, '2024-02-29 12:34:56.789', '2024-02-29 12:34:56', 2024), (2, -1, NULL, 0, NULL, 18446744073709551615, -0.125, NULL, NULL, 'Nine', 'ten ', NULL, NULL, NULL, NULL, '2024-02-29 00:00:00', NULL, NULL)
+SELECT ti AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT ti FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT si FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT i FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT bi FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT ub FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT dc FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT dbl FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT fl FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT vc FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT ch FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT tx FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT vb FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT d FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT t FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT dt FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT ts FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT y FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT ti AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT si AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT i AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT bi AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT ub AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT dc AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT dbl AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT fl AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT vc AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT ch AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT tx AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT vb AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT d AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT t AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT dt AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT ts AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT y AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT 1 AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT 1 AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT 1 AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT 1 AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT 1 AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT 2.5 AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT 2.5 AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT 2.5 AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT 2.5 AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT 2.5 AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT 'xy' AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT 'xy' AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT 'xy' AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT 'xy' AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT 'xy' AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT NULL AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT NULL AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT NULL AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT NULL AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT NULL AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT 1e0 AS x FROM kv_union.t UNION SELECT 1 FROM kv_union.t
+SELECT 1e0 AS x FROM kv_union.t UNION SELECT 2.5 FROM kv_union.t
+SELECT 1e0 AS x FROM kv_union.t UNION SELECT 'xy' FROM kv_union.t
+SELECT 1e0 AS x FROM kv_union.t UNION SELECT NULL FROM kv_union.t
+SELECT 1e0 AS x FROM kv_union.t UNION SELECT 1e0 FROM kv_union.t
+SELECT 1 AS a UNION SELECT 2 UNION SELECT 1
+SELECT 1 AS a UNION ALL SELECT 2 UNION ALL SELECT 1
+SELECT 1 a, 'x' b UNION SELECT 2.5, 'yy'
+SELECT NULL UNION SELECT NULL
+SELECT DATE '2024-01-01' UNION SELECT TIMESTAMP '2024-01-01 10:00:00'
+SELECT TIME '10:00:00' a UNION SELECT TIME '-01:00:00.5' UNION SELECT TIME '100:00:00'
+SELECT 1 INTERSECT SELECT 1
+SELECT 1 EXCEPT SELECT 2
+(SELECT 3 a) UNION (SELECT 1) ORDER BY a DESC LIMIT 2
+SELECT 1 UNION SELECT 1, 2
+SELECT 3 a UNION SELECT 1 ORDER BY 1
+SELECT 3 a UNION SELECT 1 ORDER BY b
+SELECT 3 a UNION SELECT 1 ORDER BY 2
+SELECT 1 a UNION SELECT 2 INTERSECT SELECT 3
+SELECT 1 a UNION ALL SELECT 1 UNION SELECT 1
+SELECT 1 a UNION SELECT 1 UNION ALL SELECT 1
+SELECT 1 a UNION ALL SELECT 1 INTERSECT ALL SELECT 1
+SELECT 1 a UNION ALL SELECT 1 EXCEPT ALL SELECT 1
+SELECT 1 a UNION ALL SELECT 1 EXCEPT SELECT 2
+(SELECT 3 a ORDER BY a LIMIT 1) UNION ALL (SELECT 1 UNION SELECT 2 ORDER BY 1 DESC LIMIT 1)
+SELECT 3 a LIMIT 1 UNION SELECT 1
+SELECT 3 a ORDER BY a UNION SELECT 1
+SELECT 3 a UNION SELECT 1 ORDER BY a + 1
+SELECT 3 a UNION SELECT 1 LIMIT 1, 1
+SELECT 3 a UNION SELECT 1 LIMIT 1 OFFSET 1
+((SELECT 1 a)) UNION ((SELECT 2))
+(SELECT 2 a) ORDER BY a
+(SELECT 2 a UNION SELECT 1) ORDER BY a LIMIT 1
+SELECT 1 a UNION DISTINCT SELECT 1
+SELECT 'a' a UNION SELECT 'A'
+SELECT 'a ' a UNION SELECT 'a'
+SELECT 'a' COLLATE utf8mb4_bin a UNION SELECT 'A' COLLATE utf8mb4_0900_ai_ci
+SELECT 'a' COLLATE utf8mb4_bin a UNION SELECT 'A'
+SELECT 1 a FROM DUAL WHERE FALSE UNION SELECT 2
+SELECT 1 AS x UNION SELECT 2.5 UNION SELECT 1e0
+SELECT 1 AS x UNION SELECT 2.25
+SELECT 0.1e0 + 0.2e0 AS x UNION SELECT 'x'
+SELECT DATE '2024-01-01' AS x UNION SELECT CAST('2024-01-01 10:00:00.5' AS DATETIME(1))
+SELECT CAST('a' AS CHAR(3)) AS x UNION SELECT 'b'
+SELECT 1 + 1 AS x UNION SELECT 2
+SELECT CONCAT('a', 'b') AS x UNION SELECT 1
+SELECT 18446744073709551615 AS x UNION SELECT -1
+SELECT 1 x UNION SELECT 2 INTERSECT SELECT 2 EXCEPT SELECT 1
+SELECT 1 x UNION ALL SELECT 1 UNION ALL SELECT 2 INTERSECT ALL SELECT 2 INTERSECT ALL SELECT 2
+SELECT vc FROM kv_union.t UNION SELECT ch FROM kv_union.t ORDER BY vc DESC
+SELECT vc, ch FROM kv_union.t UNION ALL SELECT ch, vc FROM kv_union.t ORDER BY 2, 1
+SELECT id, vc FROM kv_union.t INTERSECT SELECT id, vc FROM kv_union.t WHERE id = 2
+SELECT id FROM kv_union.t EXCEPT SELECT 2
+SELECT i FROM kv_union.t UNION SELECT i + 1 FROM kv_union.t ORDER BY i DESC LIMIT 2
+SELECT COUNT(*) FROM kv_union.t UNION SELECT SUM(i) FROM kv_union.t
+SELECT 1 UNION SELECT * FROM kv_union.t
+CREATE TABLE kv_union.u (a INT PRIMARY KEY)
+INSERT INTO kv_union.u SELECT 1 UNION SELECT 2
+INSERT INTO kv_union.u (SELECT 3 UNION SELECT 4 ORDER BY 1 DESC LIMIT 1)
+SELECT a FROM kv_union.u ORDER BY a
+DROP DATABASE kv_union
