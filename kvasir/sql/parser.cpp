@@ -1186,6 +1186,15 @@ class Parser {
     return whole;
   }
 
+  // ( query ): a parenthesised query as a whole, its own ORDER BY and LIMIT
+  // inside.
+  Select parse_query_in_parentheses() {
+    expect_symbol("(");
+    auto query = parse_query();
+    expect_symbol(")");
+    return query;
+  }
+
   ExprPtr limit_value() {
     const auto kind = peek().kind;
     const auto offset = peek().offset;
@@ -1307,6 +1316,17 @@ class Parser {
   // chain of comma joins).
   TableRef parse_factor() {
     if (!symbol("(")) return parse_table();
+    // A derived table: ( query ) [AS] alias.
+    if (word("SELECT", 1) || (symbol("(", 1) && word("SELECT", 2))) {
+      TableRef derived;
+      derived.derived = std::make_shared<Select>(parse_query_in_parentheses());
+      if (accept_word("AS")) {
+        derived.alias = name();
+      } else if (name_token()) {
+        derived.alias = take().value;
+      }
+      return derived;
+    }
     take();
     auto ref = parse_reference();
     while (symbol(",")) {

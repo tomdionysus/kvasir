@@ -1952,3 +1952,65 @@ INSERT INTO kv_union.u SELECT 1 UNION SELECT 2
 INSERT INTO kv_union.u (SELECT 3 UNION SELECT 4 ORDER BY 1 DESC LIMIT 1)
 SELECT a FROM kv_union.u ORDER BY a
 DROP DATABASE kv_union
+CREATE DATABASE kv_derived
+CREATE TABLE kv_derived.t (id INT PRIMARY KEY, ti TINYINT, si SMALLINT, i INT NOT NULL, bi BIGINT, ub BIGINT UNSIGNED, dc DECIMAL(10,3), dbl DOUBLE, fl FLOAT, vc VARCHAR(10), ch CHAR(5), tx TEXT, vb VARBINARY(8), d DATE, t TIME(2), dt DATETIME(3), ts TIMESTAMP NULL, y YEAR)
+SELECT x FROM (SELECT 1 AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT -1 AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT 123456789 AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT 1234567890 AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT 12345678901 AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT 2.5 AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT 1e0 AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT 'xy' AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT NULL AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT 1+1 AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT ti AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT si AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT i AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT bi AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT ub AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT dc AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT dbl AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT fl AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT vc AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT ch AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT tx AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT vb AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT d AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT t AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT dt AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT ts AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT y AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT i+1 AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT dc*2 AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT CONCAT(vc,'a') AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT COUNT(*) AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT SUM(i) AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT MAX(vc) AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT AVG(i) AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT DATE '2024-01-01' AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT NOW() AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT CAST(1 AS UNSIGNED) AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT CAST(1 AS DECIMAL(5,2)) AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT 18446744073709551615 AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT TRUE AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT X'41' AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT IF(1,1,2) AS x FROM kv_derived.t) q
+SELECT x FROM (SELECT COALESCE(i,ti) AS x FROM kv_derived.t) q
+CREATE TABLE kv_derived.s (id INT PRIMARY KEY, a INT, b VARCHAR(5))
+INSERT INTO kv_derived.s VALUES (1, 10, 'x'), (2, 20, 'y'), (3, NULL, 'x')
+SELECT x, y FROM (SELECT 1 x, 'a' y UNION SELECT 2, 'b') q ORDER BY x
+SELECT * FROM (SELECT 1) q
+SELECT x FROM (SELECT 1 x)
+SELECT q.a FROM (SELECT a, b FROM kv_derived.s WHERE a > 5) AS q ORDER BY 1
+SELECT b, COUNT(*), SUM(a) FROM (SELECT * FROM kv_derived.s) q GROUP BY b ORDER BY b
+SELECT * FROM (SELECT id, a * 2 AS twice FROM kv_derived.s ORDER BY id DESC LIMIT 2) AS q ORDER BY id
+SELECT twice FROM (SELECT id, a * 2 AS twice FROM kv_derived.s) q WHERE twice > 25
+SELECT DISTINCT b FROM (SELECT b FROM kv_derived.s) q ORDER BY b
+SELECT c FROM (SELECT COUNT(*) c FROM kv_derived.s) q
+SELECT y FROM (SELECT DATE '2024-02-29' + INTERVAL id DAY y FROM kv_derived.s) q ORDER BY y
+SELECT x FROM ((SELECT 3 x) UNION (SELECT 4)) q ORDER BY x DESC
+SELECT z.n FROM (SELECT n FROM (SELECT 7 n) inner_q) z
+SELECT nope FROM (SELECT 1 x) q
+SELECT q.x FROM (SELECT 1 x) AS q WHERE q.x = 1
+DROP DATABASE kv_derived

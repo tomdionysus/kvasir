@@ -199,6 +199,9 @@ class Session : private VariableSource {
   Outcome drop_table(const sql::Statement& statement);
   Outcome show_tables(const sql::Statement& statement);
   Outcome select_from_table(const sql::Select& select);
+  // A derived table, `(query) AS alias`: its query run and read as a view
+  // (1248 without an alias).
+  View derived_view(const sql::TableRef& from);
   // A set operation (UNION, INTERSECT, EXCEPT) or a parenthesised query with
   // its own ORDER BY or LIMIT outside it.
   Outcome select_set(const sql::Select& query);

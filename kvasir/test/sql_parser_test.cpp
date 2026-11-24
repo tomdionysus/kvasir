@@ -933,6 +933,27 @@ TEST(SqlParser, SetOperations) {
   EXPECT_EQ(error_at("SELECT 1 UNION ALL ALL SELECT 2"), 19u);
 }
 
+// A derived table: a query in parentheses, [AS] its alias; none written is
+// left for the session's 1248, as MySQL reports it.
+TEST(SqlParser, DerivedTables) {
+  auto s = one("SELECT x FROM (SELECT 1 x UNION SELECT 2) AS q WHERE x > 1");
+  ASSERT_EQ(s.select.from.size(), 1u);
+  ASSERT_TRUE(s.select.from[0].derived);
+  EXPECT_EQ(s.select.from[0].alias, "q");
+  EXPECT_TRUE(s.select.from[0].name.empty());
+  ASSERT_TRUE(s.select.from[0].derived->set);
+  s = one("SELECT * FROM ((SELECT 1) ORDER BY 1) q2");
+  ASSERT_TRUE(s.select.from[0].derived);
+  EXPECT_EQ(s.select.from[0].alias, "q2");
+  s = one("SELECT * FROM (SELECT 1) ");
+  ASSERT_TRUE(s.select.from[0].derived);
+  EXPECT_TRUE(s.select.from[0].alias.empty());
+  // Parenthesised table references stay a join.
+  s = one("SELECT * FROM (t JOIN u ON t.a = u.a)");
+  EXPECT_FALSE(s.select.from[0].derived);
+  EXPECT_TRUE(s.select.from[0].is_join());
+}
+
 // The multiple-table forms (the manual's UPDATE and DELETE statements):
 // UPDATE over table references; DELETE targets FROM references and DELETE
 // FROM targets USING references, a target `name` or `name.*`, with WHERE

@@ -9590,3 +9590,212 @@ row 4
 end
 statement DROP DATABASE kv_union
 end
+statement CREATE DATABASE kv_derived
+end
+statement CREATE TABLE kv_derived.t (id INT PRIMARY KEY, ti TINYINT, si SMALLINT, i INT NOT NULL, bi BIGINT, ub BIGINT UNSIGNED, dc DECIMAL(10,3), dbl DOUBLE, fl FLOAT, vc VARCHAR(10), ch CHAR(5), tx TEXT, vb VARBINARY(8), d DATE, t TIME(2), dt DATETIME(3), ts TIMESTAMP NULL, y YEAR)
+end
+statement SELECT x FROM (SELECT 1 AS x FROM kv_derived.t) q
+column x|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+end
+statement SELECT x FROM (SELECT -1 AS x FROM kv_derived.t) q
+column x|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+end
+statement SELECT x FROM (SELECT 123456789 AS x FROM kv_derived.t) q
+column x|LONGLONG|63|10|0|NOT_NULL BINARY NUM
+end
+statement SELECT x FROM (SELECT 1234567890 AS x FROM kv_derived.t) q
+column x|LONGLONG|63|11|0|NOT_NULL BINARY NUM
+end
+statement SELECT x FROM (SELECT 12345678901 AS x FROM kv_derived.t) q
+column x|LONGLONG|63|12|0|NOT_NULL BINARY NUM
+end
+statement SELECT x FROM (SELECT 2.5 AS x FROM kv_derived.t) q
+column x|NEWDECIMAL|63|4|1|NOT_NULL BINARY NUM
+end
+statement SELECT x FROM (SELECT 1e0 AS x FROM kv_derived.t) q
+column x|DOUBLE|63|3|31|NOT_NULL BINARY NUM
+end
+statement SELECT x FROM (SELECT 'xy' AS x FROM kv_derived.t) q
+column x|VAR_STRING|255|8|31|NOT_NULL
+end
+statement SELECT x FROM (SELECT NULL AS x FROM kv_derived.t) q
+column x|NULL|63|0|0|BINARY NUM
+end
+statement SELECT x FROM (SELECT 1+1 AS x FROM kv_derived.t) q
+column x|LONGLONG|63|3|0|NOT_NULL BINARY NUM
+end
+statement SELECT x FROM (SELECT ti AS x FROM kv_derived.t) q
+column x|TINY|63|4|0|NUM
+end
+statement SELECT x FROM (SELECT si AS x FROM kv_derived.t) q
+column x|SHORT|63|6|0|NUM
+end
+statement SELECT x FROM (SELECT i AS x FROM kv_derived.t) q
+column x|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+end
+statement SELECT x FROM (SELECT bi AS x FROM kv_derived.t) q
+column x|LONGLONG|63|20|0|NUM
+end
+statement SELECT x FROM (SELECT ub AS x FROM kv_derived.t) q
+column x|LONGLONG|63|20|0|UNSIGNED NUM
+end
+statement SELECT x FROM (SELECT dc AS x FROM kv_derived.t) q
+column x|NEWDECIMAL|63|12|3|NUM
+end
+statement SELECT x FROM (SELECT dbl AS x FROM kv_derived.t) q
+column x|DOUBLE|63|22|31|NUM
+end
+statement SELECT x FROM (SELECT fl AS x FROM kv_derived.t) q
+column x|FLOAT|63|12|31|NUM
+end
+statement SELECT x FROM (SELECT vc AS x FROM kv_derived.t) q
+column x|VAR_STRING|255|40|0|
+end
+statement SELECT x FROM (SELECT ch AS x FROM kv_derived.t) q
+column x|STRING|255|20|0|
+end
+statement SELECT x FROM (SELECT tx AS x FROM kv_derived.t) q
+column x|BLOB|255|262140|0|BLOB
+end
+statement SELECT x FROM (SELECT vb AS x FROM kv_derived.t) q
+column x|VAR_STRING|63|8|0|BINARY
+end
+statement SELECT x FROM (SELECT d AS x FROM kv_derived.t) q
+column x|DATE|255|40|0|BINARY
+end
+statement SELECT x FROM (SELECT t AS x FROM kv_derived.t) q
+column x|TIME|255|52|2|BINARY
+end
+statement SELECT x FROM (SELECT dt AS x FROM kv_derived.t) q
+column x|DATETIME|255|92|3|BINARY
+end
+statement SELECT x FROM (SELECT ts AS x FROM kv_derived.t) q
+column x|TIMESTAMP|255|76|0|BINARY
+end
+statement SELECT x FROM (SELECT y AS x FROM kv_derived.t) q
+column x|YEAR|63|4|0|UNSIGNED ZEROFILL NUM
+end
+statement SELECT x FROM (SELECT i+1 AS x FROM kv_derived.t) q
+column x|LONGLONG|63|12|0|NOT_NULL BINARY NUM
+end
+statement SELECT x FROM (SELECT dc*2 AS x FROM kv_derived.t) q
+column x|NEWDECIMAL|63|13|3|BINARY NUM
+end
+statement SELECT x FROM (SELECT CONCAT(vc,'a') AS x FROM kv_derived.t) q
+column x|VAR_STRING|255|44|31|
+end
+statement SELECT x FROM (SELECT COUNT(*) AS x FROM kv_derived.t) q
+column x|LONGLONG|63|21|0|NOT_NULL NUM
+row 0
+end
+statement SELECT x FROM (SELECT SUM(i) AS x FROM kv_derived.t) q
+column x|NEWDECIMAL|63|33|0|NUM
+row \N
+end
+statement SELECT x FROM (SELECT MAX(vc) AS x FROM kv_derived.t) q
+column x|VAR_STRING|255|40|0|
+row \N
+end
+statement SELECT x FROM (SELECT AVG(i) AS x FROM kv_derived.t) q
+column x|NEWDECIMAL|63|16|4|NUM
+row \N
+end
+statement SELECT x FROM (SELECT DATE '2024-01-01' AS x FROM kv_derived.t) q
+column x|DATE|255|40|0|NOT_NULL BINARY
+end
+statement SELECT x FROM (SELECT NOW() AS x FROM kv_derived.t) q
+column x|DATETIME|255|76|0|NOT_NULL BINARY
+end
+statement SELECT x FROM (SELECT CAST(1 AS UNSIGNED) AS x FROM kv_derived.t) q
+column x|LONGLONG|63|21|0|NOT_NULL UNSIGNED BINARY NUM
+end
+statement SELECT x FROM (SELECT CAST(1 AS DECIMAL(5,2)) AS x FROM kv_derived.t) q
+column x|NEWDECIMAL|63|7|2|NOT_NULL BINARY NUM
+end
+statement SELECT x FROM (SELECT 18446744073709551615 AS x FROM kv_derived.t) q
+column x|LONGLONG|63|20|0|NOT_NULL UNSIGNED BINARY NUM
+end
+statement SELECT x FROM (SELECT TRUE AS x FROM kv_derived.t) q
+column x|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+end
+statement SELECT x FROM (SELECT X'41' AS x FROM kv_derived.t) q
+column x|VAR_STRING|63|1|0|NOT_NULL UNSIGNED BINARY
+end
+statement SELECT x FROM (SELECT IF(1,1,2) AS x FROM kv_derived.t) q
+column x|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+end
+statement SELECT x FROM (SELECT COALESCE(i,ti) AS x FROM kv_derived.t) q
+column x|LONG|63|11|0|NOT_NULL BINARY NUM
+end
+statement CREATE TABLE kv_derived.s (id INT PRIMARY KEY, a INT, b VARCHAR(5))
+end
+statement INSERT INTO kv_derived.s VALUES (1, 10, 'x'), (2, 20, 'y'), (3, NULL, 'x')
+end
+statement SELECT x, y FROM (SELECT 1 x, 'a' y UNION SELECT 2, 'b') q ORDER BY x
+column x|LONGLONG|63|2|0|NOT_NULL NUM
+column y|VAR_STRING|255|4|0|NOT_NULL
+row 1	a
+row 2	b
+end
+statement SELECT * FROM (SELECT 1) q
+column 1|LONG|63|2|0|NOT_NULL NUM
+row 1
+end
+statement SELECT x FROM (SELECT 1 x)
+error 1248|42000|Every derived table must have its own alias
+end
+statement SELECT q.a FROM (SELECT a, b FROM kv_derived.s WHERE a > 5) AS q ORDER BY 1
+column a|LONG|63|11|0|NUM
+row 10
+row 20
+end
+statement SELECT b, COUNT(*), SUM(a) FROM (SELECT * FROM kv_derived.s) q GROUP BY b ORDER BY b
+column b|VAR_STRING|255|20|0|NUM
+column COUNT(*)|LONGLONG|63|21|0|NOT_NULL NUM
+column SUM(a)|NEWDECIMAL|63|33|0|NUM
+row x	2	10
+row y	1	20
+end
+statement SELECT * FROM (SELECT id, a * 2 AS twice FROM kv_derived.s ORDER BY id DESC LIMIT 2) AS q ORDER BY id
+column id|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+column twice|LONGLONG|63|12|0|NUM
+row 2	40
+row 3	\N
+end
+statement SELECT twice FROM (SELECT id, a * 2 AS twice FROM kv_derived.s) q WHERE twice > 25
+column twice|LONGLONG|63|12|0|BINARY NUM
+row 40
+end
+statement SELECT DISTINCT b FROM (SELECT b FROM kv_derived.s) q ORDER BY b
+column b|VAR_STRING|255|20|0|NUM
+row x
+row y
+end
+statement SELECT c FROM (SELECT COUNT(*) c FROM kv_derived.s) q
+column c|LONGLONG|63|21|0|NOT_NULL NUM
+row 3
+end
+statement SELECT y FROM (SELECT DATE '2024-02-29' + INTERVAL id DAY y FROM kv_derived.s) q ORDER BY y
+column y|DATE|255|40|0|BINARY
+row 2024-03-01
+row 2024-03-02
+row 2024-03-03
+end
+statement SELECT x FROM ((SELECT 3 x) UNION (SELECT 4)) q ORDER BY x DESC
+column x|LONGLONG|63|2|0|NOT_NULL NUM
+row 4
+row 3
+end
+statement SELECT z.n FROM (SELECT n FROM (SELECT 7 n) inner_q) z
+column n|LONG|63|2|0|NOT_NULL NUM
+row 7
+end
+statement SELECT nope FROM (SELECT 1 x) q
+error 1054|42S22|Unknown column 'nope' in 'field list'
+end
+statement SELECT q.x FROM (SELECT 1 x) AS q WHERE q.x = 1
+column x|LONG|63|2|0|NOT_NULL NUM
+row 1
+end
+statement DROP DATABASE kv_derived
+end

@@ -90,11 +90,16 @@ struct SelectItem {
   std::string text;
 };
 
+struct Select;
+
 // A table, or a join of two references. A comma list in parentheses is a
 // chain of `comma` joins; the FROM clause's own comma list is Select::from.
 struct TableRef {
   std::vector<std::string> name;  // [schema.]table; empty for a join
   std::string alias;
+  // A derived table: the query in parentheses, `name` empty, `alias` its
+  // name (empty when none was written, which is 1248).
+  std::shared_ptr<Select> derived;
   enum class Join : uint8_t { none, comma, inner, cross, straight, left, right };
   Join join = Join::none;
   // NATURAL: USING every column the two sides share.

@@ -373,7 +373,7 @@ std::vector<ResultType> Session::infer_parameters(const sql::Statement& s) const
     if (x && x->kind == K::placeholder) out.at(std::stoul(x->value)) = t;
   };
   std::optional<catalog::Table> table;
-  if (s.kind == sql::Statement::Kind::select && s.select.from.size() == 1 && !s.select.from[0].is_join())
+  if (s.kind == sql::Statement::Kind::select && s.select.from.size() == 1 && !s.select.from[0].is_join() && !s.select.from[0].derived)
     table = _catalog.table({database_of(s.select.from[0].name), s.select.from[0].name.back()});
   if (s.kind == sql::Statement::Kind::insert) table = named_table(s.insert.table);
   if ((s.kind == sql::Statement::Kind::update || s.kind == sql::Statement::Kind::delete_) && !s.change.multiple()) table = named_table(s.change.table.name);
@@ -1708,14 +1708,146 @@ std::string Session::database_of(const std::vector<std::string>& name) const {
   return *_database;
 }
 
+namespace {
+
+ResultType without_keys(ResultType t);
+
+// A catalog type that reads a result column's text back as its value (a
+// TIMESTAMP's text is already in the session's zone, so read as DATETIME).
+catalog::ColumnType readable_type(const ResultType& t) {
+  using K = catalog::TypeKind;
+  catalog::ColumnType out;
+  out.is_unsigned = t.is_unsigned();
+  const bool binary = t.collation == protocol::collation::binary;
+  switch (t.field_type) {
+    case f::tiny:
+      out.kind = K::tinyint;
+      break;
+    case f::short_:
+      out.kind = K::smallint;
+      break;
+    case f::int24:
+      out.kind = K::mediumint;
+      break;
+    case f::long_:
+      out.kind = K::int_;
+      break;
+    case f::longlong:
+      out.kind = K::bigint;
+      break;
+    case f::year:
+      out.kind = K::year;
+      break;
+    case f::decimal:
+    case f::newdecimal:
+      out.kind = K::decimal;
+      out.length = static_cast<uint32_t>(std::max(t.precision, 1));
+      out.scale = t.decimals;
+      break;
+    case f::float_:
+      out.kind = K::float_;
+      break;
+    case f::double_:
+      out.kind = K::double_;
+      break;
+    case f::date:
+      out.kind = K::date;
+      break;
+    case f::time:
+      out.kind = K::time;
+      out.scale = t.decimals;
+      break;
+    case f::datetime:
+    case f::timestamp:
+      out.kind = K::datetime;
+      out.scale = t.decimals;
+      break;
+    case f::blob:
+    case f::tiny_blob:
+    case f::medium_blob:
+    case f::long_blob:
+      out.kind = binary ? K::longblob : K::longtext;
+      break;
+    default:
+      out.kind = binary ? K::varbinary : K::varchar;
+      out.length = binary ? t.length : t.length / widest_character(t.collation);
+      break;
+  }
+  if (!binary && catalog::is_text(out.kind)) {
+    if (const auto* c = find_collation(t.collation)) {
+      out.charset = c->charset;
+      out.collation = c->name;
+    }
+  }
+  return out;
+}
+
+}  // namespace
+
+View Session::derived_view(const sql::TableRef& from) {
+  if (from.alias.empty()) throw SqlError(1248, "42000", "Every derived table must have its own alias");
+  const auto& query = *from.derived;
+  auto result = *select(query).result;
+  const auto settings = eval_settings();
+  View view;
+  view.table.name = from.alias;
+  // Each column as the outer query reports it (observed): MySQL merges a
+  // derived table with a FROM into the outer query, so a column is its
+  // inner item's, a signed integer literal one longer, an aggregate without
+  // BINARY, a date or time under the results' collation and as long as its
+  // characters there; one without FROM, or a set operation, is
+  // materialised, an integer of nine digits or fewer a LONG.
+  // Grouping, DISTINCT or LIMIT keep MySQL from merging (observed: the
+  // columns then lose their keys and a number its BINARY).
+  const bool grouped =
+      std::any_of(query.items.begin(), query.items.end(), [](const sql::SelectItem& item) { return item.expr && contains_aggregate(*item.expr); });
+  const bool merged = !query.set && !query.from.empty() && !query.distinct && query.group_by.empty() && !query.having && !query.limit && !grouped;
+  const bool plain_items = std::none_of(query.items.begin(), query.items.end(), [](const sql::SelectItem& item) { return item.star; });
+  for (size_t i = 0; i < result.columns.size(); ++i) {
+    auto type = result.columns[i].type;
+    const sql::Expr* item = plain_items && i < query.items.size() ? query.items[i].expr.get() : nullptr;
+    const bool integer = type.field_type == f::longlong || type.field_type == f::long_;
+    if (merged) {
+      // An integer literal one longer than its digits (observed: 1 is 2).
+      if (item && item->kind == sql::ExprKind::integer && integer && !type.is_unsigned()) type.length = static_cast<uint32_t>(type.precision) + 1;
+      if (is_temporal_type(type)) {
+        type.collation = settings.result_collation;
+        type.length *= settings.result_max_bytes;
+      }
+    } else if (!query.set) {
+      if (integer && item && item->kind != sql::ExprKind::column && type.precision <= 9) {
+        type.field_type = f::long_;
+        type.length = static_cast<uint32_t>(type.precision) + (type.is_unsigned() ? 0u : 1u);
+      }
+      if (type.flags & c::num) type.flags = static_cast<uint16_t>(type.flags & ~c::binary);
+      if (is_string_type(type)) type.decimals = 0;
+      type = without_keys(type);
+    }
+    catalog::Column column;
+    column.name = result.columns[i].name;
+    column.type = readable_type(result.columns[i].type);
+    column.nullable = !(type.flags & c::not_null);
+    view.table.columns.push_back(std::move(column));
+    view.types.push_back(type);
+    view.ordered.push_back(type);
+    view.refused.emplace_back();
+  }
+  for (auto& row : result.rows) view.rows.push_back(std::move(row));
+  return view;
+}
+
 Outcome Session::select_from_table(const sql::Select& select) {
   if (select.from.size() > 1 || select.from.front().is_join()) return select_joined(select);
   const auto& from = select.from.front();
-  const auto database = database_of(from.name);
+  // A derived table is its query's result, read as a view.
+  const auto database = from.derived ? std::string() : database_of(from.name);
   // information_schema's views are built now, read with no transaction.
   std::optional<View> view;
   std::optional<catalog::Table> table;
-  if (is_information_schema(database)) {
+  if (from.derived) {
+    view = derived_view(from);
+    table = view->table;
+  } else if (is_information_schema(database)) {
     view = information_schema_view(from.name.back(), _catalog);
     table = view->table;
   } else {
@@ -2091,6 +2223,7 @@ std::unique_ptr<JoinFrom> join_from(const std::vector<sql::TableRef>& references
     node->ref = &ref;
     node->first = leaves.size();
     if (!ref.is_join()) {
+      if (ref.derived) throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'derived tables in joins'");
       const auto database = database_of(ref.name);
       if (is_information_schema(database))
         throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'joins over information_schema'");

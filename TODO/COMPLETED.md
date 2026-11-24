@@ -1371,3 +1371,9 @@ The record, newest first. Each entry says what landed, with its gate counts.
   from the call; its arm64 packages).
 - Gate (node-c): release, ASan and TSan each **440 tests, 1912 of 1912**
   statements on libdannan 0.12.1, TSan with no reports.
+- Subqueries, first part: derived tables (`FROM (query) AS alias`, 1248
+  without one), read as a view of the query's result, each column typed as
+  MySQL reports it merged or materialised (43 items observed and in the
+  gate). Not yet: a derived table inside a join (1235).
+- Gate (node-c): release, ASan and TSan each **441 tests, 1974 of 1974**
+  statements, TSan with no reports; coverage 99.1% of lines.
