@@ -9989,3 +9989,98 @@ error 1066|42000|Not unique table/alias: 'q1'
 end
 statement DROP DATABASE kv_dj
 end
+statement SELECT (1, 2) = (1, 2) a, (1, 2) = (1, 3) b, (1, NULL) = (1, 2) c, (1, NULL) = (2, 2) d, (1, 2) <> (1, 3) e, (1, 2) < (1, 3) f, (2, 1) > (1, 9) g, (1, 2) <=> (1, NULL) h, (NULL, 1) <=> (NULL, 1) i
+column a|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column b|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column c|LONGLONG|63|1|0|BINARY NUM
+column d|LONGLONG|63|1|0|BINARY NUM
+column e|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column f|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column g|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column h|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column i|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 1	0	\N	0	1	1	1	0	1
+end
+statement SELECT ROW(1, 2) = (1, 2), (1, 2) IN ((1, 2), (3, 4)), (1, 2) IN ((3, 4)), (1, NULL) IN ((1, 2)), (1, 2) NOT IN ((3, 4), (1, NULL))
+column ROW(1, 2) = (1, 2)|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column (1, 2) IN ((1, 2), (3, 4))|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column (1, 2) IN ((3, 4))|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column (1, NULL) IN ((1, 2))|LONGLONG|63|1|0|BINARY NUM
+column (1, 2) NOT IN ((3, 4), (1, NULL))|LONGLONG|63|1|0|BINARY NUM
+row 1	1	0	\N	\N
+end
+statement SELECT (1, 2) = (1, 2, 3)
+error 1241|21000|Operand should contain 2 column(s)
+end
+statement SELECT (1, 2) = 1
+error 1241|21000|Operand should contain 2 column(s)
+end
+statement SELECT (1, 2)
+error 1241|21000|Operand should contain 1 column(s)
+end
+statement SELECT (1, 2) = (SELECT 1, 2) a, (1, 2) IN (SELECT 1, 2 UNION SELECT 3, 4) b, (1, 2) = (SELECT 1, 2 FROM DUAL WHERE FALSE) c, (1, 2) <> (SELECT 1, 3) d, (1, 2) NOT IN (SELECT 1, 2) e
+column a|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column b|LONGLONG|63|1|0|BINARY NUM
+column c|LONGLONG|63|1|0|BINARY NUM
+column d|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column e|LONGLONG|63|1|0|BINARY NUM
+row 1	1	\N	1	0
+end
+statement SELECT (1, 2) > ALL (SELECT 0, 5)
+error 1241|21000|Operand should contain 1 column(s)
+end
+statement SELECT (1, 2) = (SELECT 1)
+error 1241|21000|Operand should contain 2 column(s)
+end
+statement SELECT ((1, 2), 3) = ((1, 2), 3), ((1, 2), 3) < ((1, 3), 0)
+column ((1, 2), 3) = ((1, 2), 3)|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column ((1, 2), 3) < ((1, 3), 0)|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 1	1
+end
+statement SELECT (1, 'a') = (1, 'A'), (1, 2) < (SELECT 1, 3), (2, 'b') >= (2, 'B'), (1, 2, 3) <= (1, 2, 3)
+column (1, 'a') = (1, 'A')|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column (1, 2) < (SELECT 1, 3)|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column (2, 'b') >= (2, 'B')|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column (1, 2, 3) <= (1, 2, 3)|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 1	1	1	1
+end
+statement SELECT (1, 2) = (SELECT 1, 2 UNION SELECT 1, 2 UNION ALL SELECT 1, 2)
+error 1242|21000|Subquery returns more than 1 row
+end
+statement SELECT (1, 2) IN ((1, 2), 3)
+error 1241|21000|Operand should contain 2 column(s)
+end
+statement CREATE DATABASE kv_rows
+end
+statement CREATE TABLE kv_rows.t (id INT PRIMARY KEY, a INT, b VARCHAR(5))
+end
+statement INSERT INTO kv_rows.t VALUES (1, 10, 'x'), (2, 20, 'y'), (3, NULL, 'x')
+end
+statement SELECT a, b FROM kv_rows.t WHERE (a, b) = (10, 'x')
+column a|LONG|63|11|0|NUM
+column b|VAR_STRING|255|20|0|
+row 10	x
+end
+statement SELECT a, b FROM kv_rows.t WHERE (a, b) IN ((10, 'x'), (20, 'y')) ORDER BY id
+column a|LONG|63|11|0|NUM
+column b|VAR_STRING|255|20|0|
+row 10	x
+row 20	y
+end
+statement SELECT a, b FROM kv_rows.t WHERE (a, b) = (SELECT a, b FROM kv_rows.t WHERE id = 2)
+column a|LONG|63|11|0|NUM
+column b|VAR_STRING|255|20|0|
+row 20	y
+end
+statement SELECT a, b FROM kv_rows.t t WHERE (id, b) IN (SELECT id, b FROM kv_rows.t u WHERE u.a IS NULL)
+column a|LONG|63|11|0|NUM
+column b|VAR_STRING|255|20|0|
+row \N	x
+end
+statement SELECT a, b FROM kv_rows.t WHERE (a, b) > (10, 'x') ORDER BY id
+column a|LONG|63|11|0|NUM
+column b|VAR_STRING|255|20|0|
+row 20	y
+end
+statement DROP DATABASE kv_rows
+end

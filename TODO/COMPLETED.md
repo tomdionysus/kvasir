@@ -1386,3 +1386,6 @@ The record, newest first. Each entry says what landed, with its gate counts.
 - Derived tables in a SELECT's joins (inner, outer, comma, USING).
 - Gate (node-c): release, ASan and TSan each **442 tests, 2018 of 2018**
   statements, TSan with no reports; coverage 99.0% of lines.
+- Rows: row comparisons, IN over rows, row subqueries.
+- Gate (node-c): release, ASan and TSan each **442 tests, 2039 of 2039**
+  statements, TSan with no reports; coverage 99.0% of lines.

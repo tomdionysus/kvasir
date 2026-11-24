@@ -2058,3 +2058,24 @@ SELECT COUNT(*) FROM kv_dj.t t JOIN (SELECT DISTINCT b FROM kv_dj.t) q USING (b)
 SELECT q.b, COUNT(*) FROM (SELECT b FROM kv_dj.t) q JOIN kv_dj.u ON TRUE GROUP BY q.b ORDER BY q.b
 SELECT t.a FROM kv_dj.t t JOIN (SELECT 1) AS q1 JOIN (SELECT 1) AS q1 ON TRUE
 DROP DATABASE kv_dj
+SELECT (1, 2) = (1, 2) a, (1, 2) = (1, 3) b, (1, NULL) = (1, 2) c, (1, NULL) = (2, 2) d, (1, 2) <> (1, 3) e, (1, 2) < (1, 3) f, (2, 1) > (1, 9) g, (1, 2) <=> (1, NULL) h, (NULL, 1) <=> (NULL, 1) i
+SELECT ROW(1, 2) = (1, 2), (1, 2) IN ((1, 2), (3, 4)), (1, 2) IN ((3, 4)), (1, NULL) IN ((1, 2)), (1, 2) NOT IN ((3, 4), (1, NULL))
+SELECT (1, 2) = (1, 2, 3)
+SELECT (1, 2) = 1
+SELECT (1, 2)
+SELECT (1, 2) = (SELECT 1, 2) a, (1, 2) IN (SELECT 1, 2 UNION SELECT 3, 4) b, (1, 2) = (SELECT 1, 2 FROM DUAL WHERE FALSE) c, (1, 2) <> (SELECT 1, 3) d, (1, 2) NOT IN (SELECT 1, 2) e
+SELECT (1, 2) > ALL (SELECT 0, 5)
+SELECT (1, 2) = (SELECT 1)
+SELECT ((1, 2), 3) = ((1, 2), 3), ((1, 2), 3) < ((1, 3), 0)
+SELECT (1, 'a') = (1, 'A'), (1, 2) < (SELECT 1, 3), (2, 'b') >= (2, 'B'), (1, 2, 3) <= (1, 2, 3)
+SELECT (1, 2) = (SELECT 1, 2 UNION SELECT 1, 2 UNION ALL SELECT 1, 2)
+SELECT (1, 2) IN ((1, 2), 3)
+CREATE DATABASE kv_rows
+CREATE TABLE kv_rows.t (id INT PRIMARY KEY, a INT, b VARCHAR(5))
+INSERT INTO kv_rows.t VALUES (1, 10, 'x'), (2, 20, 'y'), (3, NULL, 'x')
+SELECT a, b FROM kv_rows.t WHERE (a, b) = (10, 'x')
+SELECT a, b FROM kv_rows.t WHERE (a, b) IN ((10, 'x'), (20, 'y')) ORDER BY id
+SELECT a, b FROM kv_rows.t WHERE (a, b) = (SELECT a, b FROM kv_rows.t WHERE id = 2)
+SELECT a, b FROM kv_rows.t t WHERE (id, b) IN (SELECT id, b FROM kv_rows.t u WHERE u.a IS NULL)
+SELECT a, b FROM kv_rows.t WHERE (a, b) > (10, 'x') ORDER BY id
+DROP DATABASE kv_rows

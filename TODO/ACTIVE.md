@@ -293,8 +293,7 @@ Each to be closed, or kept by a decision.
   loses NOT_NULL. Rows and types otherwise match; the gate's statements
   select columns without key flags there. A derived table in a
   multiple-table UPDATE or DELETE is refused (1235); in a SELECT's join it
-  is taken (2026-11-24). Row subqueries ((a, b) = (SELECT ...)) are not
-  yet taken.
+  is taken (2026-11-24), as are rows and row subqueries.
 
 - Temporal values (2026-11-23): time_zone SYSTEM is UTC (the
   reference server's system_time_zone is UTC too); named zones

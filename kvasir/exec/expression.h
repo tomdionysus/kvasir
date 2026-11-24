@@ -289,6 +289,23 @@ class Evaluator {
   // it must give a row), and its rows run against this evaluator's columns.
   ResultType subquery_type(const sql::Expr& e) const;
   std::vector<std::vector<Value>> subquery_rows(const sql::Expr& e);
+  // Rows (the manual's "Row Constructor Expression Optimization"): how many
+  // columns an operand holds (a row's elements, a subquery's columns, else
+  // 1); a row comparison's or IN's type, and value.
+  size_t arity(const sql::Expr& e) const;
+  ResultType row_type(const sql::Expr& e) const;
+  Value row_value(const sql::Expr& e);
+  struct RowSide {
+    std::vector<Value> values;
+    std::vector<ResultType> types;
+    std::vector<const sql::Expr*> exprs;
+    // A row subquery that gave no row.
+    bool empty = false;
+  };
+  RowSide row_side(const sql::Expr& e);
+  // Whether two rows' elements are equal: NULL when no pair differs and one
+  // is unknown.
+  std::optional<bool> rows_equal(const RowSide& a, const RowSide& b, const std::string& op);
   // DATE_FORMAT, TIME_FORMAT, WEEK, YEARWEEK and WEEKOFYEAR (format.cpp);
   // nothing for a name that is not one of them.
   std::optional<ResultType> format_function(const sql::Expr& e) const;

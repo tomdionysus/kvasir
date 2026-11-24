@@ -330,6 +330,7 @@ ResultType Evaluator::type(const Expr& e) const {
       return integer_type(a.precision, false, not_null(a));
     }
     case ExprKind::binary: {
+      if (comparison(e.value) && (arity(*e.args[0]) > 1 || arity(*e.args[1]) > 1)) return row_type(e);
       const auto a = type(*e.args[0]);
       const auto b = type(*e.args[1]);
       const auto& op = e.value;
@@ -377,8 +378,12 @@ ResultType Evaluator::type(const Expr& e) const {
     case ExprKind::is:
       type(*e.args[0]);
       return boolean_type(true);
+    case ExprKind::row:
+      // A row where one value belongs (observed).
+      throw SqlError(1241, "21000", "Operand should contain 1 column(s)");
     case ExprKind::in:
     case ExprKind::between: {
+      if (e.kind == ExprKind::in && arity(*e.args[0]) > 1) return row_type(e);
       bool all = true;
       std::vector<Operand> operands;
       for (const auto& arg : e.args) {
@@ -812,6 +817,7 @@ Value Evaluator::value(const Expr& e) {
       return static_cast<int64_t>(negated);
     }
     case ExprKind::binary: {
+      if (comparison(e.value) && (arity(*e.args[0]) > 1 || arity(*e.args[1]) > 1)) return row_value(e);
       const auto& op = e.value;
       const auto ta = type(*e.args[0]);
       const auto tb = type(*e.args[1]);
@@ -988,6 +994,7 @@ Value Evaluator::value(const Expr& e) {
       return int64_t{(result != e.negated) ? 1 : 0};
     }
     case ExprKind::in: {
+      if (arity(*e.args[0]) > 1) return row_value(e);
       const auto ta = type(*e.args[0]);
       std::vector<Operand> operands;
       for (const auto& arg : e.args) operands.push_back({arg.get(), type(*arg)});
@@ -1561,6 +1568,162 @@ std::vector<std::vector<Value>> Evaluator::subquery_rows(const Expr& e) {
   if (!_settings.queries) not_yet("subqueries here");
   const Scope scope(_settings.columns, _settings.outer);
   return _settings.queries->query_rows(*e.query, &scope);
+}
+
+}  // namespace kvasir::exec
+
+namespace kvasir::exec {
+
+size_t Evaluator::arity(const Expr& e) const {
+  if (e.kind == ExprKind::row) return e.args.size();
+  if (e.kind == ExprKind::subquery && e.value.empty() && e.scope.empty() && _settings.queries) {
+    const Scope scope(_settings.columns, _settings.outer);
+    return _settings.queries->query_types(*e.query, &scope).size();
+  }
+  return 1;
+}
+
+ResultType Evaluator::row_type(const Expr& e) const {
+  const auto& left = *e.args[0];
+  const size_t n = arity(left);
+  const auto columns = [&](size_t count) { return SqlError(1241, "21000", "Operand should contain " + std::to_string(count) + " column(s)"); };
+  // The elements' types, flattened; NULL possible when any may be, or a
+  // subquery side may give no row.
+  bool not_null_all = true;
+  const std::function<void(const Expr&)> visit = [&](const Expr& x) {
+    if (x.kind == ExprKind::row) {
+      for (const auto& a : x.args) visit(*a);
+    } else if (x.kind == ExprKind::subquery) {
+      const Scope scope(_settings.columns, _settings.outer);
+      const auto types = _settings.queries->query_types(*x.query, &scope);
+      const auto& q = *x.query;
+      if (q.set || !q.from.empty() || q.where || q.having || q.limit) not_null_all = false;
+      for (const auto& t : types)
+        if (!(t.flags & c::not_null)) not_null_all = false;
+    } else {
+      if (!(type(x).flags & c::not_null)) not_null_all = false;
+    }
+  };
+  if (e.kind == ExprKind::in) {
+    for (size_t i = 1; i < e.args.size(); ++i)
+      if (arity(*e.args[i]) != n) throw columns(n);
+    for (const auto& a : e.args) visit(*a);
+    if (e.args.size() == 2 && e.args[1]->kind == ExprKind::subquery) not_null_all = false;
+    return boolean_type(not_null_all);
+  }
+  if (!e.args[1]->scope.empty()) throw columns(1);
+  if (arity(*e.args[1]) != n) throw columns(n);
+  visit(left);
+  visit(*e.args[1]);
+  return boolean_type(e.value == "<=>" || not_null_all);
+}
+
+Evaluator::RowSide Evaluator::row_side(const Expr& e) {
+  RowSide side;
+  const std::function<void(const Expr&)> visit = [&](const Expr& x) {
+    if (x.kind == ExprKind::row) {
+      for (const auto& a : x.args) visit(*a);
+      return;
+    }
+    if (x.kind == ExprKind::subquery) {
+      const Scope scope(_settings.columns, _settings.outer);
+      const auto types = _settings.queries->query_types(*x.query, &scope);
+      const auto rows = subquery_rows(x);
+      if (rows.size() > 1) throw SqlError(1242, "21000", "Subquery returns more than 1 row");
+      if (rows.empty()) side.empty = true;
+      for (size_t i = 0; i < types.size(); ++i) {
+        side.values.push_back(rows.empty() ? Value{} : rows[0][i]);
+        side.types.push_back(types[i]);
+        side.exprs.push_back(&x);
+      }
+      return;
+    }
+    side.types.push_back(type(x));
+    side.values.push_back(value(x));
+    side.exprs.push_back(&x);
+  };
+  visit(e);
+  return side;
+}
+
+std::optional<bool> Evaluator::rows_equal(const RowSide& a, const RowSide& b, const std::string& op) {
+  if (a.empty || b.empty) return std::nullopt;
+  bool unknown = false;
+  for (size_t i = 0; i < a.values.size() && i < b.values.size(); ++i) {
+    const auto collation = string_collation({{a.exprs[i], a.types[i]}, {b.exprs[i], b.types[i]}}, op);
+    const auto c3 = compare_values(a.values[i], a.types[i], b.values[i], b.types[i], collation);
+    if (!c3) {
+      unknown = true;
+    } else if (*c3 != 0) {
+      return false;
+    }
+  }
+  if (unknown) return std::nullopt;
+  return true;
+}
+
+Value Evaluator::row_value(const Expr& e) {
+  row_type(e);
+  const auto left = row_side(*e.args[0]);
+  if (e.kind == ExprKind::in) {
+    // Any row equal: 1; else any unknown: NULL; else 0.
+    bool unknown = false;
+    const auto settle = [&](const std::optional<bool>& eq) {
+      if (!eq) unknown = true;
+      return eq && *eq;
+    };
+    if (e.args.size() == 2 && e.args[1]->kind == ExprKind::subquery) {
+      const Scope scope(_settings.columns, _settings.outer);
+      const auto types = _settings.queries->query_types(*e.args[1]->query, &scope);
+      const auto rows = subquery_rows(*e.args[1]);
+      if (rows.empty()) return int64_t{e.negated ? 1 : 0};
+      for (const auto& row : rows) {
+        RowSide right;
+        right.values = row;
+        right.types = types;
+        right.exprs.assign(types.size(), e.args[1].get());
+        if (settle(rows_equal(left, right, " IN "))) return int64_t{e.negated ? 0 : 1};
+      }
+    } else {
+      for (size_t i = 1; i < e.args.size(); ++i)
+        if (settle(rows_equal(left, row_side(*e.args[i]), " IN "))) return int64_t{e.negated ? 0 : 1};
+    }
+    if (unknown) return {};
+    return int64_t{e.negated ? 1 : 0};
+  }
+  const auto& op = e.value;
+  const auto right = row_side(*e.args[1]);
+  if (op == "<=>") {
+    if (left.empty || right.empty) return int64_t{left.empty && right.empty ? 1 : 0};
+    for (size_t i = 0; i < left.values.size(); ++i) {
+      const bool ln = is_null(left.values[i]), rn = is_null(right.values[i]);
+      if (ln || rn) {
+        if (ln != rn) return int64_t{0};
+        continue;
+      }
+      const auto collation = string_collation({{left.exprs[i], left.types[i]}, {right.exprs[i], right.types[i]}}, op);
+      const auto c3 = compare_values(left.values[i], left.types[i], right.values[i], right.types[i], collation);
+      if (c3 && *c3 != 0) return int64_t{0};
+    }
+    return int64_t{1};
+  }
+  if (op == "=" || op == "!=") {
+    const auto eq = rows_equal(left, right, op);
+    if (!eq) return {};
+    return int64_t{(*eq == (op == "=")) ? 1 : 0};
+  }
+  // Ordering: the first pair that differs decides; an unknown pair before it
+  // makes it unknown.
+  if (left.empty || right.empty) return {};
+  for (size_t i = 0; i < left.values.size(); ++i) {
+    const auto collation = string_collation({{left.exprs[i], left.types[i]}, {right.exprs[i], right.types[i]}}, op);
+    const auto c3 = compare_values(left.values[i], left.types[i], right.values[i], right.types[i], collation);
+    if (!c3) return {};
+    if (*c3 == 0) continue;
+    const bool holds = (op == "<" || op == "<=") ? *c3 < 0 : *c3 > 0;
+    return int64_t{holds ? 1 : 0};
+  }
+  return int64_t{(op == "<=" || op == ">=") ? 1 : 0};
 }
 
 }  // namespace kvasir::exec
