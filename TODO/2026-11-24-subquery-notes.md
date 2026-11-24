@@ -40,3 +40,22 @@ VARCHAR(5))` holding (1, 10, 'x'), (2, 20, 'y'), (3, NULL, 'x').
 - No alias is 1248 (42000) "Every derived table must have its own alias".
 - `SELECT q.a FROM (SELECT a, b FROM t WHERE a > 5) AS q`: a LONG 11,
   nullable, NUM (no BINARY).
+
+## A derived table's columns (build/derived-matrix.txt, 43 items)
+
+`SELECT x FROM (SELECT <item> AS x FROM t) q`: MySQL merges the derived
+table into the outer query, and each column reports:
+- a table column as its field does: its own flags (i NOT NULL keeps
+  NO_DEFAULT_VALUE), no BINARY on numbers (TINY 4 NUM, LONG 11);
+- an expression as its item does, with its BINARY flag, an integer
+  literal one longer than a plain SELECT's (1 is 2, 1234567890 is 11, 1+1
+  3, i+1 12), TRUE 1, 1e0 DOUBLE 3;
+- strings with decimals 31 for expressions ('xy', CONCAT), 0 for columns
+  and MAX(vc); X'41' VAR_STRING binary length 1 flagged UNSIGNED BINARY;
+- dates and times with the result collation and their length as
+  characters times 4 (DATE 40, TIME(2) 52, DATETIME(3) 92, TIMESTAMP 76,
+  NOW() 76), still BINARY, decimals their fsp;
+- aggregates: COUNT(*) LONGLONG 21 NOT_NULL NUM (no BINARY), SUM(i)
+  NEWDECIMAL 33, AVG(i) NEWDECIMAL 16,4, MAX(vc) VAR_STRING 40.
+A derived table with no FROM is materialised instead: `SELECT * FROM
+(SELECT 1) q` is LONG length 2 NOT_NULL NUM.
