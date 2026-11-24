@@ -48,7 +48,7 @@ endif()
 set(KVASIR_DANNAN_REPOSITORY "${CMAKE_CURRENT_SOURCE_DIR}/../dannan" CACHE STRING "Dannan's repository: a path or a URL")
 # Not a cache variable: a moved pin must take effect in a build tree that
 # already exists.
-set(KVASIR_DANNAN_TAG "0.10.0")
+set(KVASIR_DANNAN_TAG "0.12.0")
 include(FetchContent)
 include(GNUInstallDirs)
 # The installed one is found by minor, at least the pinned patch (Dannan's

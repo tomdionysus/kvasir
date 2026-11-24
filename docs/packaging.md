@@ -5,7 +5,7 @@ Kvasir is packaged for Debian trixie, on x86-64 and arm64, as:
 - `kvasir`: `kvasir-node`, its settings, its systemd unit and its manual page.
   Kvasir's own library is linked into the binary: no other program links it, so
   there is no library or development package. Dannan's shared library comes
-  from Dannan's package, `libdannan0.10`, through `${shlibs:Depends}`.
+  from Dannan's package, `libdannan0.12`, through `${shlibs:Depends}`.
 - `kvasir-dbgsym`: its debug symbols.
 
 The package is built with debhelper from `debian/`, driving the CMake build.

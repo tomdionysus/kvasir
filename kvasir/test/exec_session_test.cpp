@@ -713,12 +713,15 @@ TEST(ExecSession, Casts) {
 TEST(ExecSession, TheClock) {
   struct SteppedClock : dannan::contract::WallClock {
     uint64_t ms = 0;
+    uint64_t micro = 0;
     uint64_t unix_ms() const noexcept override { return ms; }
+    uint64_t unix_us() const noexcept override { return ms * 1000 + micro; }
   } clock;
   clock.ms = 1709210096789;  // 2024-02-29 12:34:56.789 UTC
+  clock.micro = 123;         // and 123 microseconds (Dannan 0.12.0's unix_us)
   Session s(registry(), node_catalog(), node_store(), SessionInfo{"root", "localhost", 1, 0, &clock});
   EXPECT_EQ(row(run(s, "SELECT NOW(), NOW(3), CURDATE(), CURTIME(), UTC_TIMESTAMP(6), CURRENT_TIMESTAMP, SYSDATE(1), CURTIME(2)")),
-            (std::vector<std::string>{"2024-02-29 12:34:56", "2024-02-29 12:34:56.789", "2024-02-29", "12:34:56", "2024-02-29 12:34:56.789000",
+            (std::vector<std::string>{"2024-02-29 12:34:56", "2024-02-29 12:34:56.789", "2024-02-29", "12:34:56", "2024-02-29 12:34:56.789123",
                                       "2024-02-29 12:34:56", "2024-02-29 12:34:56.7", "12:34:56.78"}));
   run(s, "SET time_zone = '+10:00'");
   EXPECT_EQ(row(run(s, "SELECT NOW(), UTC_TIMESTAMP(), CURRENT_DATE, UTC_DATE(), UTC_TIME()")),

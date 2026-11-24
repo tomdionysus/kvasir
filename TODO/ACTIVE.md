@@ -271,9 +271,7 @@ Waiting on nothing, to take when the above is blocked:
 
 Each to be closed, or kept by a decision.
 
-- Temporal values (2026-11-23, to close in T1b's rest and T2): NOW(6) and
-  the fsp clock functions show 000 in their last three digits until
-  Dannan 0.12.0's microsecond wall clock; time_zone SYSTEM is UTC (the
+- Temporal values (2026-11-23): time_zone SYSTEM is UTC (the
   reference server's system_time_zone is UTC too); named zones
   ('Europe/London') are 1298, where the reference server has zone data
   loaded and takes them; a TIME cast to DATE or
@@ -443,11 +441,8 @@ Each to be closed, or kept by a decision.
   root, React 19, react-dom and react-router 7 as peers; AdminShell, NavBar,
   Messages, Confirm, ApiClient, useApi/useLoad/useAct, SignIn (password,
   Lugh with PKCE, or both), DataTable with useCursorPages.
-- **Dannan**: microseconds on dannan::contract::WallClock are in 0.12.0:
-  `unix_us()` beside `unix_ms()`, defaulting to unix_ms() * 1000;
-  SystemWallClock and test::SteppedWall in microseconds. Until Kvasir's
-  repin it uses unix_ms() for NOW(6) and the fsp defaults, the last three
-  digits 000 a recorded difference.
+- **Dannan**: microseconds on dannan::contract::WallClock came in 0.12.0
+  (`unix_us()`); NOW(6) and the fsp defaults read it from the repin on.
 - **Lugh**: 0.6.0 (2026-11-23, tagged on main) is on Dannan 0.11.0 (Boost.JSON's
   compiled part is Dannan's, none in lugh_client), handles Fault::cancelled
   (a switch over Fault needs it), and is the tag @lugh/admin-ui is depended

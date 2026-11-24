@@ -301,7 +301,7 @@ EvalSettings Session::eval_settings() const {
   e.statement_us = _statement_us;
   e.zone_seconds = zone_seconds();
   const auto* clock = &wall_clock();
-  e.clock_us = [clock] { return static_cast<int64_t>(clock->unix_ms()) * 1000; };
+  e.clock_us = [clock] { return static_cast<int64_t>(clock->unix_us()); };
   return e;
 }
 
@@ -701,7 +701,7 @@ Outcome Session::execute(const sql::Statement& statement) {
   _previous = std::move(_warnings);
   _warnings.clear();
   // NOW() and its kin read the statement's start, fixed for its length.
-  _statement_us = static_cast<int64_t>(wall_clock().unix_ms()) * 1000;
+  _statement_us = static_cast<int64_t>(wall_clock().unix_us());
   try {
     auto outcome = run(statement);
     if (outcome.result) {
