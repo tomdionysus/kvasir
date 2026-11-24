@@ -2045,3 +2045,16 @@ SELECT a FROM kv_sub.t WHERE id = 3
 DELETE FROM kv_sub.u WHERE t_id IN (SELECT id FROM kv_sub.t WHERE b = 'y')
 SELECT COUNT(*) FROM kv_sub.u
 DROP DATABASE kv_sub
+CREATE DATABASE kv_dj
+CREATE TABLE kv_dj.t (id INT PRIMARY KEY, a INT, b VARCHAR(5))
+INSERT INTO kv_dj.t VALUES (1, 10, 'x'), (2, 20, 'y'), (3, NULL, 'x')
+CREATE TABLE kv_dj.u (id INT PRIMARY KEY, t_id INT, v DECIMAL(5,2))
+INSERT INTO kv_dj.u VALUES (1, 1, 1.5), (2, 1, 2.5), (3, 2, 4.25)
+SELECT t.b, q.total FROM kv_dj.t t JOIN (SELECT t_id, SUM(v) total FROM kv_dj.u GROUP BY t_id) q ON q.t_id = t.id ORDER BY t.b, q.total
+SELECT t.b, q.total FROM kv_dj.t t LEFT JOIN (SELECT t_id, SUM(v) total FROM kv_dj.u GROUP BY t_id) q ON q.t_id = t.id ORDER BY t.a
+SELECT q.x, r.y FROM (SELECT 1 x UNION SELECT 2) q, (SELECT 'a' y UNION SELECT 'b') r ORDER BY q.x, r.y
+SELECT q.n, u.v FROM (SELECT id n FROM kv_dj.t WHERE a > 5) q JOIN kv_dj.u u ON u.t_id = q.n ORDER BY u.v
+SELECT COUNT(*) FROM kv_dj.t t JOIN (SELECT DISTINCT b FROM kv_dj.t) q USING (b)
+SELECT q.b, COUNT(*) FROM (SELECT b FROM kv_dj.t) q JOIN kv_dj.u ON TRUE GROUP BY q.b ORDER BY q.b
+SELECT t.a FROM kv_dj.t t JOIN (SELECT 1) AS q1 JOIN (SELECT 1) AS q1 ON TRUE
+DROP DATABASE kv_dj

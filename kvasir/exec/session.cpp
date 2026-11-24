@@ -1007,6 +1007,8 @@ class TableColumns : public IndexedColumns {
 struct JoinLeaf {
   catalog::Table table;
   std::string database;
+  // A derived table's result, its rows read from here.
+  std::unique_ptr<View> view;
   std::unique_ptr<TableColumns> columns;
   std::vector<txn::Row> rows;
   // Each row's key, for a table a locking read reads.
@@ -2261,7 +2263,7 @@ using DatabaseOf = std::function<std::string(const std::vector<std::string>&)>;
 // clause'); each ON typed over its own join's tables (1054, 1052 'on
 // clause'); an outer join's inner side marked as possibly NULL.
 std::unique_ptr<JoinFrom> join_from(const std::vector<sql::TableRef>& references, const catalog::Catalog& catalog, const DatabaseOf& database_of,
-                                    const EvalSettings& settings) {
+                                    const EvalSettings& settings, const std::function<View(const sql::TableRef&)>& derived) {
   using Join = sql::TableRef::Join;
   auto from = std::make_unique<JoinFrom>();
   auto& leaves = from->leaves;
@@ -2272,19 +2274,26 @@ std::unique_ptr<JoinFrom> join_from(const std::vector<sql::TableRef>& references
     node->ref = &ref;
     node->first = leaves.size();
     if (!ref.is_join()) {
-      if (ref.derived) throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'derived tables in joins'");
-      const auto database = database_of(ref.name);
-      if (is_information_schema(database))
-        throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'joins over information_schema'");
-      auto table = catalog.table({database, ref.name.back()});
-      if (!table) {
-        if (!catalog.database(database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
-        throw SqlError(1146, "42S02", "Table '" + database + "." + ref.name.back() + "' doesn't exist");
-      }
       auto leaf = std::make_unique<JoinLeaf>();
-      leaf->table = std::move(*table);
+      std::string database;
+      if (ref.derived) {
+        // A derived table: its query's result, read as a view.
+        leaf->view = std::make_unique<View>(derived(ref));
+        leaf->table = leaf->view->table;
+        leaf->columns = std::make_unique<TableColumns>(leaf->table, database, ref.alias, settings, leaf->view.get(), false);
+      } else {
+        database = database_of(ref.name);
+        if (is_information_schema(database))
+          throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'joins over information_schema'");
+        auto table = catalog.table({database, ref.name.back()});
+        if (!table) {
+          if (!catalog.database(database)) throw SqlError(er_bad_db_error, "42000", "Unknown database '" + database + "'");
+          throw SqlError(1146, "42S02", "Table '" + database + "." + ref.name.back() + "' doesn't exist");
+        }
+        leaf->table = std::move(*table);
+        leaf->columns = std::make_unique<TableColumns>(leaf->table, database, ref.alias, settings);
+      }
       leaf->database = database;
-      leaf->columns = std::make_unique<TableColumns>(leaf->table, database, ref.alias, settings);
       // A table or alias named twice (observed: by its alias, or its name).
       for (const auto& other : leaves) {
         const bool both_bare = ref.alias.empty() && other->columns->qualifier() == other->table.name && other->database != database;
@@ -2664,6 +2673,10 @@ bool Session::read_join(JoinFrom& from, const std::vector<const sql::Select::Loc
     leaf.rows.clear();
     leaf.keys.clear();
     const auto* clause = clauses[l];
+    if (leaf.view) {
+      leaf.rows = leaf.view->rows;
+      continue;
+    }
     if (!clause) {
       leaf.rows = _rows.rows(t, leaf.table.id);
       continue;
@@ -2724,7 +2737,9 @@ void Session::lock_join(JoinFrom& from, const std::vector<const sql::Select::Loc
 // optimizer's order decides; recorded where it differs).
 Outcome Session::select_joined(const sql::Select& select) {
   auto settings = eval_settings();
-  auto from = join_from(select.from, _catalog, [&](const std::vector<std::string>& name) { return database_of(name); }, settings);
+  auto from = join_from(
+      select.from, _catalog, [&](const std::vector<std::string>& name) { return database_of(name); }, settings,
+      [&](const sql::TableRef& ref) { return derived_view(ref); });
   if (is_grouped(select)) return select_groups(select, nullptr, "", from.get());
   auto& leaves = from->leaves;
   const auto& root = from->root;
@@ -3722,7 +3737,11 @@ Outcome Session::change_joined(const sql::Statement& statement) {
   const bool deleting = statement.kind == sql::Statement::Kind::delete_;
   const auto& c = statement.change;
   auto settings = eval_settings();
-  auto from = join_from(c.from, _catalog, [&](const std::vector<std::string>& name) { return database_of(name); }, settings);
+  auto from = join_from(
+      c.from, _catalog, [&](const std::vector<std::string>& name) { return database_of(name); }, settings,
+      [](const sql::TableRef&) -> View {
+        throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'derived tables in multiple-table UPDATE and DELETE'");
+      });
   auto& leaves = from->leaves;
   for (const auto& leaf : leaves) refuse_information_schema(leaf->database);
   const JoinedColumns& columns = *from->columns;

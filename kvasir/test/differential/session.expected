@@ -9936,3 +9936,56 @@ row 2
 end
 statement DROP DATABASE kv_sub
 end
+statement CREATE DATABASE kv_dj
+end
+statement CREATE TABLE kv_dj.t (id INT PRIMARY KEY, a INT, b VARCHAR(5))
+end
+statement INSERT INTO kv_dj.t VALUES (1, 10, 'x'), (2, 20, 'y'), (3, NULL, 'x')
+end
+statement CREATE TABLE kv_dj.u (id INT PRIMARY KEY, t_id INT, v DECIMAL(5,2))
+end
+statement INSERT INTO kv_dj.u VALUES (1, 1, 1.5), (2, 1, 2.5), (3, 2, 4.25)
+end
+statement SELECT t.b, q.total FROM kv_dj.t t JOIN (SELECT t_id, SUM(v) total FROM kv_dj.u GROUP BY t_id) q ON q.t_id = t.id ORDER BY t.b, q.total
+column b|VAR_STRING|255|20|0|
+column total|NEWDECIMAL|63|29|2|NUM
+row x	4.00
+row y	4.25
+end
+statement SELECT t.b, q.total FROM kv_dj.t t LEFT JOIN (SELECT t_id, SUM(v) total FROM kv_dj.u GROUP BY t_id) q ON q.t_id = t.id ORDER BY t.a
+column b|VAR_STRING|255|20|0|
+column total|NEWDECIMAL|63|29|2|NUM
+row x	\N
+row x	4.00
+row y	4.25
+end
+statement SELECT q.x, r.y FROM (SELECT 1 x UNION SELECT 2) q, (SELECT 'a' y UNION SELECT 'b') r ORDER BY q.x, r.y
+column x|LONGLONG|63|2|0|NOT_NULL NUM
+column y|VAR_STRING|255|4|0|NOT_NULL
+row 1	a
+row 1	b
+row 2	a
+row 2	b
+end
+statement SELECT q.n, u.v FROM (SELECT id n FROM kv_dj.t WHERE a > 5) q JOIN kv_dj.u u ON u.t_id = q.n ORDER BY u.v
+column n|LONG|63|11|0|NOT_NULL NO_DEFAULT_VALUE NUM
+column v|NEWDECIMAL|63|7|2|NUM
+row 1	1.50
+row 1	2.50
+row 2	4.25
+end
+statement SELECT COUNT(*) FROM kv_dj.t t JOIN (SELECT DISTINCT b FROM kv_dj.t) q USING (b)
+column COUNT(*)|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+row 3
+end
+statement SELECT q.b, COUNT(*) FROM (SELECT b FROM kv_dj.t) q JOIN kv_dj.u ON TRUE GROUP BY q.b ORDER BY q.b
+column b|VAR_STRING|255|20|0|NUM
+column COUNT(*)|LONGLONG|63|21|0|NOT_NULL NUM
+row x	6
+row y	3
+end
+statement SELECT t.a FROM kv_dj.t t JOIN (SELECT 1) AS q1 JOIN (SELECT 1) AS q1 ON TRUE
+error 1066|42000|Not unique table/alias: 'q1'
+end
+statement DROP DATABASE kv_dj
+end

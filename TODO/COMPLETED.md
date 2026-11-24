@@ -1383,3 +1383,6 @@ The record, newest first. Each entry says what landed, with its gate counts.
   Not yet: row subqueries ((a, b) = (SELECT ...)), derived tables in joins.
 - Gate (node-c): release, ASan and TSan each **442 tests, 2005 of 2005**
   statements, TSan with no reports; coverage 99.0% of lines.
+- Derived tables in a SELECT's joins (inner, outer, comma, USING).
+- Gate (node-c): release, ASan and TSan each **442 tests, 2018 of 2018**
+  statements, TSan with no reports; coverage 99.0% of lines.
