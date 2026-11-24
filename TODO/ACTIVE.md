@@ -19,22 +19,33 @@ it. What landed, and how, is in `TODO/COMPLETED.md`; this file is the plan.
 7. `TODO/2026-11-15-design-review.md` only for the sessions' measurements
    and warnings on the first draft. It is a record, not the design.
 
-## Where it stands (2026-11-22)
+## Where it stands (2026-11-24)
 
 - **Release 0.1.0** (tag on `main`, 2026-11-20): one node, in memory, MySQL
   compatible as the README lists, `ephemeral` only. Kvasir is a prototype
   until it has a durable store and has been tested on a cluster (the
   maintainer, 2026-11-20): no package is published, and the README says so.
-- **`develop`** is ahead of `main`: Dannan 0.10.0 and its adoptions, the
-  node's logging and setting names, the commit protocol for one range
-  (step 3), Connector/J's metadata against a node (step 1d), the fuzz
-  targets on Dannan's harness, a real MySQL client library driving a node
-  in the tests, the SQL writes (INSERT IGNORE, REPLACE, ON DUPLICATE KEY
-  UPDATE, INSERT ... SELECT, locking reads, shared and range locks),
-  SERIALIZABLE, folded row versions, and joins (inner, outer, USING,
-  NATURAL, grouped, locking). Last gate (node-c, 2026-11-23): release,
-  ASan and TSan each **425 tests, 1224 of 1224** differential statements;
-  hosted CI green, coverage 99.2% of lines.
+- **`develop`** is ahead of `main`: Dannan 0.12.0 (its microsecond wall
+  clock and stored password adopted; the pin target 0.12.1, its patch and
+  arm64 release), the node's logging and setting names, the commit
+  protocol for one range (step 3), Connector/J's metadata against a node
+  (step 1d), the fuzz targets on Dannan's harness, a real MySQL client
+  library driving a node in the tests, the SQL writes (INSERT IGNORE,
+  REPLACE, ON DUPLICATE KEY UPDATE, INSERT ... SELECT, locking reads,
+  shared and range locks), SERIALIZABLE, folded row versions, joins, and
+  the temporal types (DATE, TIME, DATETIME, TIMESTAMP, YEAR, their
+  functions, the binary protocol's). Set operations are on their branch.
+  Last gate on develop (node-c, 2026-11-24): release, ASan and TSan each
+  **439 tests, 1454 of 1454** differential statements; hosted CI green,
+  coverage 99.1% of lines.
+- **When the store and cluster steps come** (the maintainer's
+  reprioritisation, relayed 2026-11-24): Dagda builds its caught-up signal
+  after its 0.5.0 and before the durable AcceptorStore, so step 2b comes a
+  couple of days later than planned, Dagda sending the AcceptorStore's
+  design early; step 4 waits on Dannan 0.14.0's atomic commit (mid
+  December), whose design Dannan sends during 0.13.0 (the register layer
+  first). Until then the SQL work goes on: set operations, subqueries,
+  utf8mb4_unicode_ci, the recorded leftovers.
 
 ## Rulings in force
 
@@ -239,8 +250,10 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    query on other nodes; the Lugh plugin; a change feed.
 
 Waiting on nothing, to take when the above is blocked:
-- Of Dannan 0.12.0 (pinned 2026-11-24): readiness, the node-program
-  helper and keyed limits wait for the cluster step.
+- Dannan's pin to 0.12.1 (its patch: a call watchdog counted from the
+  call; its arm64 packages), after set operations merge. Of 0.12.0:
+  readiness, the node-program helper and keyed limits wait for the
+  cluster step.
 - SQL, next now the temporal types are in (2026-11-24): set operations
   first (UNION, UNION ALL, INTERSECT, EXCEPT, their parentheses, ORDER BY
   and LIMIT), as the smaller and the one subqueries' derived tables lean
