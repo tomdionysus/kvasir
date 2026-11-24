@@ -240,15 +240,8 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    query on other nodes; the Lugh plugin; a change feed.
 
 Waiting on nothing, to take when the above is blocked:
-- Dannan's pin, 0.10.0 to 0.12.0 in one step (tagged 2026-11-23, main
-  b9a5609; libdannan0.12; its CHANGELOG's "Adopting 0.11.0" and "Adopting
-  0.12.0"), next after the date and time functions: GIT_TAG and the deb
-  names; NOW(6) and the fsp defaults from WallClock::unix_us (closing the
-  000 difference, and SteppedWall in the tests); the TSan run's
-  suppressions from DANNAN_TSAN_SUPPRESSIONS; kvasir-node's credentials
-  from identity::make_password and verify_password (PHC strings, rule 3:
-  Kvasir's own make_credential goes). Readiness, the node-program helper
-  and keyed limits wait for the cluster step.
+- Of Dannan 0.12.0 (pinned 2026-11-24): readiness, the node-program
+  helper and keyed limits wait for the cluster step.
 - SQL: subqueries, unions;
   utf8mb4_unicode_ci and other character sets; temporal types.
 - Differences recorded, to probe and build: a character past U+FFFF in a
@@ -393,9 +386,9 @@ Each to be closed, or kept by a decision.
   0.11.0 and 0.11.1 are tagged (relayed by the coordinating session,
   2026-11-23); 0.11.0 also adds Fault::cancelled after failed (Kvasir
   switches over no Fault yet).
-- **Dannan**: Kvasir is on 0.10.0; its pin target is 0.12.0 (tagged
-  2026-11-23: unix_us, readiness and health, keyed limits, the stored
-  password, the node-program helper). Its HTTP core and register layer
+- **Dannan**: Kvasir is on 0.12.0 (pinned 2026-11-24: unix_us and the
+  stored password adopted; readiness and health, keyed limits and the
+  node-program helper at the cluster step). Its HTTP core and register layer
   come in 0.13.0 (about 2026-12-05), its atomic commit across replica sets
   (item 26) in 0.14.0, design first. Kvasir's commitments
   to its agreement: one name per change; changes repeatable by commit id;
@@ -441,8 +434,6 @@ Each to be closed, or kept by a decision.
   root, React 19, react-dom and react-router 7 as peers; AdminShell, NavBar,
   Messages, Confirm, ApiClient, useApi/useLoad/useAct, SignIn (password,
   Lugh with PKCE, or both), DataTable with useCursorPages.
-- **Dannan**: microseconds on dannan::contract::WallClock came in 0.12.0
-  (`unix_us()`); NOW(6) and the fsp defaults read it from the repin on.
 - **Lugh**: 0.6.0 (2026-11-23, tagged on main) is on Dannan 0.11.0 (Boost.JSON's
   compiled part is Dannan's, none in lugh_client), handles Fault::cancelled
   (a switch over Fault needs it), and is the tag @lugh/admin-ui is depended
