@@ -256,7 +256,15 @@ Waiting on nothing, to take when the above is blocked:
   first (UNION, UNION ALL, INTERSECT, EXCEPT, their parentheses, ORDER BY
   and LIMIT), as the smaller and the one subqueries' derived tables lean
   on; then subqueries (scalar, IN, EXISTS, ANY and ALL, derived tables);
-  then utf8mb4_unicode_ci and other character sets.
+  then utf8mb4_unicode_ci and other character sets. Done: set operations
+  and derived tables (2026-11-24). Next, subqueries in expressions (the
+  design): an Expr of kind `subquery` holding its query (scalar,
+  EXISTS, IN's right side, a comparison's ANY or ALL side, a row's); the
+  evaluator asks EvalSettings' query source to type and run it; the
+  session runs it with the outer row's columns behind the inner query's
+  own (correlation), the outer source chained so an unknown column is
+  looked up outward; uncorrelated ones run once per statement. Behaviour
+  in TODO/2026-11-24-subquery-notes.md. Then derived tables in joins.
 - Differences recorded, to probe and build: a character past U+FFFF in a
   name (MySQL turns it into `?`, warnings 1300 and 3854); an intermediate
   DECIMAL past 65 digits (MySQL keeps it, Kvasir refuses 1690).
