@@ -1367,3 +1367,7 @@ The record, newest first. Each entry says what landed, with its gate counts.
   store and cluster steps.
 - Gate (node-c): release, ASan and TSan each **440 tests, 1912 of 1912**
   statements, TSan with no reports; coverage 99.1% of lines.
+- Dannan's pin moved 0.12.0 to 0.12.1 (its patch: a call watchdog counted
+  from the call; its arm64 packages).
+- Gate (node-c): release, ASan and TSan each **440 tests, 1912 of 1912**
+  statements on libdannan 0.12.1, TSan with no reports.

@@ -250,10 +250,8 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
    query on other nodes; the Lugh plugin; a change feed.
 
 Waiting on nothing, to take when the above is blocked:
-- Dannan's pin to 0.12.1 (its patch: a call watchdog counted from the
-  call; its arm64 packages), after set operations merge. Of 0.12.0:
-  readiness, the node-program helper and keyed limits wait for the
-  cluster step.
+- Of Dannan 0.12 (pinned at 0.12.1, 2026-11-24): readiness, the
+  node-program helper and keyed limits wait for the cluster step.
 - SQL, next now the temporal types are in (2026-11-24): set operations
   first (UNION, UNION ALL, INTERSECT, EXCEPT, their parentheses, ORDER BY
   and LIMIT), as the smaller and the one subqueries' derived tables lean
