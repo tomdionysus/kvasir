@@ -333,6 +333,23 @@ class Session : private VariableSource {
   bool _describing = false;
   // While a SELECT reads an information_schema view: the view.
   const View* _view = nullptr;
+  // Subqueries, run for the evaluator inside the statement at hand: nested,
+  // they neither end the statement's transaction nor take a new snapshot;
+  // the enclosing query's columns stand behind theirs.
+  class Queries : public QuerySource {
+   public:
+    explicit Queries(Session& session) : _session(session) {}
+    std::vector<ResultType> query_types(const sql::Select& query, const ColumnSource* outer) override;
+    std::vector<std::vector<Value>> query_rows(const sql::Select& query, const ColumnSource* outer) override;
+
+   private:
+    Session& _session;
+  };
+  mutable Queries _queries{*this};
+  const ColumnSource* _outer = nullptr;
+  int _nested = 0;
+  // A subquery's result, run nested (typed only when `describe`).
+  Outcome nested_select(const sql::Select& query, const ColumnSource* outer, bool describe);
   // The collation SET NAMES ... COLLATE named, which results are reported in
   // while character_set_results is its character set; empty otherwise.
   std::string _results_collation;

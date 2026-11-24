@@ -336,6 +336,8 @@ ResultType Evaluator::type(const Expr& e) const {
       const bool both = not_null(a) && not_null(b);
       if (comparison(op)) {
         string_collation({{e.args[0].get(), a}, {e.args[1].get(), b}}, op);
+        // ANY or ALL over a subquery may be NULL (observed).
+        if (e.args[1]->kind == ExprKind::subquery && !e.args[1]->scope.empty()) return boolean_type(false);
         return boolean_type(op == "<=>" || both);
       }
       if (logical(op)) return boolean_type(both);
@@ -382,10 +384,14 @@ ResultType Evaluator::type(const Expr& e) const {
       for (const auto& arg : e.args) {
         operands.push_back({arg.get(), type(*arg)});
         all = all && not_null(operands.back().type);
+        // IN over a subquery may be NULL (observed).
+        if (arg->kind == ExprKind::subquery) all = false;
       }
       string_collation(operands, e.kind == ExprKind::in ? " IN " : "between");
       return boolean_type(all);
     }
+    case ExprKind::subquery:
+      return subquery_type(e);
     case ExprKind::like: {
       const auto a = type(*e.args[0]);
       const auto b = type(*e.args[1]);
@@ -411,6 +417,9 @@ ResultType Evaluator::type(const Expr& e) const {
     case ExprKind::column: {
       if (_settings.columns)
         if (const auto found = _settings.columns->find_column(e.path)) return found->type;
+      // An enclosing query's column (a correlated subquery).
+      if (_settings.outer)
+        if (const auto found = _settings.outer->find_column(e.path)) return found->type;
       std::string name;
       for (size_t i = 0; i < e.path.size(); ++i) name += (i ? "." : "") + e.path[i];
       throw SqlError(er_bad_field_error, "42S22", "Unknown column '" + name + "' in 'field list'");
@@ -518,7 +527,12 @@ std::pair<uint16_t, int> Evaluator::derivation(const Expr& e, const ResultType& 
     case ExprKind::column:
       if (_settings.columns)
         if (const auto found = _settings.columns->find_column(e.path)) return {found->collation, implicit_coercibility};
+      if (_settings.outer)
+        if (const auto found = _settings.outer->find_column(e.path)) return {found->collation, implicit_coercibility};
       not_yet("comparing these strings");
+    case ExprKind::subquery:
+      // As its column holds its collation.
+      return {t.collation, implicit_coercibility};
     default:
       not_yet("comparing these strings");
   }
@@ -817,6 +831,34 @@ Value Evaluator::value(const Expr& e) {
         if (!x || !y) return {};
         return int64_t{*x != *y ? 1 : 0};
       }
+      // A comparison with ANY or ALL ( query ): ANY true when one row's is,
+      // ALL false when one row's is; else NULL if any was, else the other.
+      if (comparison(op) && e.args[1]->kind == ExprKind::subquery && !e.args[1]->scope.empty()) {
+        const bool all = e.args[1]->scope == "ALL";
+        const auto rows = subquery_rows(*e.args[1]);
+        const auto x = value(*e.args[0]);
+        const auto collation = string_collation({{e.args[0].get(), ta}, {e.args[1].get(), tb}}, op);
+        bool saw_true = false, saw_false = false, saw_null = false;
+        for (const auto& row : rows) {
+          const auto c3 = compare_values(x, ta, row[0], tb, collation);
+          if (!c3) {
+            saw_null = true;
+            continue;
+          }
+          const int r = *c3;
+          bool holds = false;
+          if (op == "=" || op == "<=>") holds = r == 0;
+          if (op == "!=") holds = r != 0;
+          if (op == "<") holds = r < 0;
+          if (op == "<=") holds = r <= 0;
+          if (op == ">") holds = r > 0;
+          if (op == ">=") holds = r >= 0;
+          (holds ? saw_true : saw_false) = true;
+        }
+        if (all ? saw_false : saw_true) return int64_t{all ? 0 : 1};
+        if (saw_null) return {};
+        return int64_t{all ? 1 : 0};
+      }
       auto a = value(*e.args[0]);
       auto b = value(*e.args[1]);
       if (comparison(op)) {
@@ -950,6 +992,25 @@ Value Evaluator::value(const Expr& e) {
       std::vector<Operand> operands;
       for (const auto& arg : e.args) operands.push_back({arg.get(), type(*arg)});
       const auto collation = string_collation(operands, " IN ");
+      // IN ( query ): each row's value, NULL as unknown.
+      if (e.args.size() == 2 && e.args[1]->kind == ExprKind::subquery) {
+        const auto rows = subquery_rows(*e.args[1]);
+        const auto tb = operands[1].type;
+        const auto a = value(*e.args[0]);
+        if (rows.empty()) return int64_t{e.negated ? 1 : 0};
+        if (is_null(a)) return {};
+        bool saw_null = false;
+        for (const auto& row : rows) {
+          const auto r = compare_values(a, ta, row[0], tb, collation);
+          if (!r) {
+            saw_null = true;
+          } else if (*r == 0) {
+            return int64_t{e.negated ? 0 : 1};
+          }
+        }
+        if (saw_null) return {};
+        return int64_t{e.negated ? 1 : 0};
+      }
       const auto a = value(*e.args[0]);
       if (is_null(a)) return {};
       bool saw_null = false;
@@ -1040,7 +1101,16 @@ Value Evaluator::value(const Expr& e) {
       return parameter(e).value;
     case ExprKind::column:
       type(e);
-      return _settings.columns->column_value(e.path);
+      if (_settings.columns && _settings.columns->find_column(e.path)) return _settings.columns->column_value(e.path);
+      return _settings.outer->column_value(e.path);
+    case ExprKind::subquery: {
+      const auto rows = subquery_rows(e);
+      if (e.value == "EXISTS") return int64_t{rows.empty() ? 0 : 1};
+      type(e);
+      if (rows.empty()) return {};
+      if (rows.size() > 1) throw SqlError(1242, "21000", "Subquery returns more than 1 row");
+      return rows[0][0];
+    }
     default:
       type(e);
       not_yet("this expression");
@@ -1437,6 +1507,60 @@ std::string column_name(const sql::SelectItem& item) {
   };
   if (item.expr && item.expr->kind == ExprKind::string) return narrowed(item.expr->path.empty() ? item.expr->value : item.expr->path.front());
   return narrowed(item.text);
+}
+
+}  // namespace kvasir::exec
+
+namespace kvasir::exec {
+
+namespace {
+
+// The columns a subquery sees beyond its own: the enclosing query's, then
+// those it sees beyond its own.
+class Scope : public ColumnSource {
+ public:
+  Scope(const ColumnSource* near, const ColumnSource* far) : _near(near), _far(far) {}
+  std::optional<Found> find_column(const std::vector<std::string>& path) const override {
+    if (_near)
+      if (auto found = _near->find_column(path)) return found;
+    if (_far) return _far->find_column(path);
+    return std::nullopt;
+  }
+  Value column_value(const std::vector<std::string>& path) const override {
+    if (_near && _near->find_column(path)) return _near->column_value(path);
+    return _far->column_value(path);
+  }
+
+ private:
+  const ColumnSource* _near;
+  const ColumnSource* _far;
+};
+
+}  // namespace
+
+ResultType Evaluator::subquery_type(const Expr& e) const {
+  if (!_settings.queries) not_yet("subqueries here");
+  if (e.value == "EXISTS") return boolean_type(true);
+  const Scope scope(_settings.columns, _settings.outer);
+  const auto types = _settings.queries->query_types(*e.query, &scope);
+  if (types.size() != 1) throw SqlError(1241, "21000", "Operand should contain 1 column(s)");
+  auto t = types[0];
+  // Its column as an expression (observed: a number BINARY, a string with
+  // decimals 31, a table's column as well).
+  if (t.flags & c::num) t.flags = static_cast<uint16_t>(t.flags | c::binary);
+  if (is_string_type(t) && t.field_type != f::null) t.decimals = any_decimals;
+  t.flags = static_cast<uint16_t>(t.flags & ~(c::primary_key | c::unique_key | c::multiple_key | c::part_key | c::no_default_value));
+  // Only a query with no FROM, WHERE or HAVING must give a row (observed:
+  // (SELECT 1) is NOT NULL, (SELECT 1 FROM DUAL WHERE FALSE) is not).
+  const auto& q = *e.query;
+  if (q.set || !q.from.empty() || q.where || q.having || q.limit) t.flags = static_cast<uint16_t>(t.flags & ~c::not_null);
+  return t;
+}
+
+std::vector<std::vector<Value>> Evaluator::subquery_rows(const Expr& e) {
+  if (!_settings.queries) not_yet("subqueries here");
+  const Scope scope(_settings.columns, _settings.outer);
+  return _settings.queries->query_rows(*e.query, &scope);
 }
 
 }  // namespace kvasir::exec

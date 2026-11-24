@@ -93,6 +93,17 @@ class ColumnSource {
   virtual Value inserted_value(const std::string&) const { return {}; }
 };
 
+// Where subqueries are run (the session): a query's result types, and its
+// rows as values, the outer query's columns reachable behind its own
+// (`outer`, for a correlated subquery; nothing for none). Throws SqlError as
+// a statement would.
+class QuerySource {
+ public:
+  virtual ~QuerySource() = default;
+  virtual std::vector<ResultType> query_types(const sql::Select& query, const ColumnSource* outer) = 0;
+  virtual std::vector<std::vector<Value>> query_rows(const sql::Select& query, const ColumnSource* outer) = 0;
+};
+
 // Where aggregates are read from: the group at hand's, each call by its
 // node in the statement.
 class AggregateSource {
@@ -125,6 +136,11 @@ struct EvalSettings {
   const ColumnSource* columns = nullptr;
   // The group's aggregates; without them an aggregate is error 1111.
   const AggregateSource* aggregates = nullptr;
+  // Where subqueries run; without it a subquery is not supported.
+  QuerySource* queries = nullptr;
+  // An enclosing query's columns, for a correlated subquery: a column the
+  // statement's own do not name is looked up there.
+  const ColumnSource* outer = nullptr;
   // div_precision_increment.
   int div_precision_increment = 4;
   // The connection's collation: a string literal's own, and a number's as
@@ -269,6 +285,10 @@ class Evaluator {
   // them), TIMESTAMPDIFF and EXTRACT; nothing for a name that is not one.
   std::optional<ResultType> interval_function(const sql::Expr& e) const;
   Value interval_function_value(const sql::Expr& e);
+  // A subquery's type (1241 for more than one column; NULL possible unless
+  // it must give a row), and its rows run against this evaluator's columns.
+  ResultType subquery_type(const sql::Expr& e) const;
+  std::vector<std::vector<Value>> subquery_rows(const sql::Expr& e);
   // DATE_FORMAT, TIME_FORMAT, WEEK, YEARWEEK and WEEKOFYEAR (format.cpp);
   // nothing for a name that is not one of them.
   std::optional<ResultType> format_function(const sql::Expr& e) const;

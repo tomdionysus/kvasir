@@ -2014,3 +2014,34 @@ SELECT z.n FROM (SELECT n FROM (SELECT 7 n) inner_q) z
 SELECT nope FROM (SELECT 1 x) q
 SELECT q.x FROM (SELECT 1 x) AS q WHERE q.x = 1
 DROP DATABASE kv_derived
+CREATE DATABASE kv_sub
+CREATE TABLE kv_sub.t (id INT PRIMARY KEY, a INT, b VARCHAR(5))
+INSERT INTO kv_sub.t VALUES (1, 10, 'x'), (2, 20, 'y'), (3, NULL, 'x')
+CREATE TABLE kv_sub.u (id INT PRIMARY KEY, t_id INT, v DECIMAL(5,2))
+INSERT INTO kv_sub.u VALUES (1, 1, 1.5), (2, 1, 2.5), (3, 2, 4.25)
+SELECT (SELECT 1) a, (SELECT 'x') b, (SELECT NULL) c, (SELECT 1 FROM DUAL WHERE FALSE) d, (SELECT a FROM kv_sub.t WHERE id = 1) e, (SELECT MAX(a) FROM kv_sub.t) f
+SELECT (SELECT a FROM kv_sub.t)
+SELECT (SELECT 1, 2)
+SELECT id, (SELECT b FROM kv_sub.t u WHERE u.id = t.id + 1) nxt FROM kv_sub.t t ORDER BY id
+SELECT a, b FROM kv_sub.t WHERE a IN (SELECT a FROM kv_sub.t WHERE b = 'x') ORDER BY id
+SELECT id FROM kv_sub.t WHERE a NOT IN (SELECT a FROM kv_sub.t WHERE b = 'x') ORDER BY id
+SELECT 1 IN (SELECT a FROM kv_sub.t), 10 IN (SELECT a FROM kv_sub.t), NULL IN (SELECT a FROM kv_sub.t), 1 NOT IN (SELECT a FROM kv_sub.t), 1 IN (SELECT a FROM kv_sub.t WHERE FALSE)
+SELECT EXISTS (SELECT 1), EXISTS (SELECT 1 FROM DUAL WHERE FALSE), NOT EXISTS (SELECT * FROM kv_sub.t)
+SELECT 15 > ANY (SELECT a FROM kv_sub.t), 15 > ALL (SELECT a FROM kv_sub.t), 5 < ALL (SELECT a FROM kv_sub.t WHERE a IS NOT NULL), 15 = SOME (SELECT a FROM kv_sub.t), 1 > ALL (SELECT 1 FROM DUAL WHERE FALSE), 1 > ANY (SELECT 1 FROM DUAL WHERE FALSE)
+SELECT (SELECT SUM(v) FROM kv_sub.u WHERE u.t_id = t.id) total FROM kv_sub.t t ORDER BY id
+SELECT a, b FROM kv_sub.t t WHERE EXISTS (SELECT 1 FROM kv_sub.u WHERE u.t_id = t.id) ORDER BY id
+SELECT a, b FROM kv_sub.t t WHERE NOT EXISTS (SELECT 1 FROM kv_sub.u WHERE u.t_id = t.id) ORDER BY id
+SELECT id FROM kv_sub.t WHERE id = (SELECT MAX(t_id) FROM kv_sub.u)
+SELECT id FROM kv_sub.t WHERE a > (SELECT AVG(a) FROM kv_sub.t)
+SELECT (SELECT COUNT(*) FROM kv_sub.u WHERE t_id = t.id) + 1 AS n FROM kv_sub.t t ORDER BY id
+SELECT b, (SELECT MIN(id) FROM kv_sub.t u WHERE u.b = t.b) FROM kv_sub.t t ORDER BY id
+SELECT id FROM kv_sub.t WHERE id IN (SELECT t_id FROM kv_sub.u) AND b = 'x'
+SELECT (SELECT (SELECT 7))
+SELECT id FROM kv_sub.t t WHERE a = (SELECT a FROM kv_sub.t u WHERE u.id = t.id) ORDER BY id
+SELECT (SELECT v FROM kv_sub.u WHERE id = 3) * 2, (SELECT b FROM kv_sub.t WHERE id = 2) = 'y'
+SELECT x FROM (SELECT (SELECT 5) x) q
+UPDATE kv_sub.t SET a = (SELECT MAX(id) FROM kv_sub.u) WHERE id = 3
+SELECT a FROM kv_sub.t WHERE id = 3
+DELETE FROM kv_sub.u WHERE t_id IN (SELECT id FROM kv_sub.t WHERE b = 'y')
+SELECT COUNT(*) FROM kv_sub.u
+DROP DATABASE kv_sub

@@ -9799,3 +9799,140 @@ row 1
 end
 statement DROP DATABASE kv_derived
 end
+statement CREATE DATABASE kv_sub
+end
+statement CREATE TABLE kv_sub.t (id INT PRIMARY KEY, a INT, b VARCHAR(5))
+end
+statement INSERT INTO kv_sub.t VALUES (1, 10, 'x'), (2, 20, 'y'), (3, NULL, 'x')
+end
+statement CREATE TABLE kv_sub.u (id INT PRIMARY KEY, t_id INT, v DECIMAL(5,2))
+end
+statement INSERT INTO kv_sub.u VALUES (1, 1, 1.5), (2, 1, 2.5), (3, 2, 4.25)
+end
+statement SELECT (SELECT 1) a, (SELECT 'x') b, (SELECT NULL) c, (SELECT 1 FROM DUAL WHERE FALSE) d, (SELECT a FROM kv_sub.t WHERE id = 1) e, (SELECT MAX(a) FROM kv_sub.t) f
+column a|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+column b|VAR_STRING|255|4|31|NOT_NULL
+column c|NULL|63|0|0|BINARY NUM
+column d|LONGLONG|63|2|0|BINARY NUM
+column e|LONG|63|11|0|BINARY NUM
+column f|LONG|63|11|0|BINARY NUM
+row 1	x	\N	\N	10	20
+end
+statement SELECT (SELECT a FROM kv_sub.t)
+error 1242|21000|Subquery returns more than 1 row
+end
+statement SELECT (SELECT 1, 2)
+error 1241|21000|Operand should contain 1 column(s)
+end
+statement SELECT id, (SELECT b FROM kv_sub.t u WHERE u.id = t.id + 1) nxt FROM kv_sub.t t ORDER BY id
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column nxt|VAR_STRING|255|20|31|
+row 1	y
+row 2	x
+row 3	\N
+end
+statement SELECT a, b FROM kv_sub.t WHERE a IN (SELECT a FROM kv_sub.t WHERE b = 'x') ORDER BY id
+column a|LONG|63|11|0|NUM
+column b|VAR_STRING|255|20|0|
+row 10	x
+end
+statement SELECT id FROM kv_sub.t WHERE a NOT IN (SELECT a FROM kv_sub.t WHERE b = 'x') ORDER BY id
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+end
+statement SELECT 1 IN (SELECT a FROM kv_sub.t), 10 IN (SELECT a FROM kv_sub.t), NULL IN (SELECT a FROM kv_sub.t), 1 NOT IN (SELECT a FROM kv_sub.t), 1 IN (SELECT a FROM kv_sub.t WHERE FALSE)
+column 1 IN (SELECT a FROM kv_sub.t)|LONGLONG|63|1|0|BINARY NUM
+column 10 IN (SELECT a FROM kv_sub.t)|LONGLONG|63|1|0|BINARY NUM
+column NULL IN (SELECT a FROM kv_sub.t)|LONGLONG|63|1|0|BINARY NUM
+column 1 NOT IN (SELECT a FROM kv_sub.t)|LONGLONG|63|1|0|BINARY NUM
+column 1 IN (SELECT a FROM kv_sub.t WHERE FALSE)|LONGLONG|63|1|0|BINARY NUM
+row \N	1	\N	\N	0
+end
+statement SELECT EXISTS (SELECT 1), EXISTS (SELECT 1 FROM DUAL WHERE FALSE), NOT EXISTS (SELECT * FROM kv_sub.t)
+column EXISTS (SELECT 1)|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column EXISTS (SELECT 1 FROM DUAL WHERE FALSE)|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+column NOT EXISTS (SELECT * FROM kv_sub.t)|LONGLONG|63|1|0|NOT_NULL BINARY NUM
+row 1	0	0
+end
+statement SELECT 15 > ANY (SELECT a FROM kv_sub.t), 15 > ALL (SELECT a FROM kv_sub.t), 5 < ALL (SELECT a FROM kv_sub.t WHERE a IS NOT NULL), 15 = SOME (SELECT a FROM kv_sub.t), 1 > ALL (SELECT 1 FROM DUAL WHERE FALSE), 1 > ANY (SELECT 1 FROM DUAL WHERE FALSE)
+column 15 > ANY (SELECT a FROM kv_sub.t)|LONGLONG|63|1|0|BINARY NUM
+column 15 > ALL (SELECT a FROM kv_sub.t)|LONGLONG|63|1|0|BINARY NUM
+column 5 < ALL (SELECT a FROM kv_sub.t WHERE a IS NOT NULL)|LONGLONG|63|1|0|BINARY NUM
+column 15 = SOME (SELECT a FROM kv_sub.t)|LONGLONG|63|1|0|BINARY NUM
+column 1 > ALL (SELECT 1 FROM DUAL WHERE FALSE)|LONGLONG|63|1|0|BINARY NUM
+column 1 > ANY (SELECT 1 FROM DUAL WHERE FALSE)|LONGLONG|63|1|0|BINARY NUM
+row 1	0	1	\N	1	0
+end
+statement SELECT (SELECT SUM(v) FROM kv_sub.u WHERE u.t_id = t.id) total FROM kv_sub.t t ORDER BY id
+column total|NEWDECIMAL|63|29|2|BINARY NUM
+row 4.00
+row 4.25
+row \N
+end
+statement SELECT a, b FROM kv_sub.t t WHERE EXISTS (SELECT 1 FROM kv_sub.u WHERE u.t_id = t.id) ORDER BY id
+column a|LONG|63|11|0|NUM
+column b|VAR_STRING|255|20|0|
+row 10	x
+row 20	y
+end
+statement SELECT a, b FROM kv_sub.t t WHERE NOT EXISTS (SELECT 1 FROM kv_sub.u WHERE u.t_id = t.id) ORDER BY id
+column a|LONG|63|11|0|NUM
+column b|VAR_STRING|255|20|0|
+row \N	x
+end
+statement SELECT id FROM kv_sub.t WHERE id = (SELECT MAX(t_id) FROM kv_sub.u)
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+row 2
+end
+statement SELECT id FROM kv_sub.t WHERE a > (SELECT AVG(a) FROM kv_sub.t)
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+row 2
+end
+statement SELECT (SELECT COUNT(*) FROM kv_sub.u WHERE t_id = t.id) + 1 AS n FROM kv_sub.t t ORDER BY id
+column n|LONGLONG|63|22|0|BINARY NUM
+row 3
+row 2
+row 1
+end
+statement SELECT b, (SELECT MIN(id) FROM kv_sub.t u WHERE u.b = t.b) FROM kv_sub.t t ORDER BY id
+column b|VAR_STRING|255|20|0|
+column (SELECT MIN(id) FROM kv_sub.t u WHERE u.b = t.b)|LONG|63|11|0|BINARY NUM
+row x	1
+row y	2
+row x	1
+end
+statement SELECT id FROM kv_sub.t WHERE id IN (SELECT t_id FROM kv_sub.u) AND b = 'x'
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+row 1
+end
+statement SELECT (SELECT (SELECT 7))
+column (SELECT (SELECT 7))|LONGLONG|63|2|0|NOT_NULL BINARY NUM
+row 7
+end
+statement SELECT id FROM kv_sub.t t WHERE a = (SELECT a FROM kv_sub.t u WHERE u.id = t.id) ORDER BY id
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+row 1
+row 2
+end
+statement SELECT (SELECT v FROM kv_sub.u WHERE id = 3) * 2, (SELECT b FROM kv_sub.t WHERE id = 2) = 'y'
+column (SELECT v FROM kv_sub.u WHERE id = 3) * 2|NEWDECIMAL|63|8|2|BINARY NUM
+column (SELECT b FROM kv_sub.t WHERE id = 2) = 'y'|LONGLONG|63|1|0|BINARY NUM
+row 8.50	1
+end
+statement SELECT x FROM (SELECT (SELECT 5) x) q
+column x|LONG|63|2|0|NOT_NULL NUM
+row 5
+end
+statement UPDATE kv_sub.t SET a = (SELECT MAX(id) FROM kv_sub.u) WHERE id = 3
+end
+statement SELECT a FROM kv_sub.t WHERE id = 3
+column a|LONG|63|11|0|NUM
+row 3
+end
+statement DELETE FROM kv_sub.u WHERE t_id IN (SELECT id FROM kv_sub.t WHERE b = 'y')
+end
+statement SELECT COUNT(*) FROM kv_sub.u
+column COUNT(*)|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+row 2
+end
+statement DROP DATABASE kv_sub
+end

@@ -285,6 +285,15 @@ Waiting on nothing, to take when the above is blocked:
 
 Each to be closed, or kept by a decision.
 
+- Subqueries (2026-11-24): MySQL's optimizer changes some result columns'
+  flags by the plan it picks, which Kvasir does not model: under a
+  semijoin (a WHERE's IN or [NOT] EXISTS subquery) the outer columns may
+  lose their key flags (`a IN (SELECT a ...)` did, `id IN (SELECT t_id
+  ...)` did not), and an outer column a correlated aggregate subquery reads
+  loses NOT_NULL. Rows and types otherwise match; the gate's statements
+  select columns without key flags there. A derived table inside a join is
+  refused (1235).
+
 - Temporal values (2026-11-23): time_zone SYSTEM is UTC (the
   reference server's system_time_zone is UTC too); named zones
   ('Europe/London') are 1298, where the reference server has zone data

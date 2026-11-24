@@ -1496,6 +1496,14 @@ class Parser {
       }
       if (!op.empty()) {
         take();
+        // A comparison with ANY, SOME or ALL ( query ).
+        if ((word("ANY") || word("SOME") || word("ALL")) && symbol("(", 1)) {
+          const auto quantifier = upper(take().value);
+          auto sub = subquery_in_parentheses();
+          sub->scope = quantifier == "ALL" ? "ALL" : "ANY";
+          left = binary(op, std::move(left), std::move(sub));
+          continue;
+        }
         left = binary(op, std::move(left), predicate());
         continue;
       }
@@ -1525,6 +1533,11 @@ class Parser {
       auto e = node(ExprKind::in, left->offset);
       e->negated = negated;
       e->args.push_back(std::move(left));
+      // IN ( query ).
+      if (starts_query(1)) {
+        e->args.push_back(subquery_in_parentheses());
+        return e;
+      }
       expect_symbol("(");
       do e->args.push_back(expression());
       while (symbol(",") && (take(), true));
@@ -1748,6 +1761,7 @@ class Parser {
         return word_primary();
       case TokenKind::symbol:
         if (symbol("@@")) return system_variable();
+        if (starts_query(1)) return subquery_in_parentheses();
         if (symbol("(")) return parenthesised();
         break;
       default:
@@ -1766,6 +1780,14 @@ class Parser {
       return strings(offset, std::move(charset));
     }
     if (word("CASE")) return case_when();
+    // EXISTS ( query ).
+    if (word("EXISTS") && starts_query(2)) {
+      take();
+      auto e = subquery_in_parentheses();
+      e->offset = offset;
+      e->value = "EXISTS";
+      return e;
+    }
     // INTERVAL n unit + d, as d + INTERVAL n unit.
     if (interval_ahead()) {
       auto e = node(ExprKind::call, offset, "DATE_ADD");
@@ -2070,6 +2092,18 @@ class Parser {
     return e;
   }
 
+  // Whether the token at `n - 1` is a '(' that opens a query: SELECT after
+  // it. A '(' after it opens an expression (observed: a IN ((SELECT 1), 2)
+  // is a list), whose own '(' may then open a query.
+  bool starts_query(size_t n) { return symbol("(", n - 1) && word("SELECT", n); }
+
+  // ( query ) as an expression: a subquery.
+  ExprPtr subquery_in_parentheses() {
+    auto e = node(ExprKind::subquery, peek().offset);
+    e->query = std::make_shared<Select>(parse_query_in_parentheses());
+    return e;
+  }
+
   ExprPtr parenthesised() {
     const auto offset = take().offset;
     auto first = expression();
@@ -2219,6 +2253,9 @@ std::string to_string(const Expr& e) {
       return "(COLLATE" + args(0) + " " + e.value + ")";
     case ExprKind::assign:
       return "(:=" + args(0) + ")";
+    case ExprKind::subquery:
+      // (SUBQUERY), (EXISTS SUBQUERY), (ANY SUBQUERY), (ALL SUBQUERY)
+      return std::string("(") + (e.value.empty() ? "" : e.value + " ") + (e.scope.empty() ? "" : e.scope + " ") + "SUBQUERY)";
   }
   return "?";
 }

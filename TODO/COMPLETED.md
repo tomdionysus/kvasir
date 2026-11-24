@@ -1377,3 +1377,9 @@ The record, newest first. Each entry says what landed, with its gate counts.
   gate). Not yet: a derived table inside a join (1235).
 - Gate (node-c): release, ASan and TSan each **441 tests, 1974 of 1974**
   statements, TSan with no reports; coverage 99.1% of lines.
+- Subqueries, second part: scalar, EXISTS, IN, ANY, SOME and ALL
+  subqueries, correlated ones reading the outer row; run nested in their
+  statement. Recorded: where MySQL's optimizer changes column flags.
+  Not yet: row subqueries ((a, b) = (SELECT ...)), derived tables in joins.
+- Gate (node-c): release, ASan and TSan each **442 tests, 2005 of 2005**
+  statements, TSan with no reports; coverage 99.0% of lines.

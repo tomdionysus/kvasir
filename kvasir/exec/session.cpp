@@ -267,8 +267,9 @@ txn::Transaction& Session::transaction() {
 }
 
 void Session::end_statement(bool failed) {
-  // INSERT ... SELECT's source ends with the INSERT.
-  if (_insert_source || _in_transaction || !_transaction) return;
+  // INSERT ... SELECT's source ends with the INSERT, a subquery with its
+  // statement.
+  if (_insert_source || _nested || _in_transaction || !_transaction) return;
   if (failed) {
     _rows.rollback(*_transaction);
   } else {
@@ -302,7 +303,40 @@ EvalSettings Session::eval_settings() const {
   e.zone_seconds = zone_seconds();
   const auto* clock = &wall_clock();
   e.clock_us = [clock] { return static_cast<int64_t>(clock->unix_us()); };
+  e.queries = &_queries;
+  e.outer = _outer;
   return e;
+}
+
+Outcome Session::nested_select(const sql::Select& query, const ColumnSource* outer, bool describe) {
+  struct Restore {
+    Session& s;
+    const ColumnSource* outer;
+    const View* view;
+    bool describing;
+    std::vector<Warning> warnings;
+    ~Restore() {
+      --s._nested;
+      s._outer = outer;
+      s._view = view;
+      s._describing = describing;
+      // The subquery's warnings join the statement's.
+      warnings.insert(warnings.end(), s._warnings.begin(), s._warnings.end());
+      s._warnings = std::move(warnings);
+    }
+  } restore{*this, _outer, _view, _describing, _warnings};
+  ++_nested;
+  _outer = outer;
+  _describing = _describing || describe;
+  _warnings.clear();
+  return select(query);
+}
+
+std::vector<ResultType> Session::Queries::query_types(const sql::Select& query, const ColumnSource* outer) {
+  const auto out = _session.nested_select(query, outer, true);
+  std::vector<ResultType> types;
+  for (const auto& column : out.result->columns) types.push_back(column.type);
+  return types;
 }
 
 const dannan::contract::WallClock& Session::wall_clock() const { return _info.clock ? *_info.clock : dannan::contract::system_wall_clock(); }
@@ -1161,7 +1195,8 @@ bool mentions_values(const sql::Expr& e) {
 
 // Whether an expression names a column anywhere in it.
 bool mentions_column(const sql::Expr& e) {
-  if (e.kind == sql::ExprKind::column) return true;
+  // A subquery may read the outer row (a correlated one).
+  if (e.kind == sql::ExprKind::column || e.kind == sql::ExprKind::subquery) return true;
   for (const auto& a : e.args)
     if (a && mentions_column(*a)) return true;
   return (e.operand && mentions_column(*e.operand)) || (e.otherwise && mentions_column(*e.otherwise));
@@ -1533,6 +1568,8 @@ class HavingColumns : public ColumnSource {
 }  // namespace
 
 void Session::begin_reading(txn::Transaction& t) {
+  // A subquery reads its statement's snapshot.
+  if (_nested) return;
   // READ COMMITTED (and READ UNCOMMITTED, served as it) reads afresh each
   // statement; REPEATABLE READ keeps the snapshot of its first read.
   const auto level = _variables.text("transaction_isolation");
@@ -1834,6 +1871,18 @@ View Session::derived_view(const sql::TableRef& from) {
   }
   for (auto& row : result.rows) view.rows.push_back(std::move(row));
   return view;
+}
+
+std::vector<std::vector<Value>> Session::Queries::query_rows(const sql::Select& query, const ColumnSource* outer) {
+  const auto out = _session.nested_select(query, outer, false);
+  std::vector<std::vector<Value>> rows;
+  if (!out.result) return rows;
+  for (const auto& row : out.result->rows) {
+    std::vector<Value> values;
+    for (size_t i = 0; i < row.size(); ++i) values.push_back(value_from_text(row[i], out.result->columns[i].type));
+    rows.push_back(std::move(values));
+  }
+  return rows;
 }
 
 Outcome Session::select_from_table(const sql::Select& select) {

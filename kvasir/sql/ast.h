@@ -49,6 +49,8 @@ enum class ExprKind : uint8_t {
   row,              // (a, b, ...) or ROW(a, b, ...)
   collate,          // args[0] COLLATE `value`
   assign,           // args[0] (a user variable) := args[1]
+  subquery,         // ( `query` ): scalar or a row; `value` "EXISTS" for EXISTS ( query ). IN's
+                    // args[1] when it is the only one; a comparison's args[1], `scope` ANY or ALL
 };
 
 // The binary operators, as `value` holds them: + - * / DIV % ^ & | << >>
@@ -57,9 +59,12 @@ enum class ExprKind : uint8_t {
 
 struct Expr;
 using ExprPtr = std::unique_ptr<Expr>;
+struct Select;
 
 struct Expr {
   ExprKind kind = ExprKind::null;
+  // A subquery's query.
+  std::shared_ptr<Select> query;
   std::string value;
   std::string charset;
   std::string scope;

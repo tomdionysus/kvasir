@@ -933,6 +933,23 @@ TEST(SqlParser, SetOperations) {
   EXPECT_EQ(error_at("SELECT 1 UNION ALL ALL SELECT 2"), 19u);
 }
 
+// Subqueries in expressions: ( query ), EXISTS ( query ), IN ( query ), and
+// a comparison with ANY, SOME (as ANY) or ALL ( query ); a parenthesised
+// expression stays one.
+TEST(SqlParser, Subqueries) {
+  EXPECT_EQ(expr("(SELECT 1) + 1"), "(+ (SUBQUERY) 1)");
+  EXPECT_EQ(expr("NOT EXISTS (SELECT * FROM t)"), "(NOT (EXISTS SUBQUERY))");
+  EXPECT_EQ(expr("a NOT IN (SELECT b FROM t)"), "(NOT_IN a (SUBQUERY))");
+  EXPECT_EQ(expr("a IN ((SELECT 1), 2)"), "(IN a (SUBQUERY) 2)");
+  EXPECT_EQ(expr("a > SOME (SELECT b FROM t)"), "(> a (ANY SUBQUERY))");
+  EXPECT_EQ(expr("a <= ALL (SELECT b FROM t UNION SELECT 1)"), "(<= a (ALL SUBQUERY))");
+  EXPECT_EQ(expr("(1 + 2)"), "(+ 1 2)");
+  EXPECT_EQ(expr("((SELECT 1))"), "(SUBQUERY)");
+  const auto s = one("SELECT (SELECT 1 UNION SELECT 2 ORDER BY 1 LIMIT 1) FROM t");
+  ASSERT_EQ(s.select.items[0].expr->kind, ExprKind::subquery);
+  ASSERT_TRUE(s.select.items[0].expr->query->set);
+}
+
 // A derived table: a query in parentheses, [AS] its alias; none written is
 // left for the session's 1248, as MySQL reports it.
 TEST(SqlParser, DerivedTables) {
