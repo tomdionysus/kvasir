@@ -1389,3 +1389,7 @@ The record, newest first. Each entry says what landed, with its gate counts.
 - Rows: row comparisons, IN over rows, row subqueries.
 - Gate (node-c): release, ASan and TSan each **442 tests, 2039 of 2039**
   statements, TSan with no reports; coverage 99.0% of lines.
+- Derived tables in multiple-table UPDATE and DELETE (read, never a
+  target: 1288). Subqueries are now whole.
+- Gate (node-c): release, ASan and TSan each **442 tests, 2054 of 2054**
+  statements, TSan with no reports; coverage 99.0% of lines.

@@ -10084,3 +10084,51 @@ row 20	y
 end
 statement DROP DATABASE kv_rows
 end
+statement CREATE DATABASE kv_ud
+end
+statement USE kv_ud
+end
+statement CREATE TABLE t (id INT PRIMARY KEY, a INT)
+end
+statement INSERT INTO t VALUES (1, 10), (2, 20), (3, 30), (4, 40)
+end
+statement UPDATE t JOIN (SELECT 1 id, 100 x UNION SELECT 2, 200) q ON q.id = t.id SET t.a = q.x
+end
+statement SELECT * FROM t ORDER BY id
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column a|LONG|63|11|0|NUM
+row 1	100
+row 2	200
+row 3	30
+row 4	40
+end
+statement UPDATE t JOIN (SELECT 1 id) q ON q.id = t.id SET q.id = 5
+error 1288|HY000|The target table q of the UPDATE is not updatable
+end
+statement DELETE t FROM t JOIN (SELECT 3 id) q USING (id)
+end
+statement SELECT ROW_COUNT()
+column ROW_COUNT()|LONGLONG|63|21|0|NOT_NULL BINARY NUM
+row 1
+end
+statement DELETE q FROM t JOIN (SELECT 1 id) q USING (id)
+error 1288|HY000|The target table q of the DELETE is not updatable
+end
+statement DELETE FROM t USING t, (SELECT 2 id) q WHERE t.id = q.id
+end
+statement SELECT * FROM t ORDER BY id
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column a|LONG|63|11|0|NUM
+row 1	100
+row 4	40
+end
+statement UPDATE t, (SELECT MAX(a) m FROM t) q SET t.a = q.m WHERE t.id = 1
+end
+statement SELECT * FROM t ORDER BY id
+column id|LONG|63|11|0|NOT_NULL PRI_KEY NO_DEFAULT_VALUE NUM PART_KEY
+column a|LONG|63|11|0|NUM
+row 1	100
+row 4	40
+end
+statement DROP DATABASE kv_ud
+end

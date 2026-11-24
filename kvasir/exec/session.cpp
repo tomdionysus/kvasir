@@ -3739,9 +3739,7 @@ Outcome Session::change_joined(const sql::Statement& statement) {
   auto settings = eval_settings();
   auto from = join_from(
       c.from, _catalog, [&](const std::vector<std::string>& name) { return database_of(name); }, settings,
-      [](const sql::TableRef&) -> View {
-        throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'derived tables in multiple-table UPDATE and DELETE'");
-      });
+      [&](const sql::TableRef& ref) { return derived_view(ref); });
   auto& leaves = from->leaves;
   for (const auto& leaf : leaves) refuse_information_schema(leaf->database);
   const JoinedColumns& columns = *from->columns;
@@ -3783,13 +3781,21 @@ Outcome Session::change_joined(const sql::Statement& statement) {
       if (std::find(changed.begin(), changed.end(), p->leaf) == changed.end()) changed.push_back(p->leaf);
     }
   }
+  // A derived table is read, never changed (observed).
+  for (const auto l : changed)
+    if (leaves[l]->view)
+      throw SqlError(1288, "HY000",
+                     "The target table " + leaves[l]->columns->qualifier() + " of the " + (deleting ? "DELETE" : "UPDATE") + " is not updatable");
   if (c.where) in_clause("where clause", [&] { evaluator.type(*c.where); });
 
-  // Changed tables locked as UPDATE locks them, the others shared.
+  // Changed tables locked as UPDATE locks them, the others shared; a
+  // derived table holds no rows to lock.
   static const sql::Select::Locking exclusive{true, {}, sql::Select::Locking::Wait::wait};
   static const sql::Select::Locking shared;
   std::vector<const sql::Select::Locking*> clauses(leaves.size(), &shared);
   for (const auto l : changed) clauses[l] = &exclusive;
+  for (size_t l = 0; l < leaves.size(); ++l)
+    if (leaves[l]->view) clauses[l] = nullptr;
 
   auto& t = transaction();
   Outcome outcome;

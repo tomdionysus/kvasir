@@ -2079,3 +2079,18 @@ SELECT a, b FROM kv_rows.t WHERE (a, b) = (SELECT a, b FROM kv_rows.t WHERE id =
 SELECT a, b FROM kv_rows.t t WHERE (id, b) IN (SELECT id, b FROM kv_rows.t u WHERE u.a IS NULL)
 SELECT a, b FROM kv_rows.t WHERE (a, b) > (10, 'x') ORDER BY id
 DROP DATABASE kv_rows
+CREATE DATABASE kv_ud
+USE kv_ud
+CREATE TABLE t (id INT PRIMARY KEY, a INT)
+INSERT INTO t VALUES (1, 10), (2, 20), (3, 30), (4, 40)
+UPDATE t JOIN (SELECT 1 id, 100 x UNION SELECT 2, 200) q ON q.id = t.id SET t.a = q.x
+SELECT * FROM t ORDER BY id
+UPDATE t JOIN (SELECT 1 id) q ON q.id = t.id SET q.id = 5
+DELETE t FROM t JOIN (SELECT 3 id) q USING (id)
+SELECT ROW_COUNT()
+DELETE q FROM t JOIN (SELECT 1 id) q USING (id)
+DELETE FROM t USING t, (SELECT 2 id) q WHERE t.id = q.id
+SELECT * FROM t ORDER BY id
+UPDATE t, (SELECT MAX(a) m FROM t) q SET t.a = q.m WHERE t.id = 1
+SELECT * FROM t ORDER BY id
+DROP DATABASE kv_ud

@@ -291,9 +291,7 @@ Each to be closed, or kept by a decision.
   lose their key flags (`a IN (SELECT a ...)` did, `id IN (SELECT t_id
   ...)` did not), and an outer column a correlated aggregate subquery reads
   loses NOT_NULL. Rows and types otherwise match; the gate's statements
-  select columns without key flags there. A derived table in a
-  multiple-table UPDATE or DELETE is refused (1235); in a SELECT's join it
-  is taken (2026-11-24), as are rows and row subqueries.
+  select columns without key flags there.
 
 - Temporal values (2026-11-23): time_zone SYSTEM is UTC (the
   reference server's system_time_zone is UTC too); named zones
