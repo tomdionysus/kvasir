@@ -210,9 +210,8 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
      TIMEDIFF, UNIX_TIMESTAMP, FROM_UNIXTIME and their kin. Not yet:
      CONVERT_TZ (needs named zones), PERIOD_ADD and PERIOD_DIFF,
      GET_FORMAT, TIMESTAMP(expr, time), lc_time_names other than en_US.
-   - T5, the binary protocol: temporal parameters of COM_STMT_EXECUTE and
-     temporal columns of binary result rows (what Connector/J and
-     Connector/C++ prepared statements send and read).
+   - T5, the binary protocol: done (2026-11-24), temporal parameters of
+     COM_STMT_EXECUTE and temporal columns of binary result rows.
 2. **Step 2b: each node's state in Dagda**, in the cluster's shape. Waits on
    Dagda's durable AcceptorStore, which is not in its 0.4.0 (tagged
    2026-11-23, 94a1b60, carrying the register map). Dagda's
@@ -230,7 +229,7 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
      commit per transaction;
    - a range's replica set is every node (one, here).
 3. **Commits across ranges**, on Dannan's atomic commit across replica sets
-   (its plan item 26, for 0.12.0). Dannan writes the design first; Kvasir
+   (its plan item 26, now for 0.14.0). Dannan writes the design first; Kvasir
    and Mimir confirm it before code. Until then such a transaction is
    refused (1235); Kvasir writes no cross-range protocol of its own.
 4. **The cluster** at `decided` and `replicated`; ranges on Dannan's
@@ -242,8 +241,11 @@ Each the maintainer's, on the date given (relayed rulings say who relayed).
 Waiting on nothing, to take when the above is blocked:
 - Of Dannan 0.12.0 (pinned 2026-11-24): readiness, the node-program
   helper and keyed limits wait for the cluster step.
-- SQL: subqueries, unions;
-  utf8mb4_unicode_ci and other character sets; temporal types.
+- SQL, next now the temporal types are in (2026-11-24): set operations
+  first (UNION, UNION ALL, INTERSECT, EXCEPT, their parentheses, ORDER BY
+  and LIMIT), as the smaller and the one subqueries' derived tables lean
+  on; then subqueries (scalar, IN, EXISTS, ANY and ALL, derived tables);
+  then utf8mb4_unicode_ci and other character sets.
 - Differences recorded, to probe and build: a character past U+FFFF in a
   name (MySQL turns it into `?`, warnings 1300 and 3854); an intermediate
   DECIMAL past 65 digits (MySQL keeps it, Kvasir refuses 1690).

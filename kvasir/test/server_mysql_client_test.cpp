@@ -225,6 +225,22 @@ TEST_F(MysqlClient, RunsPreparedStatementsInTheBinaryProtocol) {
   // Read as a double: the connector writes any binary DOUBLE as "%f" would.
   EXPECT_EQ(row->getDouble(2), 3.5);
   EXPECT_EQ(row->getString(3), "abx");
+
+  // Dates and times in binary rows, read back by the connector from their
+  // fields (the manual's Binary Protocol Value).
+  statement->execute("CREATE TABLE w (id INT PRIMARY KEY, d DATE, dt DATETIME(6), t TIME(3))");
+  statement->execute("INSERT INTO w VALUES (1, '2024-02-29', '2024-02-29 12:34:56.789', '-26:02:03.5'), (2, '2024-01-01', '2024-01-01 00:00:00', '10:00:00')");
+  std::unique_ptr<jdbc::PreparedStatement> dates(c->prepareStatement("SELECT d, dt, t FROM w WHERE d >= ? ORDER BY id"));
+  dates->setDateTime(1, "2024-01-01");
+  std::unique_ptr<jdbc::ResultSet> when(dates->executeQuery());
+  ASSERT_TRUE(when->next());
+  EXPECT_EQ(when->getString(1), "2024-02-29");
+  EXPECT_EQ(when->getString(2), "2024-02-29 12:34:56.789000");
+  EXPECT_EQ(when->getString(3), "-26:02:03.500000");
+  ASSERT_TRUE(when->next());
+  EXPECT_EQ(when->getString(2), "2024-01-01 00:00:00");
+  EXPECT_EQ(when->getString(3), "10:00:00");
+  EXPECT_FALSE(when->next());
 }
 
 // DatabaseMetaData's getTables and getColumns, which Connector/C++ answers

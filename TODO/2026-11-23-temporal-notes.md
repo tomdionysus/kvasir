@@ -224,3 +224,19 @@ module is written to. Each goes into the differential gate as it is built.
   written. TIME_TO_SEC: LONGLONG length 10, the fraction dropped.
   FROM_DAYS: DATE, NOT_NULL for a constant, 365 and under 0000-00-00.
   TO_SECONDS: LONGLONG length 21.
+
+## The binary protocol (T5, observed 2026-11-24)
+
+Through mysql-connector-python 9.x's prepared statements
+(`build/connectors/py_temporal.py`, answers beside it):
+- A bound DATE is a DATE (a table made from it: `date`); a bound DATETIME
+  is DATETIME(6) whatever its fraction (`datetime(6)`, CONCAT shows
+  '2024-02-29 12:34:56.000000'); a bound TIME is TIME(6). `? + 0` of a
+  DATE is LONGLONG 20240229, of a DATETIME NEWDECIMAL with 6 digits.
+- A TIME sent past 838:59:59 (40 days) reads as 838:59:59.000000, with no
+  warning; DATE_ADD of it is NULL.
+- Bound dates compare with columns and insert into them as values.
+- Binary rows: DATE, DATETIME, TIMESTAMP and TIME columns as the manual's
+  Binary Protocol Value (length 0, 4, 7 or 11; TIME 0, 8 or 12). The
+  connector itself misreads a YEAR and a negative TIME, so their bytes
+  are taken from the manual and checked with Connector/C++.

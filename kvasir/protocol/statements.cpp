@@ -9,6 +9,7 @@
 
 #include <bit>
 #include <charconv>
+#include <cstdio>
 #include <cstring>
 #include <stdexcept>
 
@@ -92,8 +93,12 @@ BoundValue read_value(Reader& r, ValueType type) {
     return v;
   }
   if (is_temporal(type.type)) {
-    // A length byte, then that many bytes of fields.
-    const auto bytes = r.view(r.u8());
+    // A length byte, then that many bytes of fields: 0, 4, 7 or 11 for a
+    // date, 0, 8 or 12 for a time.
+    const uint8_t length = r.u8();
+    const bool fits = type.type == f::time ? (length == 0 || length == 8 || length == 12) : (length == 0 || length == 4 || length == 7 || length == 11);
+    if (!fits) malformed();
+    const auto bytes = r.view(length);
     v.value = std::string(bytes.begin(), bytes.end());
     return v;
   }
@@ -121,6 +126,83 @@ double real_text(const std::string& text) {
   const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), out);
   if (error != std::errc() || end != text.data() + text.size()) throw std::invalid_argument("not a number: " + text);
   return out;
+}
+
+// A temporal value's text as Kvasir carries it (2024-02-29, 2024-02-29
+// 12:34:56.789, -26:02:03.5) written as the binary protocol's fields.
+void write_temporal(Writer& w, uint8_t type, const std::string& text) {
+  size_t i = 0;
+  const auto bad = [&]() -> void { throw std::invalid_argument("not a " + std::string(type == f::time ? "time" : "date") + ": " + text); };
+  // Digits up to the next non-digit, at least one.
+  const auto number = [&](size_t most) {
+    uint64_t v = 0;
+    const size_t start = i;
+    while (i < text.size() && i - start < most && text[i] >= '0' && text[i] <= '9') v = v * 10 + static_cast<uint64_t>(text[i++] - '0');
+    if (i == start) bad();
+    return v;
+  };
+  const auto expect = [&](char ch) {
+    if (i >= text.size() || text[i] != ch) bad();
+    ++i;
+  };
+  // The fraction as microseconds, its digits scaled to six.
+  const auto fraction = [&] {
+    if (i >= text.size()) return uint64_t{0};
+    expect('.');
+    const size_t start = i;
+    uint64_t micro = number(6);
+    for (size_t k = i - start; k < 6; ++k) micro *= 10;
+    return micro;
+  };
+  if (type == f::time) {
+    const bool negative = !text.empty() && text[0] == '-';
+    if (negative) ++i;
+    const uint64_t hours = number(9);
+    expect(':');
+    const uint64_t minute = number(2);
+    expect(':');
+    const uint64_t second = number(2);
+    const uint64_t micro = fraction();
+    if (i != text.size()) bad();
+    const bool zero = !hours && !minute && !second && !micro;
+    const uint8_t length = zero ? 0 : micro ? 12 : 8;
+    w.u8(length);
+    if (!length) return;
+    w.u8(negative ? 1 : 0);
+    w.u32(static_cast<uint32_t>(hours / 24));
+    w.u8(static_cast<uint8_t>(hours % 24));
+    w.u8(static_cast<uint8_t>(minute));
+    w.u8(static_cast<uint8_t>(second));
+    if (length == 12) w.u32(static_cast<uint32_t>(micro));
+    return;
+  }
+  const uint64_t year = number(4);
+  expect('-');
+  const uint64_t month = number(2);
+  expect('-');
+  const uint64_t day = number(2);
+  uint64_t hour = 0, minute = 0, second = 0, micro = 0;
+  if (i < text.size()) {
+    expect(' ');
+    hour = number(2);
+    expect(':');
+    minute = number(2);
+    expect(':');
+    second = number(2);
+    micro = fraction();
+  }
+  if (i != text.size()) bad();
+  const uint8_t length = micro ? 11 : (hour || minute || second) ? 7 : (year || month || day) ? 4 : 0;
+  w.u8(length);
+  if (!length) return;
+  w.u16(static_cast<uint16_t>(year));
+  w.u8(static_cast<uint8_t>(month));
+  w.u8(static_cast<uint8_t>(day));
+  if (length < 7) return;
+  w.u8(static_cast<uint8_t>(hour));
+  w.u8(static_cast<uint8_t>(minute));
+  w.u8(static_cast<uint8_t>(second));
+  if (length == 11) w.u32(static_cast<uint32_t>(micro));
 }
 
 }  // namespace
@@ -186,6 +268,33 @@ Execute decode_execute(std::span<const uint8_t> body, std::vector<std::optional<
   return e;
 }
 
+std::string temporal_text(uint8_t type, std::string_view fields) {
+  const auto byte = [&](size_t i) { return i < fields.size() ? static_cast<uint32_t>(static_cast<uint8_t>(fields[i])) : 0u; };
+  const auto u32_at = [&](size_t i) { return byte(i) | byte(i + 1) << 8 | byte(i + 2) << 16 | byte(i + 3) << 24; };
+  char buffer[64];
+  if (type == f::time) {
+    const bool negative = byte(0) != 0;
+    uint64_t hours = static_cast<uint64_t>(u32_at(1)) * 24 + byte(5);
+    uint32_t minute = byte(6), second = byte(7), micro = fields.size() >= 12 ? u32_at(8) : 0;
+    if (hours > 838 || (hours == 838 && (minute > 59 || second > 59))) {
+      hours = 838;
+      minute = second = 59;
+      micro = 0;
+    }
+    std::snprintf(buffer, sizeof buffer, "%s%02llu:%02u:%02u.%06u", negative && (hours || minute || second || micro) ? "-" : "",
+                  static_cast<unsigned long long>(hours), minute, second, micro);
+    return buffer;
+  }
+  const uint32_t year = byte(0) | byte(1) << 8, month = byte(2), day = byte(3);
+  if (type == f::date) {
+    std::snprintf(buffer, sizeof buffer, "%04u-%02u-%02u", year, month, day);
+    return buffer;
+  }
+  const uint32_t micro = fields.size() >= 11 ? u32_at(7) : 0;
+  std::snprintf(buffer, sizeof buffer, "%04u-%02u-%02u %02u:%02u:%02u.%06u", year, month, day, byte(4), byte(5), byte(6), micro);
+  return buffer;
+}
+
 Bytes encode_binary_row(std::span<const ValueType> columns, std::span<const std::optional<std::string>> values) {
   if (columns.size() != values.size()) throw std::invalid_argument("a row's values do not match its columns");
   Writer w;
@@ -208,6 +317,8 @@ Bytes encode_binary_row(std::span<const ValueType> columns, std::span<const std:
       w.u32(std::bit_cast<uint32_t>(static_cast<float>(real_text(text))));
     } else if (type.type == f::double_) {
       w.u64(std::bit_cast<uint64_t>(real_text(text)));
+    } else if (is_temporal(type.type)) {
+      write_temporal(w, type.type, text);
     } else {
       w.lenenc_string(text);
     }

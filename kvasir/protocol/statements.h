@@ -11,6 +11,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -71,15 +72,25 @@ uint32_t statement_of(std::span<const uint8_t> body);
 // bound). A parameter with `long_data` (COM_STMT_SEND_LONG_DATA) takes it,
 // and its value is not in the body. Throws ProtocolError
 // (er_malformed_packet) for bytes that do not fit, a type the protocol does
-// not have, or a value longer than what is left.
+// not have, a value longer than what is left, or a date's or time's length
+// that is not one of the protocol's (0, 4, 7, 11; a time's 0, 8, 12).
 Execute decode_execute(std::span<const uint8_t> body, std::vector<std::optional<ValueType>>& bound, std::span<const std::optional<std::string>> long_data);
+
+// A bound date's or time's fields (as decode_execute keeps them) as the text
+// Kvasir carries: a DATE's 2024-02-29; a DATETIME's or TIMESTAMP's and a
+// TIME's with six fraction digits (observed: MySQL makes them DATETIME(6)
+// and TIME(6)), a TIME past 838:59:59 clamped to it (observed, no
+// warning). Zero length is the zero date or time.
+std::string temporal_text(uint8_t type, std::string_view fields);
 
 // One binary row: 0x00, a NULL bitmap whose bits start at 2, then each
 // value not NULL by its column's type, from the text a text row would
 // carry: TINY 1 byte, SHORT and YEAR 2, LONG and INT24 4, LONGLONG 8, FLOAT
-// 4 and DOUBLE 8 (IEEE, little-endian), anything else length-encoded.
-// Throws std::invalid_argument for a column count that does not match, or
-// a number's text that is not one.
+// 4 and DOUBLE 8 (IEEE, little-endian), DATE, DATETIME, TIMESTAMP and TIME
+// as their fields after a length (the shortest that holds what is not
+// zero), anything else length-encoded. Throws std::invalid_argument for a
+// column count that does not match, or a number's or date's text that is
+// not one.
 Bytes encode_binary_row(std::span<const ValueType> columns, std::span<const std::optional<std::string>> values);
 
 }  // namespace kvasir::protocol

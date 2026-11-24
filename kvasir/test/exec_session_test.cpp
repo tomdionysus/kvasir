@@ -456,12 +456,24 @@ TEST(ExecSessionPrepared, EachParameterTypeAsBound) {
                                                           longlong_param,
                                                           {f::newdecimal, binary_set, 67, 30, bin_flag}}));
   EXPECT_EQ(values(r), (std::vector<std::optional<std::string>>{"18446744073709551615", "1.5", std::string("\x01\x02"), "1", "1.25"}));
-  // Kvasir has no date or time types.
-  EXPECT_EQ(refusal_of([&] {
-              c.s.bind(q.id, {bound(f::date, std::string("\xe8\x07\x0b\x14", 4)), bound(f::null, std::monostate{}), bound(f::null, std::monostate{}),
-                              bound(f::null, std::monostate{}), bound(f::null, std::monostate{})});
-            }).code,
-            1235);
+  // Dates and times by their binary fields (observed through
+  // mysql-connector-python: a DATE stays a DATE, a DATETIME or TIMESTAMP is
+  // DATETIME(6), a TIME TIME(6), one past 838:59:59 clamped silently).
+  const auto t = c.s.execute_prepared(
+      q.id,
+      c.s.bind(q.id, {bound(f::date, std::string("\xe8\x07\x02\x1d", 4)), bound(f::datetime, std::string("\xe8\x07\x02\x1d\x0c\x22\x38", 7)),
+                      bound(f::timestamp, std::string("\xe8\x07\x02\x1d\x0c\x22\x38\x08\x0a\x0c\x00", 11)),
+                      bound(f::time, std::string("\x01\x01\x00\x00\x00\x02\x02\x03", 8)), bound(f::time, std::string("\x00\x28\x00\x00\x00\x00\x00\x01", 8))}));
+  const Typed time6{f::time, binary_set, 17, 6, bin_flag};
+  EXPECT_EQ(typed(t.result->columns),
+            (std::vector<Typed>{
+                {f::date, binary_set, 10, 0, bin_flag}, {f::datetime, binary_set, 26, 6, bin_flag}, {f::datetime, binary_set, 26, 6, bin_flag}, time6, time6}));
+  EXPECT_EQ(values(t), (std::vector<std::optional<std::string>>{"2024-02-29", "2024-02-29 12:34:56.000000", "2024-02-29 12:34:56.789000", "-26:02:03.000000",
+                                                                "838:59:59.000000"}));
+  // Zero-length values are the zero date and time.
+  const auto z = c.s.execute_prepared(q.id, c.s.bind(q.id, {bound(f::date, std::string()), bound(f::datetime, std::string()), bound(f::time, std::string()),
+                                                            bound(f::null, std::monostate{}), bound(f::null, std::monostate{})}));
+  EXPECT_EQ(values(z), (std::vector<std::optional<std::string>>{"0000-00-00", "0000-00-00 00:00:00.000000", "00:00:00.000000", std::nullopt, std::nullopt}));
 }
 
 TEST(ExecSessionPrepared, ChangesAndLimits) {

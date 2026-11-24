@@ -479,7 +479,11 @@ std::vector<Parameter> Session::bind(uint32_t id, const std::vector<protocol::Bo
     if (std::holds_alternative<std::monostate>(v.value)) {
       p.type = prepared[i];
     } else if (type == f::date || type == f::datetime || type == f::timestamp || type == f::time) {
-      throw SqlError(er_not_supported_yet, "42000", "This version of Kvasir doesn't yet support 'date and time values'");
+      // A DATE stays one; a DATETIME, TIMESTAMP or TIME takes six fraction
+      // digits whatever it holds (observed).
+      const auto kind = type == f::date ? temporal::Kind::date : type == f::time ? temporal::Kind::time : temporal::Kind::datetime;
+      p.type = temporal_result_type(kind, kind == temporal::Kind::date ? 0 : 6, false);
+      p.value = protocol::temporal_text(type, std::get<std::string>(v.value));
     } else if (const auto* i64 = std::get_if<int64_t>(&v.value)) {
       p.type = longlong_parameter(false);
       p.value = *i64;

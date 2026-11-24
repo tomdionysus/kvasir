@@ -179,5 +179,37 @@ TEST(ProtocolStatements, BinaryRows) {
   EXPECT_THROW(encode_binary_row(two, std::vector<std::optional<std::string>>{"one", "x"}), std::invalid_argument);
 }
 
+// Dates and times in a binary row (the manual's Binary Protocol Value): a
+// DATE, DATETIME or TIMESTAMP as a length (0, 4, 7 or 11, the shortest that
+// holds what is not zero), the year (2 bytes), month, day, hour, minute,
+// second and microseconds (4 bytes); a TIME as a length (0, 8 or 12), its
+// sign, days (4 bytes), hours, minutes, seconds and microseconds.
+TEST(ProtocolStatements, TemporalRowValues) {
+  const std::vector<ValueType> dates{{f::date, false}, {f::datetime, false}, {f::datetime, false}, {f::timestamp, false}, {f::date, false}};
+  EXPECT_EQ(encode_binary_row(dates, std::vector<std::optional<std::string>>{"2024-02-29", "2024-02-29 00:00:00", "2024-02-29 12:34:56",
+                                                                             "2024-02-29 12:34:56.789", "0000-00-00"}),
+            hex("00 00 04e807021d 04e807021d 07e807021d0c2238 0be807021d0c2238080a0c00 00"));
+  EXPECT_EQ(encode_binary_row(std::vector<ValueType>{{f::datetime, false}}, std::vector<std::optional<std::string>>{"0000-00-00 00:00:00.000000"}),
+            hex("00 00 00"));
+  const std::vector<ValueType> times{{f::time, false}, {f::time, false}, {f::time, false}, {f::time, false}};
+  EXPECT_EQ(encode_binary_row(times, std::vector<std::optional<std::string>>{"12:34:56", "-26:02:03.5", "838:59:59.000000", "00:00:00.000"}),
+            hex("00 00 08 00 00000000 0c2238 0c 01 01000000 020203 20a10700 08 00 22000000 163b3b 00"));
+  EXPECT_THROW(encode_binary_row(std::vector<ValueType>{{f::date, false}}, std::vector<std::optional<std::string>>{"Feb 29"}), std::invalid_argument);
+}
+
+// A date's or time's parameter is one of the lengths a value can have; any
+// other is refused.
+TEST(ProtocolStatements, TemporalParameterLengths) {
+  for (const char* body : {"01000000 00 01000000 00 01 0a00 00", "01000000 00 01000000 00 01 0c00 07e807021d0c2238",
+                           "01000000 00 01000000 00 01 0700 0be807021d0c2238080a0c00", "01000000 00 01000000 00 01 0b00 0c010100000002020320a10700"}) {
+    Bound one(1);
+    EXPECT_NO_THROW(decode_execute(hex(body), one, std::span(no_long_data).first(1))) << body;
+  }
+  EXPECT_EQ(refusal(hex("01000000 00 01000000 00 01 0a00 03e80702"), Bound(1)), er_malformed_packet);
+  EXPECT_EQ(refusal(hex("01000000 00 01000000 00 01 0c00 05e807021d0c"), Bound(1)), er_malformed_packet);
+  EXPECT_EQ(refusal(hex("01000000 00 01000000 00 01 0b00 04e807021d"), Bound(1)), er_malformed_packet);
+  EXPECT_EQ(refusal(hex("01000000 00 01000000 00 01 0b00 0700000000000000"), Bound(1)), er_malformed_packet);
+}
+
 }  // namespace
 }  // namespace kvasir::protocol

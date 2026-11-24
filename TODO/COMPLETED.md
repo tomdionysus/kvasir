@@ -1351,3 +1351,11 @@ The record, newest first. Each entry says what landed, with its gate counts.
 - Gate (node-c): release, ASan and TSan each **437 tests, 1454 of 1454**
   statements on libdannan 0.12.0, TSan with no reports; coverage 99.1% of
   lines.
+- Temporal types, T5, and with it the temporal types: dates and times in
+  the binary protocol, bound parameters typed as MySQL types them
+  (observed through mysql-connector-python, `build/connectors/
+  py_temporal.py`), binary rows by the manual's Binary Protocol Value and
+  read back by Connector/C++. Next by the plan: set operations, then
+  subqueries.
+- Gate (node-c): release, ASan and TSan each **439 tests, 1454 of 1454**
+  statements, TSan with no reports; coverage 99.1% of lines.
