@@ -1345,3 +1345,9 @@ The record, newest first. Each entry says what landed, with its gate counts.
   microseconds and Dannan's stored password) is next.
 - Gate (node-c): release, ASan and TSan each **437 tests, 1454 of 1454**
   statements, TSan with no reports; coverage 99.1% of lines.
+- Dannan's pin moved 0.10.0 to 0.12.0 (libdannan0.12): NOW(6) and the
+  statement's time from WallClock::unix_us; accounts' credentials are
+  Dannan's stored passwords in PHC form (rule 3), Kvasir's own form gone.
+- Gate (node-c): release, ASan and TSan each **437 tests, 1454 of 1454**
+  statements on libdannan 0.12.0, TSan with no reports; coverage 99.1% of
+  lines.
